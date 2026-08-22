@@ -69,7 +69,11 @@ function truncateHead(content: string): TruncationResult {
   const outputLines: string[] = [];
   let outputBytes = 0;
   let truncatedBy: "lines" | "bytes" = "lines";
-  for (let index = 0; index < lines.length && index < DEFAULT_MAX_LINES; index += 1) {
+  for (
+    let index = 0;
+    index < lines.length && index < DEFAULT_MAX_LINES;
+    index += 1
+  ) {
     const line = lines[index]!;
     const lineBytes = Buffer.byteLength(line, "utf8") + (index > 0 ? 1 : 0);
     if (outputBytes + lineBytes > DEFAULT_MAX_BYTES) {
@@ -101,9 +105,13 @@ export async function modelTextResult<T extends object>(
   data: T,
   content: string,
   options?: TruncateOptions,
-): Promise<{ content: Array<{ type: "text"; text: string }>; details: T | (T & { truncation: TruncationResult; fullOutputPath: string }) }> {
+): Promise<{
+  content: Array<{ type: "text"; text: string }>;
+  details: T | (T & { truncation: TruncationResult; fullOutputPath: string });
+}> {
   const truncation = truncateHead(content);
-  if (!truncation.truncated) return { content: [{ type: "text", text: content }], details: data };
+  if (!truncation.truncated)
+    return { content: [{ type: "text", text: content }], details: data };
 
   const directory = await mkdtemp(join(tmpdir(), "pi-tool-output-"));
   const fullOutputPath = join(directory, "output.txt");

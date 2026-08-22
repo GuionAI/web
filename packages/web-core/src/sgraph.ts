@@ -7,7 +7,8 @@ const TRANSPORT_TIMEOUT_MS = 30_000;
 const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 const MAX_GRAPHQL_ERROR_MESSAGE_CHARS = 4096;
 
-const GRAPHQL_QUERY = "query Search($query: String!) { " +
+const GRAPHQL_QUERY =
+  "query Search($query: String!) { " +
   "search(query: $query, version: V2, patternType: keyword) { " +
   "results { matchCount, limitHit, resultCount, results { __typename, ... on FileMatch { " +
   "repository { name }, file { path, url, content }, " +
@@ -40,15 +41,21 @@ export async function sgraphSearch(input: SGraphInput): Promise<SGraphResult> {
   const request = createRequestSignal(input.signal, timeout);
 
   try {
-    const response = await (input.fetch ?? globalThis.fetch)(input.endpoint ?? SOURCEGRAPH_ENDPOINT, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "user-agent": "guionai-web/1.0",
+    const response = await (input.fetch ?? globalThis.fetch)(
+      input.endpoint ?? SOURCEGRAPH_ENDPOINT,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "user-agent": "guionai-web/1.0",
+        },
+        body: JSON.stringify({
+          query: GRAPHQL_QUERY,
+          variables: { query: input.query },
+        }),
+        signal: request.signal,
       },
-      body: JSON.stringify({ query: GRAPHQL_QUERY, variables: { query: input.query } }),
-      signal: request.signal,
-    });
+    );
     throwIfAborted(input.signal);
     throwIfTimedOut(request.timedOut, timeout);
     if (!response.ok) {
@@ -60,7 +67,11 @@ export async function sgraphSearch(input: SGraphInput): Promise<SGraphResult> {
     try {
       data = JSON.parse(await readText(response, request.signal));
     } catch (error) {
-      if (error instanceof Error && error.message.startsWith("sourcegraph search:")) throw error;
+      if (
+        error instanceof Error &&
+        error.message.startsWith("sourcegraph search:")
+      )
+        throw error;
       throw new Error("sourcegraph search: invalid JSON response");
     }
     throwIfAborted(input.signal);
@@ -68,7 +79,8 @@ export async function sgraphSearch(input: SGraphInput): Promise<SGraphResult> {
     return { content: formatSourcegraphResults(data, context, count) };
   } catch (error) {
     if (input.signal?.aborted) throw abortedError();
-    if (request.timedOut) throw new Error(`sourcegraph search timed out after ${timeout} seconds`);
+    if (request.timedOut)
+      throw new Error(`sourcegraph search timed out after ${timeout} seconds`);
     if (isAbortError(error)) throw abortedError();
     if (error instanceof Error) throw error;
     throw new Error("sourcegraph search: request failed");
@@ -78,14 +90,19 @@ export async function sgraphSearch(input: SGraphInput): Promise<SGraphResult> {
 }
 
 /** Formats Sourcegraph's GraphQL response exactly as the established CLI output. */
-export function formatSourcegraphResults(result: unknown, contextWindow: number, maxResults: number): string {
+export function formatSourcegraphResults(
+  result: unknown,
+  contextWindow: number,
+  maxResults: number,
+): string {
   const root = record(result);
   const errors = root.errors;
   if (Array.isArray(errors) && errors.length > 0) {
     let output = "## Sourcegraph API Error\n\n";
     for (const error of errors) {
       const message = stringValue(recordOrUndefined(error)?.message);
-      if (message !== "") output += `- ${message.slice(0, MAX_GRAPHQL_ERROR_MESSAGE_CHARS)}\n`;
+      if (message !== "")
+        output += `- ${message.slice(0, MAX_GRAPHQL_ERROR_MESSAGE_CHARS)}\n`;
     }
     return output;
   }
@@ -95,7 +112,8 @@ export function formatSourcegraphResults(result: unknown, contextWindow: number,
   const search = recordOrUndefined(data.search);
   if (!search) throw new Error("invalid response format: missing search field");
   const searchResults = recordOrUndefined(search.results);
-  if (!searchResults) throw new Error("invalid response format: missing results field");
+  if (!searchResults)
+    throw new Error("invalid response format: missing results field");
 
   const matchCount = numberValue(searchResults.matchCount);
   const resultCount = numberValue(searchResults.resultCount);
@@ -110,7 +128,9 @@ export function formatSourcegraphResults(result: unknown, contextWindow: number,
     return output + "No results found. Try a different query.\n";
   }
 
-  for (const [index, value] of rawResults.slice(0, Math.max(1, maxResults)).entries()) {
+  for (const [index, value] of rawResults
+    .slice(0, Math.max(1, maxResults))
+    .entries()) {
     const fileMatch = recordOrUndefined(value);
     if (!fileMatch || fileMatch.__typename !== "FileMatch") continue;
     const repository = recordOrUndefined(fileMatch.repository);
@@ -138,12 +158,20 @@ export function formatSourcegraphResults(result: unknown, contextWindow: number,
       const lines = fileContent.split("\n");
       output += "```\n";
       const startLine = Math.max(1, lineNumber - contextWindow);
-      for (let line = startLine; line < lineNumber && line <= lines.length; line += 1) {
+      for (
+        let line = startLine;
+        line < lineNumber && line <= lines.length;
+        line += 1
+      ) {
         output += `${line}| ${lines[line - 1]}\n`;
       }
       output += `${lineNumber}|  ${preview}\n`;
       const endLine = lineNumber + contextWindow;
-      for (let line = lineNumber + 1; line <= endLine && line <= lines.length; line += 1) {
+      for (
+        let line = lineNumber + 1;
+        line <= endLine && line <= lines.length;
+        line += 1
+      ) {
         output += `${line}| ${lines[line - 1]}\n`;
       }
       output += "```\n\n";
@@ -166,14 +194,20 @@ function normalizeTimeout(timeout: number | undefined): number {
   return Math.min(timeout, MAX_TIMEOUT_SECONDS);
 }
 
-async function readText(response: Response, signal: AbortSignal): Promise<string> {
+async function readText(
+  response: Response,
+  signal: AbortSignal,
+): Promise<string> {
   if (!response.body) {
     const text = await response.text();
-    if (Buffer.byteLength(text) > MAX_RESPONSE_BYTES) throw new Error("sourcegraph search: response too large");
+    if (Buffer.byteLength(text) > MAX_RESPONSE_BYTES)
+      throw new Error("sourcegraph search: response too large");
     return text;
   }
   const reader = response.body.getReader();
-  const cancelReader = () => { void reader.cancel(); };
+  const cancelReader = () => {
+    void reader.cancel();
+  };
   if (signal.aborted) cancelReader();
   else signal.addEventListener("abort", cancelReader, { once: true });
   const chunks: Uint8Array[] = [];
@@ -208,12 +242,16 @@ async function readText(response: Response, signal: AbortSignal): Promise<string
 }
 
 function record(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid response format: missing data field");
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("invalid response format: missing data field");
   return value as Record<string, unknown>;
 }
 
-function recordOrUndefined(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+function recordOrUndefined(
+  value: unknown,
+): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return undefined;
   return value as Record<string, unknown>;
 }
 
@@ -234,7 +272,8 @@ function abortedError(): Error {
 }
 
 function throwIfTimedOut(timedOut: boolean, timeout: number): void {
-  if (timedOut) throw new Error(`sourcegraph search timed out after ${timeout} seconds`);
+  if (timedOut)
+    throw new Error(`sourcegraph search timed out after ${timeout} seconds`);
 }
 
 function isAbortError(error: unknown): boolean {

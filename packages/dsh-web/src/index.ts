@@ -2,7 +2,11 @@ import type { Context } from "@deepseek-ai/cordis";
 import { settingsNamespace } from "@deepseek-ai/dsh-settings";
 import z from "@deepseek-ai/schemastery";
 
-import { PROVIDERS, SETTINGS_NAMESPACE, type GuionSettings } from "./contract.js";
+import {
+  PROVIDERS,
+  SETTINGS_NAMESPACE,
+  type GuionSettings,
+} from "./contract.js";
 import { createGuionSearchProvider } from "./provider.js";
 import { registerWebTools } from "./tools.js";
 
@@ -14,10 +18,14 @@ export const SettingsSchema = z.object({
 });
 
 export function apply(ctx: Context): void {
-  const settings = ctx.settings.register(settingsNamespace(SETTINGS_NAMESPACE), SettingsSchema, {
-    base: { provider: "exa" },
-    applies: "live",
-  });
+  const settings = ctx.settings.register(
+    settingsNamespace(SETTINGS_NAMESPACE),
+    SettingsSchema,
+    {
+      base: { provider: "exa" },
+      applies: "live",
+    },
+  );
   ctx.web.registerSearchProvider(
     createGuionSearchProvider({
       getProvider: () => (settings.get() as GuionSettings).provider,

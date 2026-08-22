@@ -8,6 +8,10 @@ export default defineConfig({
   bundle: true,
   clean: true,
   dts: true,
-  external: ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent", "typebox"],
+  external: [
+    "@earendil-works/pi-ai",
+    "@earendil-works/pi-coding-agent",
+    "typebox",
+  ],
   noExternal: ["@guionai/web-core", "defuddle", "linkedom", "markdown-it"],
 });

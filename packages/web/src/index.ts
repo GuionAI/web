@@ -63,10 +63,14 @@ export function createWebService(): WebService {
   return { search, fetch: fetchWebPage, docsResolve, docsFetch, sgraphSearch };
 }
 
-export function credentialsFromEnvironment(environment: NodeJS.ProcessEnv = process.env): WebCredentials {
+export function credentialsFromEnvironment(
+  environment: NodeJS.ProcessEnv = process.env,
+): WebCredentials {
   return {
     exaApiKey: environment.EXA_API_KEY,
     braveApiKey: environment.BRAVE_API_KEY,
-    ...(Object.hasOwn(environment, "CONTEXT7_API_KEY") ? { context7ApiKey: environment.CONTEXT7_API_KEY } : {}),
+    ...(Object.hasOwn(environment, "CONTEXT7_API_KEY")
+      ? { context7ApiKey: environment.CONTEXT7_API_KEY }
+      : {}),
   };
 }

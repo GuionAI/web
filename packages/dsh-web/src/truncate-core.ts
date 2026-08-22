@@ -41,7 +41,10 @@ function splitLinesForCounting(content: string): string[] {
   return lines;
 }
 
-export function truncateHead(content: string, options: TruncationOptions = {}): TruncationResult {
+export function truncateHead(
+  content: string,
+  options: TruncationOptions = {},
+): TruncationResult {
   const maxLines = options.maxLines ?? DEFAULT_MAX_LINES;
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
   const totalBytes = Buffer.byteLength(content, "utf8");
@@ -93,7 +96,8 @@ export function truncateHead(content: string, options: TruncationOptions = {}): 
     outputLines.push(line);
     outputBytes += lineBytes;
   }
-  if (outputLines.length >= maxLines && outputBytes <= maxBytes) truncatedBy = "lines";
+  if (outputLines.length >= maxLines && outputBytes <= maxBytes)
+    truncatedBy = "lines";
   const outputContent = outputLines.join("\n");
   return {
     content: outputContent,

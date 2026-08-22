@@ -56,7 +56,9 @@ describe("DSH settings client credential surface", () => {
       "exa",
     );
     expect(calls).toEqual([{ field: "provider", value: "exa" }]);
-    expect(decodeSettings({ provider: "brave", apiKey: "secret-value" })).toEqual({
+    expect(
+      decodeSettings({ provider: "brave", apiKey: "secret-value" }),
+    ).toEqual({
       provider: "brave",
     });
     expect(decodeSettings({ apiKey: "secret-value" })).toEqual({});
@@ -71,9 +73,21 @@ describe("DSH settings client credential surface", () => {
       CONTEXT7_CREDENTIAL_REF,
     ]);
     expect(status).toEqual({
-      [EXA_CREDENTIAL_REF]: { configured: true, source: "file", writable: true },
-      [BRAVE_CREDENTIAL_REF]: { configured: false, source: "file", writable: true },
-      [CONTEXT7_CREDENTIAL_REF]: { configured: false, source: "file", writable: true },
+      [EXA_CREDENTIAL_REF]: {
+        configured: true,
+        source: "file",
+        writable: true,
+      },
+      [BRAVE_CREDENTIAL_REF]: {
+        configured: false,
+        source: "file",
+        writable: true,
+      },
+      [CONTEXT7_CREDENTIAL_REF]: {
+        configured: false,
+        source: "file",
+        writable: true,
+      },
     });
     expect(JSON.stringify(status)).not.toContain("secret-value");
   });
@@ -82,10 +96,15 @@ describe("DSH settings client credential surface", () => {
     const api = fakeApi();
     expect(await writeCredential(api, EXA_CREDENTIAL_REF, "")).toBe(false);
     expect(api.calls).toEqual([]);
-    expect(await writeCredential(api, EXA_CREDENTIAL_REF, "secret-value")).toBe(true);
+    expect(await writeCredential(api, EXA_CREDENTIAL_REF, "secret-value")).toBe(
+      true,
+    );
     await removeCredential(api, EXA_CREDENTIAL_REF);
     expect(api.calls).toEqual([
-      { method: "set", payload: { ref: EXA_CREDENTIAL_REF, value: "secret-value" } },
+      {
+        method: "set",
+        payload: { ref: EXA_CREDENTIAL_REF, value: "secret-value" },
+      },
       { method: "unset", payload: { ref: EXA_CREDENTIAL_REF } },
     ]);
     expect(JSON.stringify(api.calls)).toContain("secret-value");
@@ -93,13 +112,15 @@ describe("DSH settings client credential surface", () => {
 
   it("maps rejected credential writes to safe UI errors", async () => {
     const api = fakeApi({
-      set: { result: { ok: false, error: { message: "secret-value rejected" } } },
+      set: {
+        result: { ok: false, error: { message: "secret-value rejected" } },
+      },
     });
-    await expect(writeCredential(api, EXA_CREDENTIAL_REF, "secret-value")).rejects.toThrow(
-      "credential write rejected",
-    );
-    await expect(writeCredential(api, EXA_CREDENTIAL_REF, "secret-value")).rejects.not.toThrow(
-      "secret-value",
-    );
+    await expect(
+      writeCredential(api, EXA_CREDENTIAL_REF, "secret-value"),
+    ).rejects.toThrow("credential write rejected");
+    await expect(
+      writeCredential(api, EXA_CREDENTIAL_REF, "secret-value"),
+    ).rejects.not.toThrow("secret-value");
   });
 });

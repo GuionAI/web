@@ -5,6 +5,9 @@ import { runCli } from "./runner.js";
 const exitCode = await runCli(
   process.argv,
   { service: createWebService(), credentials: credentialsFromEnvironment },
-  { stdout: (text) => process.stdout.write(text), stderr: (text) => process.stderr.write(text) },
+  {
+    stdout: (text) => process.stdout.write(text),
+    stderr: (text) => process.stderr.write(text),
+  },
 );
 process.exitCode = exitCode;

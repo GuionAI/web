@@ -1,4 +1,8 @@
-import { createProgram, type WebCredentials, type WebService } from "./program.js";
+import {
+  createProgram,
+  type WebCredentials,
+  type WebService,
+} from "./program.js";
 
 export type CliDependencies = {
   service: WebService;
@@ -22,7 +26,9 @@ export async function runCli(
     await program.parseAsync(argv);
     return 0;
   } catch (error) {
-    output.stderr(`${error instanceof Error ? error.message : "web search failed"}\n`);
+    output.stderr(
+      `${error instanceof Error ? error.message : "web search failed"}\n`,
+    );
     return 1;
   }
 }

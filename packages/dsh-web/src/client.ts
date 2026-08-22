@@ -1,5 +1,8 @@
 import { createElement, useEffect, useState } from "react";
-import type { ConnectionHandle, IApiClient } from "@deepseek-ai/dsh-client-connection/client";
+import type {
+  ConnectionHandle,
+  IApiClient,
+} from "@deepseek-ai/dsh-client-connection/client";
 import type {
   ClientContext,
   SettingsScope,
@@ -21,11 +24,19 @@ import {
   type SearchProviderName,
 } from "./contract.js";
 
-export const inject = ["connection", "remote", "settingsScope", "slots"] as const;
+export const inject = [
+  "connection",
+  "remote",
+  "settingsScope",
+  "slots",
+] as const;
 
 type CredentialApi = Pick<IApiClient, "credentials">;
 type RemoteApi = {
-  $on(event: "credentials/updated", listener: (ref: string) => void): () => void;
+  $on(
+    event: "credentials/updated",
+    listener: (ref: string) => void,
+  ): () => void;
 };
 export interface CredentialStatus {
   configured: boolean;
@@ -85,7 +96,10 @@ export async function writeCredential(
   return true;
 }
 
-export async function removeCredential(api: CredentialApi, ref: string): Promise<void> {
+export async function removeCredential(
+  api: CredentialApi,
+  ref: string,
+): Promise<void> {
   const response = await api.credentials.unset({ ref });
   if (!response.result.ok) throw new Error("credential removal rejected");
 }
@@ -105,7 +119,10 @@ function SettingsCard({
   const [credentialRevision, setCredentialRevision] = useState(0);
   const [error, setError] = useState<string>();
 
-  useEffect(() => scope.subscribe(() => setSnapshot(scope.getSnapshot())), [scope]);
+  useEffect(
+    () => scope.subscribe(() => setSnapshot(scope.getSnapshot())),
+    [scope],
+  );
   useEffect(
     () =>
       remote.$on("credentials/updated", (ref) => {
@@ -129,7 +146,9 @@ function SettingsCard({
     };
   }, [api, credentialRevision]);
 
-  const provider = isSearchProvider(snapshot.value?.provider) ? snapshot.value.provider : "exa";
+  const provider = isSearchProvider(snapshot.value?.provider)
+    ? snapshot.value.provider
+    : "exa";
   const saveProvider = async (next: SearchProviderName) => {
     setError(undefined);
     try {
@@ -179,10 +198,13 @@ function SettingsCard({
           id: "guionai-web-provider",
           value: provider,
           onChange: (event: { target: { value: string } }) => {
-            if (isSearchProvider(event.target.value)) void saveProvider(event.target.value);
+            if (isSearchProvider(event.target.value))
+              void saveProvider(event.target.value);
           },
         },
-        ...PROVIDERS.map((value) => createElement("option", { key: value, value }, value)),
+        ...PROVIDERS.map((value) =>
+          createElement("option", { key: value, value }, value),
+        ),
       ),
     ),
     ...CREDENTIAL_REFS.map((ref) => {
@@ -255,7 +277,12 @@ export function apply(ctx: ClientContext): void {
         key: SETTINGS_NAMESPACE,
         inject: () => ({}),
       } as never,
-      (() => createElement(SettingsCard, { scope, api: connection.api, remote })) as never,
+      (() =>
+        createElement(SettingsCard, {
+          scope,
+          api: connection.api,
+          remote,
+        })) as never,
     ),
   );
 }

@@ -67,7 +67,9 @@ async function fetchCached(
   options?: FetchOptions,
 ): Promise<string> {
   throwIfAborted(callerSignal);
-  const cache = options?.cache ?? new DailyCache(options?.cacheDirectory ?? defaultCacheDir());
+  const cache =
+    options?.cache ??
+    new DailyCache(options?.cacheDirectory ?? defaultCacheDir());
   await cache.prepare();
   throwIfAborted(callerSignal);
   const cached = await cache.read(url);
@@ -111,10 +113,14 @@ async function fetchLocal(
 
     try {
       const { document } = parseHTML(new TextDecoder().decode(body));
-      const parsed = await Defuddle(document, url, { markdown: true, useAsync: false });
+      const parsed = await Defuddle(document, url, {
+        markdown: true,
+        useAsync: false,
+      });
       throwIfAborted(callerSignal);
       const content = parsed.content;
-      if (!content || content.trim() === "") throw new Error("no content could be extracted");
+      if (!content || content.trim() === "")
+        throw new Error("no content could be extracted");
       return truncateContent(content.endsWith("\n") ? content : content + "\n");
     } catch (error) {
       throw new Error(`defuddle parse failed: ${errorMessage(error)}`);
@@ -122,9 +128,15 @@ async function fetchLocal(
   } catch (error) {
     if (callerSignal?.aborted) throw abortedError();
     if (request.timedOut) {
-      throw new Error(`fetch timed out after ${REQUEST_TIMEOUT_MS / 1000} seconds`);
+      throw new Error(
+        `fetch timed out after ${REQUEST_TIMEOUT_MS / 1000} seconds`,
+      );
     }
-    if (error instanceof Error && error.message.startsWith("binary content at ")) throw error;
+    if (
+      error instanceof Error &&
+      error.message.startsWith("binary content at ")
+    )
+      throw error;
     throw new Error(`fetch ${url}: ${errorMessage(error)}`);
   } finally {
     request.cleanup();
@@ -144,7 +156,10 @@ function validateURL(rawURL: string): string {
   return rawURL;
 }
 
-async function readBody(response: Response, signal?: AbortSignal): Promise<Uint8Array> {
+async function readBody(
+  response: Response,
+  signal?: AbortSignal,
+): Promise<Uint8Array> {
   if (!response.body) {
     const body = new Uint8Array(await response.arrayBuffer());
     if (body.byteLength > MAX_DOWNLOAD_BYTES) {
@@ -265,12 +280,19 @@ class DailyCache implements FetchCache {
     }
   }
 
-  async write(url: string, content: string, signal?: AbortSignal): Promise<void> {
+  async write(
+    url: string,
+    content: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
     throwIfAborted(signal);
     if (!this.enabled) return;
     try {
       throwIfAborted(signal);
-      await writeFile(this.path(url), content, { encoding: "utf8", mode: 0o644 });
+      await writeFile(this.path(url), content, {
+        encoding: "utf8",
+        mode: 0o644,
+      });
     } catch {
       if (signal?.aborted) throw abortedError();
       // Cache failures must not make a successful direct fetch fail.
@@ -284,7 +306,9 @@ class DailyCache implements FetchCache {
 
 function cacheFileName(url: string, date: Date): string {
   const day = [date.getFullYear(), date.getMonth() + 1, date.getDate()]
-    .map((part, index) => (index === 0 ? String(part) : String(part).padStart(2, "0")))
+    .map((part, index) =>
+      index === 0 ? String(part) : String(part).padStart(2, "0"),
+    )
     .join("-");
   const key = createHash("sha256").update(url).digest("hex");
   return `${key}__${day}.md`;
@@ -298,7 +322,10 @@ function abortedError(): Error {
   return new Error("Operation aborted");
 }
 
-function createRequestSignal(callerSignal: AbortSignal | undefined, timeoutMs: number) {
+function createRequestSignal(
+  callerSignal: AbortSignal | undefined,
+  timeoutMs: number,
+) {
   const controller = new AbortController();
   let timedOut = false;
   const onAbort = () => controller.abort(callerSignal?.reason);

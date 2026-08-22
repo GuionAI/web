@@ -12,7 +12,10 @@ const library = {
 };
 
 function json(value: unknown, status = 200): Response {
-  return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
+  return new Response(JSON.stringify(value), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
 }
 
 describe("Context7 v1 client migrated from Organon", () => {
@@ -36,14 +39,16 @@ describe("Context7 v1 client migrated from Organon", () => {
     expect(headers?.get("authorization")).toBe("Bearer ctx7sk-fixture");
     expect(result).toEqual({
       query: "react hooks & retries",
-      libraries: [{
-        id: "/reactjs/react.dev",
-        title: "React",
-        description: "A library for user interfaces",
-        trust_score: 10,
-        total_snippets: 2779,
-        versions: ["18.2.0", "17.0.2"],
-      }],
+      libraries: [
+        {
+          id: "/reactjs/react.dev",
+          title: "React",
+          description: "A library for user interfaces",
+          trust_score: 10,
+          total_snippets: 2779,
+          versions: ["18.2.0", "17.0.2"],
+        },
+      ],
     });
   });
 
@@ -61,12 +66,16 @@ describe("Context7 v1 client migrated from Organon", () => {
     expect(anonymous.libraries[0]).not.toHaveProperty("versions");
     expect(authorization).toBeNull();
 
-    await expect(docsResolve({ query: "react", credentials: { context7ApiKey: "  " } })).rejects.toThrow(
-      "CONTEXT7_API_KEY is set but empty",
-    );
-    await expect(docsResolve({ query: "not-a-library", credentials: {}, fetch: async () => json({ results: [] }) })).rejects.toThrow(
-      'no libraries found for "not-a-library"',
-    );
+    await expect(
+      docsResolve({ query: "react", credentials: { context7ApiKey: "  " } }),
+    ).rejects.toThrow("CONTEXT7_API_KEY is set but empty");
+    await expect(
+      docsResolve({
+        query: "not-a-library",
+        credentials: {},
+        fetch: async () => json({ results: [] }),
+      }),
+    ).rejects.toThrow('no libraries found for "not-a-library"');
   });
 
   it("normalizes public IDs and constructs the Context7 fetch path with topic and token controls", async () => {
@@ -86,7 +95,9 @@ describe("Context7 v1 client migrated from Organon", () => {
     const url = new URL(requestURL);
     expect(url.pathname).toBe("/api/v1/reactjs/react.dev");
     expect(url.searchParams.get("type")).toBe("txt");
-    expect(url.searchParams.get("topic")).toBe("how to handle errors & retries");
+    expect(url.searchParams.get("topic")).toBe(
+      "how to handle errors & retries",
+    );
     expect(url.searchParams.get("tokens")).toBe("500");
     expect(result).toEqual({
       library_id: "/reactjs/react.dev",
@@ -94,7 +105,9 @@ describe("Context7 v1 client migrated from Organon", () => {
       content: "React hooks documentation content",
     });
     expect(normalizeLibraryID("reactjs/react.dev")).toBe("/reactjs/react.dev");
-    expect(normalizeLibraryID("//reactjs/react.dev")).toBe("/reactjs/react.dev");
+    expect(normalizeLibraryID("//reactjs/react.dev")).toBe(
+      "/reactjs/react.dev",
+    );
     expect(normalizeLibraryID("")).toBe("");
   });
 
@@ -118,26 +131,37 @@ describe("Context7 v1 client migrated from Organon", () => {
   });
 
   it("returns bounded, credential-safe errors for malformed and non-2xx remote responses", async () => {
-    await expect(docsResolve({ query: "react", credentials: {}, fetch: async () => new Response("not-json{") })).rejects.toThrow(
-      "context7 resolve: invalid JSON response",
-    );
-    await expect(docsFetch({
-      library_id: "missing/library",
-      credentials: {},
-      fetch: async () => new Response("not found", { status: 404 }),
-    })).rejects.toThrow("Run 'web docs resolve <name>'");
+    await expect(
+      docsResolve({
+        query: "react",
+        credentials: {},
+        fetch: async () => new Response("not-json{"),
+      }),
+    ).rejects.toThrow("context7 resolve: invalid JSON response");
+    await expect(
+      docsFetch({
+        library_id: "missing/library",
+        credentials: {},
+        fetch: async () => new Response("not found", { status: 404 }),
+      }),
+    ).rejects.toThrow("Run 'web docs resolve <name>'");
 
     const key = "ctx7sk-very-secret";
-    await expect(docsResolve({
-      query: "react",
-      credentials: { context7ApiKey: key },
-      fetch: async () => new Response(`${key}:${"x".repeat(10_000)}`, { status: 500 }),
-    })).rejects.not.toThrow(key);
-    await expect(docsResolve({
-      query: "react",
-      credentials: {},
-      fetch: async () => new Response("x".repeat(10_000), { status: 500 }),
-    })).rejects.toThrow(/HTTP 500: x{4096}$/);
+    await expect(
+      docsResolve({
+        query: "react",
+        credentials: { context7ApiKey: key },
+        fetch: async () =>
+          new Response(`${key}:${"x".repeat(10_000)}`, { status: 500 }),
+      }),
+    ).rejects.not.toThrow(key);
+    await expect(
+      docsResolve({
+        query: "react",
+        credentials: {},
+        fetch: async () => new Response("x".repeat(10_000), { status: 500 }),
+      }),
+    ).rejects.toThrow(/HTTP 500: x{4096}$/);
   });
 
   it("cancels the native transport and enforces the bounded request timeout", async () => {
@@ -147,12 +171,13 @@ describe("Context7 v1 client migrated from Organon", () => {
       query: "wait",
       credentials: {},
       signal: controller.signal,
-      fetch: async (_url, init) => new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener("abort", () => {
-          transportSawAbort = true;
-          reject(new DOMException("cancelled", "AbortError"));
-        });
-      }),
+      fetch: async (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            transportSawAbort = true;
+            reject(new DOMException("cancelled", "AbortError"));
+          });
+        }),
     });
     controller.abort();
     await expect(pending).rejects.toThrow("Operation aborted");
@@ -161,35 +186,47 @@ describe("Context7 v1 client migrated from Organon", () => {
     const bodyController = new AbortController();
     let bodySawCancel = false;
     let startReading: () => void;
-    const readingStarted = new Promise<void>((resolve) => { startReading = resolve; });
+    const readingStarted = new Promise<void>((resolve) => {
+      startReading = resolve;
+    });
     let releasePull: () => void;
     const bodyPending = docsFetch({
       library_id: "reactjs/react.dev",
       credentials: {},
       signal: bodyController.signal,
-      fetch: async () => new Response(new ReadableStream({
-        pull() {
-          startReading!();
-          return new Promise<void>((resolve) => { releasePull = resolve; });
-        },
-        cancel() {
-          bodySawCancel = true;
-          releasePull!();
-        },
-      })),
+      fetch: async () =>
+        new Response(
+          new ReadableStream({
+            pull() {
+              startReading!();
+              return new Promise<void>((resolve) => {
+                releasePull = resolve;
+              });
+            },
+            cancel() {
+              bodySawCancel = true;
+              releasePull!();
+            },
+          }),
+        ),
     });
     await readingStarted;
     bodyController.abort();
     await expect(bodyPending).rejects.toThrow("Operation aborted");
     expect(bodySawCancel).toBe(true);
 
-    await expect(docsFetch({
-      library_id: "reactjs/react.dev",
-      credentials: {},
-      timeoutMs: 1,
-      fetch: async (_url, init) => new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener("abort", () => reject(new DOMException("timeout", "AbortError")));
+    await expect(
+      docsFetch({
+        library_id: "reactjs/react.dev",
+        credentials: {},
+        timeoutMs: 1,
+        fetch: async (_url, init) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(new DOMException("timeout", "AbortError")),
+            );
+          }),
       }),
-    })).rejects.toThrow("context7 docs timed out after 0.001 seconds");
+    ).rejects.toThrow("context7 docs timed out after 0.001 seconds");
   });
 });

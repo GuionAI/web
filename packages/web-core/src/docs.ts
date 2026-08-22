@@ -45,24 +45,36 @@ export type DocsFetchInput = Context7Options & {
 };
 
 /** Resolves a library query using Context7 v1. */
-export async function docsResolve(input: DocsResolveInput): Promise<DocsResolveResult> {
+export async function docsResolve(
+  input: DocsResolveInput,
+): Promise<DocsResolveResult> {
   if (input.query === "") throw new Error("query is required");
   const apiKey = validateApiKey(input.credentials);
   throwIfAborted(input.signal);
 
   const url = new URL(`${baseURL(input.endpoint)}/api/v1/search`);
   url.searchParams.set("query", input.query);
-  const data = await context7Request("resolve", url, apiKey, input, (response, signal) => responseJson(response, "resolve", signal));
+  const data = await context7Request(
+    "resolve",
+    url,
+    apiKey,
+    input,
+    (response, signal) => responseJson(response, "resolve", signal),
+  );
   const results = record(data, "context7 resolve").results;
-  if (!Array.isArray(results)) throw new Error("context7 resolve: malformed response");
+  if (!Array.isArray(results))
+    throw new Error("context7 resolve: malformed response");
 
   const libraries = results.map((value) => library(value));
-  if (libraries.length === 0) throw new Error(`no libraries found for ${JSON.stringify(input.query)}`);
+  if (libraries.length === 0)
+    throw new Error(`no libraries found for ${JSON.stringify(input.query)}`);
   return { query: input.query, libraries };
 }
 
 /** Fetches Context7 v1 plain-text documentation for a resolved library ID. */
-export async function docsFetch(input: DocsFetchInput): Promise<DocsFetchResult> {
+export async function docsFetch(
+  input: DocsFetchInput,
+): Promise<DocsFetchResult> {
   const apiKey = validateApiKey(input.credentials);
   throwIfAborted(input.signal);
 
@@ -72,12 +84,21 @@ export async function docsFetch(input: DocsFetchInput): Promise<DocsFetchResult>
   const pathID = libraryID.slice(1);
   const url = new URL(`${baseURL(input.endpoint)}/api/v1/${pathID}`);
   url.searchParams.set("type", "txt");
-  if (input.topic !== undefined && input.topic !== "") url.searchParams.set("topic", input.topic);
-  if (input.tokens !== undefined && input.tokens > 0) url.searchParams.set("tokens", String(input.tokens));
+  if (input.topic !== undefined && input.topic !== "")
+    url.searchParams.set("topic", input.topic);
+  if (input.tokens !== undefined && input.tokens > 0)
+    url.searchParams.set("tokens", String(input.tokens));
 
-  const content = await context7Request("docs", url, apiKey, input, (response, signal) => responseText(response, "docs", signal));
+  const content = await context7Request(
+    "docs",
+    url,
+    apiKey,
+    input,
+    (response, signal) => responseText(response, "docs", signal),
+  );
   const result: DocsFetchResult = { library_id: libraryID, content };
-  if (input.topic !== undefined && input.topic !== "") result.topic = input.topic;
+  if (input.topic !== undefined && input.topic !== "")
+    result.topic = input.topic;
   return result;
 }
 
@@ -90,7 +111,9 @@ export function normalizeLibraryID(id: string): string {
 function library(value: unknown): DocsLibrary {
   const item = record(value, "context7 resolve");
   const versions = Array.isArray(item.versions)
-    ? item.versions.filter((version): version is string => typeof version === "string")
+    ? item.versions.filter(
+        (version): version is string => typeof version === "string",
+      )
     : [];
   return {
     id: normalizeLibraryID(stringValue(item.id)),
@@ -109,11 +132,20 @@ async function context7Request<T>(
   input: Context7Options,
   consume: (response: Response, signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
-  const request = createRequestSignal(input.signal, input.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const request = createRequestSignal(
+    input.signal,
+    input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+  );
   try {
-    const headers = new Headers({ accept: operation === "resolve" ? "application/json" : "text/plain" });
+    const headers = new Headers({
+      accept: operation === "resolve" ? "application/json" : "text/plain",
+    });
     if (apiKey !== undefined) headers.set("Authorization", `Bearer ${apiKey}`);
-    const response = await (input.fetch ?? globalThis.fetch)(url, { method: "GET", headers, signal: request.signal });
+    const response = await (input.fetch ?? globalThis.fetch)(url, {
+      method: "GET",
+      headers,
+      signal: request.signal,
+    });
     throwIfAborted(input.signal);
     if (!response.ok) throw await httpError(operation, response, apiKey);
     const result = await consume(response, request.signal);
@@ -121,52 +153,81 @@ async function context7Request<T>(
     return result;
   } catch (error) {
     if (input.signal?.aborted) throw abortedError();
-    if (request.timedOut) throw new Error(`context7 ${operation} timed out after ${(input.timeoutMs ?? DEFAULT_TIMEOUT_MS) / 1000} seconds`);
+    if (request.timedOut)
+      throw new Error(
+        `context7 ${operation} timed out after ${(input.timeoutMs ?? DEFAULT_TIMEOUT_MS) / 1000} seconds`,
+      );
     if (isAbortError(error)) throw abortedError();
-    if (error instanceof Error && error.message.startsWith("context7 ")) throw error;
+    if (error instanceof Error && error.message.startsWith("context7 "))
+      throw error;
     throw new Error(`context7 ${operation}: request failed`);
   } finally {
     request.cleanup();
   }
 }
 
-async function responseJson(response: Response, operation: "resolve" | "docs", signal: AbortSignal): Promise<unknown> {
+async function responseJson(
+  response: Response,
+  operation: "resolve" | "docs",
+  signal: AbortSignal,
+): Promise<unknown> {
   try {
     return JSON.parse(await readText(response, MAX_RESPONSE_BYTES, signal));
   } catch (error) {
-    if (error instanceof Error && error.message === "response too large") throw new Error(`context7 ${operation}: response too large`);
+    if (error instanceof Error && error.message === "response too large")
+      throw new Error(`context7 ${operation}: response too large`);
     throw new Error(`context7 ${operation}: invalid JSON response`);
   }
 }
 
-async function responseText(response: Response, operation: "resolve" | "docs", signal: AbortSignal): Promise<string> {
+async function responseText(
+  response: Response,
+  operation: "resolve" | "docs",
+  signal: AbortSignal,
+): Promise<string> {
   try {
     return await readText(response, MAX_RESPONSE_BYTES, signal);
   } catch (error) {
-    if (error instanceof Error && error.message === "response too large") throw new Error(`context7 ${operation}: response too large`);
+    if (error instanceof Error && error.message === "response too large")
+      throw new Error(`context7 ${operation}: response too large`);
     throw new Error(`context7 ${operation}: read body failed`);
   }
 }
 
-async function httpError(operation: "resolve" | "docs", response: Response, apiKey: string | undefined): Promise<Error> {
+async function httpError(
+  operation: "resolve" | "docs",
+  response: Response,
+  apiKey: string | undefined,
+): Promise<Error> {
   const body = redact(await readErrorText(response), apiKey);
   const suffix = body === "" ? "" : `: ${body}`;
   switch (response.status) {
     case 202:
-      return new Error(`context7 ${operation}: library still indexing (HTTP 202) — try again in a few minutes`);
+      return new Error(
+        `context7 ${operation}: library still indexing (HTTP 202) — try again in a few minutes`,
+      );
     case 401:
-      return new Error(`context7 ${operation}: invalid CONTEXT7_API_KEY (HTTP 401) — keys start with 'ctx7sk'`);
+      return new Error(
+        `context7 ${operation}: invalid CONTEXT7_API_KEY (HTTP 401) — keys start with 'ctx7sk'`,
+      );
     case 404:
-      return new Error(`context7 ${operation}: not found (HTTP 404)${operation === "docs" ? ". Run 'web docs resolve <name>' to find the correct library ID" : ""}`);
+      return new Error(
+        `context7 ${operation}: not found (HTTP 404)${operation === "docs" ? ". Run 'web docs resolve <name>' to find the correct library ID" : ""}`,
+      );
     case 429:
-      return new Error(`context7 ${operation}: rate limited (HTTP 429) — set CONTEXT7_API_KEY for higher limits`);
+      return new Error(
+        `context7 ${operation}: rate limited (HTTP 429) — set CONTEXT7_API_KEY for higher limits`,
+      );
     default:
-      return new Error(`context7 ${operation}: HTTP ${response.status}${suffix}`);
+      return new Error(
+        `context7 ${operation}: HTTP ${response.status}${suffix}`,
+      );
   }
 }
 
 async function readErrorText(response: Response): Promise<string> {
-  if (!response.body) return (await response.text()).slice(0, MAX_ERROR_BODY_BYTES);
+  if (!response.body)
+    return (await response.text()).slice(0, MAX_ERROR_BODY_BYTES);
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -193,14 +254,21 @@ async function readErrorText(response: Response): Promise<string> {
   return new TextDecoder().decode(output);
 }
 
-async function readText(response: Response, maxBytes: number, signal?: AbortSignal): Promise<string> {
+async function readText(
+  response: Response,
+  maxBytes: number,
+  signal?: AbortSignal,
+): Promise<string> {
   if (!response.body) {
     const text = await response.text();
-    if (Buffer.byteLength(text) > maxBytes) throw new Error("response too large");
+    if (Buffer.byteLength(text) > maxBytes)
+      throw new Error("response too large");
     return text;
   }
   const reader = response.body.getReader();
-  const cancelReader = () => { void reader.cancel(); };
+  const cancelReader = () => {
+    void reader.cancel();
+  };
   if (signal?.aborted) cancelReader();
   else signal?.addEventListener("abort", cancelReader, { once: true });
   const chunks: Uint8Array[] = [];
@@ -233,7 +301,9 @@ async function readText(response: Response, maxBytes: number, signal?: AbortSign
 function validateApiKey(credentials: Context7Credentials): string | undefined {
   const apiKey = credentials.context7ApiKey;
   if (apiKey !== undefined && apiKey.trim() === "") {
-    throw new Error("CONTEXT7_API_KEY is set but empty; provide a key or unset it");
+    throw new Error(
+      "CONTEXT7_API_KEY is set but empty; provide a key or unset it",
+    );
   }
   return apiKey?.trim();
 }
@@ -243,7 +313,8 @@ function baseURL(endpoint: string | undefined): string {
 }
 
 function record(value: unknown, operation: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${operation}: malformed response`);
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error(`${operation}: malformed response`);
   return value as Record<string, unknown>;
 }
 
@@ -261,7 +332,9 @@ function integerValue(value: unknown): number {
 
 function redact(body: string, apiKey: string | undefined): string {
   const bounded = body.trim().slice(0, MAX_ERROR_BODY_BYTES);
-  return apiKey === undefined ? bounded : bounded.replaceAll(apiKey, "[redacted]");
+  return apiKey === undefined
+    ? bounded
+    : bounded.replaceAll(apiKey, "[redacted]");
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
@@ -276,7 +349,10 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
 
-function createRequestSignal(caller: AbortSignal | undefined, timeoutMs: number) {
+function createRequestSignal(
+  caller: AbortSignal | undefined,
+  timeoutMs: number,
+) {
   const controller = new AbortController();
   let timedOut = false;
   const abort = () => controller.abort(caller?.reason);
