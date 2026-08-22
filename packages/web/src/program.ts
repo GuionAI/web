@@ -1,5 +1,7 @@
 import { Command } from "commander";
 
+import { createMcpCommand } from "./mcp.js";
+
 import {
   formatSearchResults,
   type DocsFetchInput,
@@ -42,7 +44,8 @@ export function createProgram(dependencies: ProgramDependencies): Command {
     .addCommand(createSearchCommand(dependencies))
     .addCommand(createFetchCommand(dependencies))
     .addCommand(createDocsCommand(dependencies))
-    .addCommand(createSGraphCommand(dependencies));
+    .addCommand(createSGraphCommand(dependencies))
+    .addCommand(createMcpCommand(dependencies));
   return program;
 }
 

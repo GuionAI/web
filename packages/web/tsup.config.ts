@@ -8,7 +8,15 @@ export default defineConfig({
   bundle: true,
   clean: true,
   dts: true,
-  noExternal: ["@guionai/web-core", "commander", "defuddle", "linkedom", "markdown-it"],
+  noExternal: [
+    "@guionai/web-core",
+    "@modelcontextprotocol/server",
+    "@modelcontextprotocol/core",
+    "commander",
+    "defuddle",
+    "linkedom",
+    "markdown-it",
+  ],
   banner: {
     js: 'import { createRequire } from "node:module"; const require = createRequire(import.meta.url);',
   },

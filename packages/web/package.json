@@ -10,17 +10,24 @@
   "exports": {
     ".": "./dist/index.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
     "commander": "12.1.0"
   },
-  "bundledDependencies": ["commander"],
+  "bundledDependencies": [
+    "commander"
+  ],
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit -p ../../tsconfig.json",
     "test:pack": "node test/packed-smoke.mjs"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/server": "2.0.0"
   }
 }

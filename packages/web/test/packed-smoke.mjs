@@ -1,5 +1,8 @@
 import { execFile } from "node:child_process";
 import { createServer } from "node:http";
+
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -25,6 +28,7 @@ async function pnpm(args, cwd) {
   });
 }
 
+let notifySlowRequestAborted;
 const server = createServer((request, response) => {
   if (request.url === "/graphql") {
     let body = "";
@@ -43,6 +47,11 @@ const server = createServer((request, response) => {
   if (request.url === "/page") {
     response.setHeader("content-type", "text/html; charset=utf-8");
     response.end("<html><body><article><p>Packed fetch fixture.</p></article></body></html>");
+    return;
+  }
+  if (request.url === "/slow") {
+    request.once("aborted", () => { notifySlowRequestAborted?.(); });
+    response.once("close", () => { notifySlowRequestAborted?.(); });
     return;
   }
   if (request.url.startsWith("/api/v1/search")) {
@@ -134,6 +143,59 @@ try {
   const fetchedResult = JSON.parse(fetched.stdout);
   if (fetchedResult.mode !== "full" || fetchedResult.content !== "Packed fetch fixture.\n") {
     throw new Error("installed web CLI could not fetch the local fixture");
+  }
+
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [binary, "mcp", "--provider", "exa"],
+    cwd: root,
+    env: { PATH: process.env.PATH ?? "", HOME: join(root, "mcp-home"), XDG_CACHE_HOME: join(root, "mcp-cache") },
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "packed-web-mcp-smoke", version: "test" });
+  await client.connect(transport);
+  try {
+    const { tools } = await client.listTools();
+    const names = tools.map((tool) => tool.name).sort();
+    if (JSON.stringify(names) !== JSON.stringify(["docs_fetch", "docs_resolve", "fetch", "search", "sgraph_search"])) {
+      throw new Error(`packed MCP tools = ${names.join(", ")}`);
+    }
+    for (const tool of tools) {
+      if (!tool.inputSchema || !tool.outputSchema || !tool.annotations?.readOnlyHint ||
+        !tool.annotations.idempotentHint || tool.annotations.openWorldHint !== true) {
+        throw new Error(`packed MCP tool metadata is incomplete for ${tool.name}`);
+      }
+    }
+    const toolByName = Object.fromEntries(tools.map((tool) => [tool.name, tool]));
+    if (toolByName.fetch.inputSchema.properties.tree_threshold.default !== 5000 ||
+      toolByName.docs_fetch.inputSchema.properties.tokens.default !== 0 ||
+      toolByName.sgraph_search.inputSchema.properties.count.default !== 10 ||
+      toolByName.sgraph_search.inputSchema.properties.context.default !== 10 ||
+      toolByName.sgraph_search.inputSchema.properties.timeout.default !== 0) {
+      throw new Error("packed MCP tool defaults are incorrect");
+    }
+
+    const success = await client.callTool({ name: "fetch", arguments: { url: `http://127.0.0.1:${port}/page`, full: true } });
+    if (success.isError || success.structuredContent.content !== "Packed fetch fixture.\n") {
+      throw new Error("packed MCP server could not return a structured fetch result");
+    }
+    const providerFailure = await client.callTool({ name: "search", arguments: { query: "no live provider" } });
+    if (!providerFailure.isError || providerFailure.content[0]?.text !== "EXA_API_KEY is required when --provider exa is selected") {
+      throw new Error("packed MCP --provider did not pin Exa for the server lifetime");
+    }
+    const recovered = await client.callTool({ name: "fetch", arguments: { url: `http://127.0.0.1:${port}/page`, full: true } });
+    if (recovered.isError) throw new Error("packed MCP server did not recover after a tool error");
+
+    const slowRequestClosed = new Promise((resolve) => { notifySlowRequestAborted = resolve; });
+    const controller = new AbortController();
+    const slowCall = client.callTool({ name: "fetch", arguments: { url: `http://127.0.0.1:${port}/slow`, full: true } }, { signal: controller.signal });
+    const ignoredSlowCall = slowCall.catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    controller.abort();
+    await slowRequestClosed;
+    await ignoredSlowCall;
+  } finally {
+    await client.close();
   }
 } finally {
   await new Promise((resolve) => server.close(resolve));
