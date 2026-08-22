@@ -1,0 +1,14 @@
+{
+  "name": "@guionai/web-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Private shared web research core bundled into Guion host packages.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit -p ../../tsconfig.json"
+  }
+}
