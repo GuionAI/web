@@ -26,6 +26,20 @@ async function pnpm(args, cwd) {
 }
 
 const server = createServer((request, response) => {
+  if (request.url === "/graphql") {
+    let body = "";
+    request.on("data", (chunk) => { body += chunk; });
+    request.on("end", () => {
+      if (request.method !== "POST" || JSON.parse(body).variables?.query !== "packed code fixture") {
+        response.statusCode = 400;
+        response.end();
+        return;
+      }
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ data: { search: { results: { matchCount: 0, resultCount: 0, results: [] } } } }));
+    });
+    return;
+  }
   if (request.url === "/page") {
     response.setHeader("content-type", "text/html; charset=utf-8");
     response.end("<html><body><article><p>Packed fetch fixture.</p></article></body></html>");
@@ -106,10 +120,15 @@ try {
     endpoint: `http://127.0.0.1:${port}`,
   });
   if (documentation.content !== "Packed Context7 documentation") throw new Error("installed package could not fetch Context7 docs");
+  const codeSearch = await installed.sgraphSearch({
+    query: "packed code fixture",
+    endpoint: `http://127.0.0.1:${port}/graphql`,
+  });
+  if (!codeSearch.content.includes("No results found")) throw new Error("installed package could not search the local Sourcegraph fixture");
 
   const binary = join(root, "node_modules", ".bin", "web");
   const { stdout } = await execFileAsync(binary, ["--help"], { cwd: root });
-  if (!stdout.includes("Search the web")) throw new Error("installed web CLI did not start");
+  if (!stdout.includes("Search the web") || !stdout.includes("sgraph")) throw new Error("installed web CLI did not expose Sourcegraph search");
 
   const fetched = await execFileAsync(binary, ["fetch", `http://127.0.0.1:${port}/page`, "--full", "--json"], { cwd: root });
   const fetchedResult = JSON.parse(fetched.stdout);

@@ -18,6 +18,7 @@ function setup() {
     })),
     docsResolve: vi.fn(),
     docsFetch: vi.fn(),
+    sgraphSearch: vi.fn(async () => ({ content: "# Sourcegraph Search Results\n" })),
   };
   let stdout = "";
   const program = createProgram({
@@ -59,6 +60,15 @@ describe("web search Commander adapter", () => {
     expect(output().stderr).toBe("");
     expect(output().stdout).toBe(JSON.stringify(result) + "\n");
     expect(JSON.parse(output().stdout)).toEqual(result);
+  });
+
+  it("maps Sourcegraph flags, protects hyphenated queries with --, and emits one JSON document", async () => {
+    const { program, service, output } = setup();
+    await program.parseAsync(["sgraph", "--count", "14", "--context", "3", "--timeout", "9", "--json", "--", "-repo:test"], { from: "user" });
+
+    expect(service.sgraphSearch).toHaveBeenCalledWith({ query: "-repo:test", count: 14, context: 3, timeout: 9 });
+    expect(output().stdout).toBe('{"content":"# Sourcegraph Search Results\\n"}\n');
+    expect(JSON.parse(output().stdout)).toEqual({ content: "# Sourcegraph Search Results\n" });
   });
 
   it("dispatches nested docs commands with established human and one-document JSON output", async () => {
@@ -124,6 +134,7 @@ describe("web search Commander adapter", () => {
       fetch: vi.fn(),
       docsResolve: vi.fn(),
       docsFetch: vi.fn(),
+      sgraphSearch: vi.fn(),
     };
     let stdout = "";
     let stderr = "";

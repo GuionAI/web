@@ -4,6 +4,7 @@ import {
   fetchWebPage,
   formatSearchResults,
   search,
+  sgraphSearch,
   type Context7Credentials,
   type DocsFetchInput,
   type DocsFetchResult,
@@ -14,6 +15,8 @@ import {
   type SearchCredentials,
   type SearchInput,
   type SearchResponse,
+  type SGraphInput,
+  type SGraphResult,
 } from "@guionai/web-core";
 
 export {
@@ -24,6 +27,7 @@ export {
   normalizeLibraryID,
   renderMarkdown,
   search,
+  sgraphSearch,
   truncateContent,
 } from "@guionai/web-core";
 export type {
@@ -41,6 +45,8 @@ export type {
   SearchCredentials,
   SearchInput,
   SearchResponse,
+  SGraphInput,
+  SGraphResult,
 } from "@guionai/web-core";
 
 export type WebCredentials = SearchCredentials & Context7Credentials;
@@ -50,10 +56,11 @@ export type WebService = {
   fetch(input: FetchInput, signal?: AbortSignal): Promise<FetchResult>;
   docsResolve(input: DocsResolveInput): Promise<DocsResolveResult>;
   docsFetch(input: DocsFetchInput): Promise<DocsFetchResult>;
+  sgraphSearch(input: SGraphInput): Promise<SGraphResult>;
 };
 
 export function createWebService(): WebService {
-  return { search, fetch: fetchWebPage, docsResolve, docsFetch };
+  return { search, fetch: fetchWebPage, docsResolve, docsFetch, sgraphSearch };
 }
 
 export function credentialsFromEnvironment(environment: NodeJS.ProcessEnv = process.env): WebCredentials {

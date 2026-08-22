@@ -12,6 +12,8 @@ import {
   type SearchCredentials,
   type SearchInput,
   type SearchResponse,
+  type SGraphInput,
+  type SGraphResult,
 } from "@guionai/web-core";
 
 export type WebCredentials = SearchCredentials & { context7ApiKey?: string };
@@ -21,6 +23,7 @@ export type WebService = {
   fetch(input: FetchInput, signal?: AbortSignal): Promise<FetchResult>;
   docsResolve(input: DocsResolveInput): Promise<DocsResolveResult>;
   docsFetch(input: DocsFetchInput): Promise<DocsFetchResult>;
+  sgraphSearch(input: SGraphInput): Promise<SGraphResult>;
 };
 
 export type ProgramDependencies = {
@@ -38,7 +41,8 @@ export function createProgram(dependencies: ProgramDependencies): Command {
     .showHelpAfterError(false)
     .addCommand(createSearchCommand(dependencies))
     .addCommand(createFetchCommand(dependencies))
-    .addCommand(createDocsCommand(dependencies));
+    .addCommand(createDocsCommand(dependencies))
+    .addCommand(createSGraphCommand(dependencies));
   return program;
 }
 
@@ -60,6 +64,30 @@ function createSearchCommand(dependencies: ProgramDependencies): Command {
         return;
       }
       writeOut(formatSearchResults(result.results));
+    });
+}
+
+function createSGraphCommand(dependencies: ProgramDependencies): Command {
+  const writeOut = dependencies.writeOut ?? ((text: string) => process.stdout.write(text));
+  return new Command("sgraph")
+    .description("Search code across public repositories via Sourcegraph")
+    .argument("<query>", "Sourcegraph public code-search query")
+    .option("-c, --count <count>", "Max results to return (10-20, default 10)", parseSgraphInteger, 10)
+    .option("-C, --context <context>", "Lines of context around each match", parseSgraphInteger, 10)
+    .option("-t, --timeout <seconds>", "Request timeout in seconds (max 120, 0 = no timeout)", parseSgraphInteger, 0)
+    .option("--json", "Output the structured result as JSON")
+    .action(async (query: string, options: { count: number; context: number; timeout: number; json?: boolean }) => {
+      const result = await dependencies.service.sgraphSearch({
+        query,
+        count: options.count,
+        context: options.context,
+        timeout: options.timeout,
+      });
+      if (options.json) {
+        writeOut(JSON.stringify(result) + "\n");
+        return;
+      }
+      writeOut(result.content);
     });
 }
 
@@ -112,6 +140,12 @@ function createDocsFetchCommand(dependencies: ProgramDependencies): Command {
 function parseInteger(value: string): number {
   const integer = Number(value);
   if (!Number.isInteger(integer)) throw new Error("--tokens must be an integer");
+  return integer;
+}
+
+function parseSgraphInteger(value: string): number {
+  const integer = Number(value);
+  if (!Number.isInteger(integer)) throw new Error("Sourcegraph options must be integers");
   return integer;
 }
 

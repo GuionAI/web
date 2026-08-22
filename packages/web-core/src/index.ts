@@ -1,5 +1,6 @@
 export { fetchWebPage, type FetchCache, type FetchInput, type FetchOptions, type FetchResult } from "./fetch.js";
 export { renderMarkdown, truncateContent, type MarkdownResult } from "./markdown.js";
+export { formatSourcegraphResults, sgraphSearch, type SGraphInput, type SGraphResult } from "./sgraph.js";
 export {
   docsFetch,
   docsResolve,
