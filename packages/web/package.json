@@ -1,8 +1,21 @@
 {
   "name": "@guionai/web",
   "version": "0.1.0",
-  "description": "Browserless web research CLI.",
+  "description": "Browserless web research CLI and stdio MCP server.",
+  "homepage": "https://github.com/guionai/web#readme",
+  "bugs": {
+    "url": "https://github.com/guionai/web/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/guionai/web.git",
+    "directory": "packages/web"
+  },
   "license": "Apache-2.0",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
   "type": "module",
   "bin": {
     "web": "./dist/cli.js"

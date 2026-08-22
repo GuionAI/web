@@ -11,12 +11,18 @@
     "build": "pnpm -r --filter './packages/*' run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:pack": "pnpm --filter @guionai/web run test:pack"
+    "test:release": "node scripts/test-release-invariants.mjs && node scripts/test-publish-packages.mjs && node scripts/test-release-workflow.mjs",
+    "test:artifacts": "node scripts/test-package-artifacts.mjs",
+    "test:pack": "pnpm --filter @guionai/web run test:pack && pnpm --filter @guionai/pi-web run test:pack && pnpm --filter @guionai/dsh-web run test:pack",
+    "test:windows": "node scripts/windows-smoke.mjs",
+    "format": "prettier --write README.md package.json pnpm-workspace.yaml tsconfig.json packages/web/package.json packages/pi-web/package.json packages/dsh-web/package.json \"scripts/**/*.{mjs,ts}\" \".github/**/*.{yml,yaml}\"",
+    "format:check": "prettier --check README.md package.json pnpm-workspace.yaml tsconfig.json packages/web/package.json packages/pi-web/package.json packages/dsh-web/package.json \"scripts/**/*.{mjs,ts}\" \".github/**/*.{yml,yaml}\""
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "2.0.0",
     "@types/markdown-it": "14.1.2",
     "@types/node": "24.0.0",
+    "prettier": "3.6.2",
     "tsup": "8.5.0",
     "typescript": "5.8.3",
     "vitest": "3.2.4"

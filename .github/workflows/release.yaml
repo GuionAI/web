@@ -1,0 +1,142 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.2
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Sync package versions from tag
+        run: node scripts/sync-version.mjs "${GITHUB_REF_NAME#v}"
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
+
+      - name: Release invariant fixtures
+        run: pnpm test:release
+
+      - name: Release dry-run
+        run: node scripts/release-dry-run.mjs "${GITHUB_REF_NAME#v}"
+
+      - name: Packed artifact metadata
+        run: pnpm test:artifacts
+
+      - name: Packed installation smoke tests
+        run: pnpm test:pack
+
+      - name: Publish release preflight summary
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          dist_tag="$(node --input-type=module -e '
+            import { distTagForVersion } from "./scripts/publish-packages.mjs";
+            console.log(distTagForVersion(process.argv[1]));
+          ' "$version")"
+          packages="$(node --input-type=module -e '
+            import { packagePublishPlan } from "./scripts/publish-packages.mjs";
+            console.log(packagePublishPlan().map((entry) => entry.name).join(", "));
+          ')"
+          {
+            echo "## Release preflight passed"
+            echo
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            printf '| Tag | `%s` |\n' "$RELEASE_TAG"
+            printf '| Commit | `%s` |\n' "$RELEASE_SHA"
+            printf '| Packages | `%s` |\n' "$packages"
+            printf '| Synchronized version | `%s` |\n' "$version"
+            printf '| npm dist-tag | `%s` |\n' "$dist_tag"
+            echo "| Checks | format, typecheck, build, tests, invariant fixtures, release dry-run, packed artifacts, packed smoke |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    needs: preflight
+    runs-on: ubuntu-latest
+    environment:
+      name: npm
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Ensure npm Trusted Publishing CLI
+        run: |
+          npm install --global npm@11.10.0
+          NPM_VERSION="$(npm --version)" node -e '
+            const [major, minor, patch] = process.env.NPM_VERSION.split(".").map(Number);
+            if (major < 11 || (major === 11 && (minor < 10 || (minor === 10 && patch < 0)))) {
+              throw new Error(`npm ${major}.${minor}.${patch} is below the Trusted Publishing minimum 11.10.0`);
+            }
+            console.log(`npm ${major}.${minor}.${patch} is ready for Trusted Publishing`);
+          '
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.2
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Sync npm version from tag
+        run: node scripts/sync-version.mjs "${GITHUB_REF_NAME#v}"
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Verify release invariants
+        run: node scripts/release-dry-run.mjs "${GITHUB_REF_NAME#v}"
+
+      - name: Publish packages through npm OIDC
+        run: node scripts/publish-packages.mjs --provenance
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes
