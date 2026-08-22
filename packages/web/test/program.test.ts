@@ -16,6 +16,8 @@ function setup() {
       mode: "full" as const,
       content: "# Fixture page\n",
     })),
+    docsResolve: vi.fn(),
+    docsFetch: vi.fn(),
   };
   let stdout = "";
   const program = createProgram({
@@ -59,6 +61,34 @@ describe("web search Commander adapter", () => {
     expect(JSON.parse(output().stdout)).toEqual(result);
   });
 
+  it("dispatches nested docs commands with established human and one-document JSON output", async () => {
+    const { program, service, output } = setup();
+    service.docsResolve.mockResolvedValue({
+      query: "react",
+      libraries: [{ id: "/reactjs/react.dev", title: "React", description: "UI", trust_score: 10, total_snippets: 2779, versions: ["18.2.0"] }],
+    });
+    await program.parseAsync(["docs", "resolve", "react"], { from: "user" });
+    expect(service.docsResolve).toHaveBeenCalledWith({ query: "react", credentials: { braveApiKey: "fixture-key" } });
+    expect(output().stdout).toContain("Found 1 libraries:\n\n1. React\n   ID: /reactjs/react.dev\n   Trust: 10.0   Snippets: 2779\n   Versions: 18.2.0\n   UI\n");
+
+    let jsonOutput = "";
+    const docsFetch = vi.fn(async () => ({ library_id: "/reactjs/react.dev", topic: "hooks", content: "Documentation\n" }));
+    const fetchProgram = createProgram({
+      service: { ...service, docsFetch },
+      credentials: () => ({ context7ApiKey: "fixture-key" }),
+      writeOut: (text) => { jsonOutput += text; },
+    });
+    await fetchProgram.parseAsync(["docs", "fetch", "--tokens", "500", "--json", "--", "reactjs/react.dev", "hooks"], { from: "user" });
+    expect(docsFetch).toHaveBeenCalledWith({
+      library_id: "reactjs/react.dev",
+      topic: "hooks",
+      tokens: 500,
+      credentials: { context7ApiKey: "fixture-key" },
+    });
+    expect(jsonOutput).toBe('{"library_id":"/reactjs/react.dev","topic":"hooks","content":"Documentation\\n"}\n');
+    expect(JSON.parse(jsonOutput)).toMatchObject({ library_id: "/reactjs/react.dev", topic: "hooks" });
+  });
+
   it("passes fetch navigation flags and writes human Markdown", async () => {
     const { program, service, output } = setup();
     await program.parseAsync(["fetch", "https://example.test/page", "--tree", "-s", "7i", "--tree-threshold", "9000"], { from: "user" });
@@ -92,6 +122,8 @@ describe("web search Commander adapter", () => {
     const service = {
       search: vi.fn(async () => { throw new Error("EXA_API_KEY is required when --provider exa is selected"); }),
       fetch: vi.fn(),
+      docsResolve: vi.fn(),
+      docsFetch: vi.fn(),
     };
     let stdout = "";
     let stderr = "";

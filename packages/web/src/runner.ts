@@ -1,10 +1,8 @@
-import type { SearchCredentials } from "@guionai/web-core";
-
-import { createProgram, type WebService } from "./program.js";
+import { createProgram, type WebCredentials, type WebService } from "./program.js";
 
 export type CliDependencies = {
   service: WebService;
-  credentials: () => SearchCredentials;
+  credentials: () => WebCredentials;
 };
 
 export type CliOutput = {

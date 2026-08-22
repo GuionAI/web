@@ -31,6 +31,25 @@ const server = createServer((request, response) => {
     response.end("<html><body><article><p>Packed fetch fixture.</p></article></body></html>");
     return;
   }
+  if (request.url.startsWith("/api/v1/search")) {
+    if (request.headers.authorization !== "Bearer fixture-context7-key" || new URL(request.url, "http://fixture.test").searchParams.get("query") !== "react") {
+      response.statusCode = 400;
+      response.end();
+      return;
+    }
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ results: [{ id: "/reactjs/react.dev", title: "React", description: "fixture", trustScore: 10, totalSnippets: 1 }] }));
+    return;
+  }
+  if (request.url === "/api/v1/reactjs/react.dev?type=txt&topic=hooks&tokens=50") {
+    if (request.headers.authorization !== "Bearer fixture-context7-key") {
+      response.statusCode = 401;
+      response.end();
+      return;
+    }
+    response.end("Packed Context7 documentation");
+    return;
+  }
   if (request.url !== "/search") {
     response.statusCode = 404;
     response.end();
@@ -73,6 +92,20 @@ try {
   if (result.provider !== "Exa" || result.results[0]?.title !== "Packed result") {
     throw new Error("installed package could not search the local fixture");
   }
+  const docs = await installed.docsResolve({
+    query: "react",
+    credentials: { context7ApiKey: "fixture-context7-key" },
+    endpoint: `http://127.0.0.1:${port}`,
+  });
+  if (docs.libraries[0]?.id !== "/reactjs/react.dev") throw new Error("installed package could not resolve Context7 docs");
+  const documentation = await installed.docsFetch({
+    library_id: "reactjs/react.dev",
+    topic: "hooks",
+    tokens: 50,
+    credentials: { context7ApiKey: "fixture-context7-key" },
+    endpoint: `http://127.0.0.1:${port}`,
+  });
+  if (documentation.content !== "Packed Context7 documentation") throw new Error("installed package could not fetch Context7 docs");
 
   const binary = join(root, "node_modules", ".bin", "web");
   const { stdout } = await execFileAsync(binary, ["--help"], { cwd: root });

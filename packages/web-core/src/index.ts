@@ -1,5 +1,16 @@
 export { fetchWebPage, type FetchCache, type FetchInput, type FetchOptions, type FetchResult } from "./fetch.js";
 export { renderMarkdown, truncateContent, type MarkdownResult } from "./markdown.js";
+export {
+  docsFetch,
+  docsResolve,
+  normalizeLibraryID,
+  type Context7Credentials,
+  type DocsFetchInput,
+  type DocsFetchResult,
+  type DocsLibrary,
+  type DocsResolveInput,
+  type DocsResolveResult,
+} from "./docs.js";
 
 const EXA_BASE_URL = "https://api.exa.ai";
 const BRAVE_BASE_URL = "https://api.search.brave.com/res/v1";
