@@ -1,20 +1,39 @@
 import {
+  fetchWebPage,
   formatSearchResults,
   search,
+  type FetchInput,
+  type FetchResult,
   type SearchCredentials,
   type SearchInput,
   type SearchResponse,
 } from "@guionai/web-core";
 
-export { formatSearchResults, search } from "@guionai/web-core";
-export type { SearchCredentials, SearchInput, SearchResponse } from "@guionai/web-core";
+export {
+  fetchWebPage,
+  formatSearchResults,
+  renderMarkdown,
+  search,
+  truncateContent,
+} from "@guionai/web-core";
+export type {
+  FetchCache,
+  FetchInput,
+  FetchOptions,
+  FetchResult,
+  MarkdownResult,
+  SearchCredentials,
+  SearchInput,
+  SearchResponse,
+} from "@guionai/web-core";
 
-export type SearchService = {
+export type WebService = {
   search(input: SearchInput): Promise<SearchResponse>;
+  fetch(input: FetchInput, signal?: AbortSignal): Promise<FetchResult>;
 };
 
-export function createSearchService(): SearchService {
-  return { search };
+export function createWebService(): WebService {
+  return { search, fetch: fetchWebPage };
 }
 
 export function credentialsFromEnvironment(environment: NodeJS.ProcessEnv = process.env): SearchCredentials {

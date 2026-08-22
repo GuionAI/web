@@ -9,7 +9,14 @@ const result = {
 };
 
 function setup() {
-  const service = { search: vi.fn(async () => result) };
+  const service = {
+    search: vi.fn(async () => result),
+    fetch: vi.fn(async () => ({
+      url: "https://example.test/page",
+      mode: "full" as const,
+      content: "# Fixture page\n",
+    })),
+  };
   let stdout = "";
   const program = createProgram({
     service,
@@ -52,8 +59,40 @@ describe("web search Commander adapter", () => {
     expect(JSON.parse(output().stdout)).toEqual(result);
   });
 
+  it("passes fetch navigation flags and writes human Markdown", async () => {
+    const { program, service, output } = setup();
+    await program.parseAsync(["fetch", "https://example.test/page", "--tree", "-s", "7i", "--tree-threshold", "9000"], { from: "user" });
+
+    expect(service.fetch).toHaveBeenCalledWith({
+      url: "https://example.test/page",
+      tree: true,
+      section_id: "7i",
+      full: undefined,
+      tree_threshold: 9000,
+    });
+    expect(output()).toEqual({ stdout: "# Fixture page\n", stderr: "" });
+  });
+
+  it("writes fetch JSON as exactly one document", async () => {
+    const { program, service, output } = setup();
+    await program.parseAsync(["fetch", "https://example.test/page", "--full", "--json"], { from: "user" });
+
+    expect(service.fetch).toHaveBeenCalledWith({
+      url: "https://example.test/page",
+      tree: undefined,
+      section_id: undefined,
+      full: true,
+      tree_threshold: undefined,
+    });
+    expect(JSON.parse(output().stdout)).toEqual(await service.fetch.mock.results[0]!.value);
+    expect(output().stdout.endsWith("\n")).toBe(true);
+  });
+
   it("returns nonzero failures to stderr without writing a partial stdout result", async () => {
-    const service = { search: vi.fn(async () => { throw new Error("EXA_API_KEY is required when --provider exa is selected"); }) };
+    const service = {
+      search: vi.fn(async () => { throw new Error("EXA_API_KEY is required when --provider exa is selected"); }),
+      fetch: vi.fn(),
+    };
     let stdout = "";
     let stderr = "";
     const exitCode = await runCli(

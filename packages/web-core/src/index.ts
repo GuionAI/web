@@ -1,3 +1,6 @@
+export { fetchWebPage, type FetchCache, type FetchInput, type FetchOptions, type FetchResult } from "./fetch.js";
+export { renderMarkdown, truncateContent, type MarkdownResult } from "./markdown.js";
+
 const EXA_BASE_URL = "https://api.exa.ai";
 const BRAVE_BASE_URL = "https://api.search.brave.com/res/v1";
 const DEFAULT_TIMEOUT_MS = 30_000;

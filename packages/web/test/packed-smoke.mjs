@@ -26,6 +26,11 @@ async function pnpm(args, cwd) {
 }
 
 const server = createServer((request, response) => {
+  if (request.url === "/page") {
+    response.setHeader("content-type", "text/html; charset=utf-8");
+    response.end("<html><body><article><p>Packed fetch fixture.</p></article></body></html>");
+    return;
+  }
   if (request.url !== "/search") {
     response.statusCode = 404;
     response.end();
@@ -72,6 +77,12 @@ try {
   const binary = join(root, "node_modules", ".bin", "web");
   const { stdout } = await execFileAsync(binary, ["--help"], { cwd: root });
   if (!stdout.includes("Search the web")) throw new Error("installed web CLI did not start");
+
+  const fetched = await execFileAsync(binary, ["fetch", `http://127.0.0.1:${port}/page`, "--full", "--json"], { cwd: root });
+  const fetchedResult = JSON.parse(fetched.stdout);
+  if (fetchedResult.mode !== "full" || fetchedResult.content !== "Packed fetch fixture.\n") {
+    throw new Error("installed web CLI could not fetch the local fixture");
+  }
 } finally {
   await new Promise((resolve) => server.close(resolve));
   await rm(root, { recursive: true, force: true });

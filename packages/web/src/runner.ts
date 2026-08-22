@@ -1,9 +1,9 @@
 import type { SearchCredentials } from "@guionai/web-core";
 
-import { createProgram, type SearchService } from "./program.js";
+import { createProgram, type WebService } from "./program.js";
 
 export type CliDependencies = {
-  service: SearchService;
+  service: WebService;
   credentials: () => SearchCredentials;
 };
 
