@@ -114,26 +114,28 @@ pnpm test:release
 pnpm test:pack
 ```
 
-`test:release` uses disposable manifests and a fake npm executable to exercise
-version synchronization, stable/beta dist-tags, exact-version skipping, and
-fail-closed registry responses. `test:pack` runs each public package's packed
-installation or host-loading contract in test-owned temporary directories.
+`test:release` uses disposable manifests to exercise tag-version
+synchronization. `test:pack` runs each public package's packed installation or
+host-loading contract in test-owned temporary directories.
 
 ## Releases
 
 A `v<semver>` tag is the release source of truth for all three public packages:
-`@guionai/web`, `@guionai/pi-web`, and `@guionai/dsh-web`. The release workflow
-synchronizes its checkout manifests from that tag. A stable version publishes
-with npm's `latest` tag; any SemVer prerelease publishes with `beta`.
+`@guionai/web`, `@guionai/pi-web`, and `@guionai/dsh-web`. The release preflight
+synchronizes its checkout manifests from that tag, then completes formatting,
+typechecking, build, tests, release-version checks, and packed smoke tests
+before any publication begins.
 
-The release preflight builds, tests, packs, synchronizes versions, and checks
-the release plan. Its protected `npm` Environment job then
-queries npm for each exact immutable package version. Existing exact versions
-are skipped; authentication, network, malformed, or ambiguous responses fail
-the release. Remaining packages publish sequentially with `npm publish --access
-public --tag <derived-tag> --provenance`. Only after all three publishes succeed
-does the workflow create the GitHub release with generated notes and source
-archives. It publishes no binaries or platform archives.
+Three independent, non-fail-fast protected `npm` Environment matrix cells then
+publish one package each through npm Trusted Publishing with provenance. The
+synchronized version selects npm's `latest` tag for stable SemVer and `beta` for
+a prerelease. After all three cells succeed, the workflow creates the GitHub
+release with generated notes and source archives. It publishes no binaries or
+platform archives.
+
+If publication partially fails, use GitHub Actions **Re-run failed jobs**. Never
+use **Re-run all jobs**: npm versions are immutable, so the jobs that already
+published successfully must not run again.
 
 ### First beta bootstrap and Trusted Publishing
 
@@ -145,9 +147,9 @@ releases:
 2. With a maintainer npm account that has `@guionai` publish permission and 2FA,
    run `node scripts/sync-version.mjs 0.1.0-beta.1`, then run the build, test,
    pack, and `node scripts/release-dry-run.mjs 0.1.0-beta.1` gates.
-3. Publish the three-package plan manually with `node scripts/publish-packages.mjs`.
-   This bootstrap is authenticated by the maintainer; do not pass provenance
-   outside the GitHub OIDC release job.
+3. From each public package directory, publish the synchronized beta with
+   `npm publish --access public --tag beta`. This bootstrap is authenticated by
+   the maintainer; do not pass provenance outside the GitHub OIDC release job.
 4. In npm package settings, create one GitHub Trusted Publisher relationship
    for each of `@guionai/web`, `@guionai/pi-web`, and `@guionai/dsh-web`. Each
    must target repository `guionai/web`, workflow `.github/workflows/release.yaml`,
@@ -156,5 +158,5 @@ releases:
    then enable/tag the routine release workflow. It uses GitHub OIDC with no
    npm token and requests provenance for every normal publication.
 
-Never use the release scripts to overwrite or unpublish a version. They are
-intentionally resumable only at exact immutable npm versions.
+Never overwrite or unpublish a version. For a partial GitHub release, rerun
+only its failed publish cells.

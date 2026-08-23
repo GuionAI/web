@@ -1,72 +1,85 @@
 #!/usr/bin/env node
-// CI-friendly invariant test. It exercises version sync and tag validation in
-// disposable workspaces, never changing the checkout or contacting npm.
+// Exercises tag-version synchronization in a disposable workspace.
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { PUBLIC_PACKAGES, packagePublishPlan } from "./publish-packages.mjs";
+const publicPackages = [
+  { directory: "web", name: "@guionai/web" },
+  { directory: "pi-web", name: "@guionai/pi-web" },
+  { directory: "dsh-web", name: "@guionai/dsh-web" },
+];
+const workspace = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-const here = dirname(fileURLToPath(import.meta.url));
-const workspace = join(here, "..");
-const sourcePlan = packagePublishPlan(workspace);
+function run(fixture, script, version) {
+  return execFileSync(process.execPath, [`scripts/${script}`, version], {
+    cwd: fixture,
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+}
 
-function createFixtureWorkspace() {
-  const fixture = mkdtempSync(
-    join(tmpdir(), "guionai-web-release-invariants-"),
-  );
+function expectFailure(fixture, script, version, status) {
+  try {
+    run(fixture, script, version);
+  } catch (error) {
+    if (error.status === status) return;
+    throw error;
+  }
+  throw new Error(`${script} accepted ${version}`);
+}
+
+const fixture = mkdtempSync(join(tmpdir(), "guionai-web-release-invariants-"));
+try {
   mkdirSync(join(fixture, "scripts"), { recursive: true });
-  for (const entry of sourcePlan) {
-    const destination = join(fixture, relative(workspace, entry.path));
+  for (const { directory } of publicPackages) {
+    const destination = join(fixture, "packages", directory);
     mkdirSync(destination, { recursive: true });
     copyFileSync(
-      join(entry.path, "package.json"),
+      join(workspace, "packages", directory, "package.json"),
       join(destination, "package.json"),
     );
   }
-  for (const script of [
-    "publish-packages.mjs",
-    "release-dry-run.mjs",
-    "sync-version.mjs",
-  ]) {
+  for (const script of ["sync-version.mjs", "release-dry-run.mjs"]) {
     copyFileSync(
       join(workspace, "scripts", script),
       join(fixture, "scripts", script),
     );
   }
-  return fixture;
-}
 
-function runFixture(version) {
-  const fixture = createFixtureWorkspace();
-  try {
-    execFileSync(process.execPath, ["scripts/sync-version.mjs", version], {
-      cwd: fixture,
-      stdio: "inherit",
-    });
-    execFileSync(process.execPath, ["scripts/release-dry-run.mjs", version], {
-      cwd: fixture,
-      stdio: "inherit",
-    });
-    console.log(
-      `release invariants hold for ${sourcePlan.length} manifests at ${version}`,
-    );
-  } finally {
-    rmSync(fixture, { recursive: true, force: true });
-    console.log("test-owned release fixture removed");
+  for (const version of ["0.0.0-test.1", "1.2.3"]) {
+    run(fixture, "sync-version.mjs", version);
+    run(fixture, "release-dry-run.mjs", version);
+    for (const { directory, name } of publicPackages) {
+      const manifest = JSON.parse(
+        readFileSync(
+          join(fixture, "packages", directory, "package.json"),
+          "utf8",
+        ),
+      );
+      if (manifest.name !== name || manifest.version !== version) {
+        throw new Error(`${name} was not synchronized to ${version}`);
+      }
+    }
   }
-}
 
-if (
-  sourcePlan.length !== 3 ||
-  sourcePlan.map((entry) => entry.name).join("\n") !==
-    PUBLIC_PACKAGES.map((entry) => entry.name).join("\n")
-) {
-  throw new Error(
-    "release plan does not contain exactly the three public Guion packages",
+  writeFileSync(
+    join(fixture, "packages", "web", "package.json"),
+    JSON.stringify({ name: "@guionai/web", version: "0.0.0" }) + "\n",
   );
+  expectFailure(fixture, "release-dry-run.mjs", "1.2.3", 1);
+  expectFailure(fixture, "sync-version.mjs", "v1.2.3", 2);
+
+  console.log("release version synchronization fixtures passed");
+} finally {
+  rmSync(fixture, { recursive: true, force: true });
 }
-runFixture("0.0.0-test.1");
-runFixture("1.2.3");
