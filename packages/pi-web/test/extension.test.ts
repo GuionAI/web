@@ -8,6 +8,7 @@ import type { WebOperations } from "@guionai/web-core";
 import {
   webDocsSchema,
   webDocsTool,
+  webFetchSchema,
   webFetchTool,
   webSearchSchema,
   webSearchTool,
@@ -84,6 +85,140 @@ describe("pi-web extension", () => {
     await expect(
       call(docs, { action: "fetch", library_id: "/x", query: "wrong" }),
     ).rejects.toThrow(/does not accept query/);
+  });
+
+  it("enforces the render/wait contract and forwards explicit browser retries", async () => {
+    expect(Value.Check(webFetchSchema, { url: "https://fixture.test" })).toBe(
+      true,
+    );
+    expect(
+      Value.Check(webFetchSchema, {
+        url: "https://fixture.test",
+        render: "fetch",
+      }),
+    ).toBe(true);
+    expect(
+      Value.Check(webFetchSchema, {
+        url: "https://fixture.test",
+        render: "agent-browser",
+        waitMs: 0,
+      }),
+    ).toBe(true);
+    expect(
+      Value.Check(webFetchSchema, {
+        url: "https://fixture.test",
+        render: "agent-browser",
+        waitMs: 30_000,
+      }),
+    ).toBe(true);
+    expect(
+      Value.Check(webFetchSchema, {
+        url: "https://fixture.test",
+        render: "agent-browser",
+      }),
+    ).toBe(false);
+    expect(
+      Value.Check(webFetchSchema, {
+        url: "https://fixture.test",
+        render: "fetch",
+        waitMs: 0,
+      }),
+    ).toBe(false);
+    expect(
+      Value.Check(webFetchSchema, {
+        url: "https://fixture.test",
+        render: "agent-browser",
+        waitMs: 30_001,
+      }),
+    ).toBe(false);
+
+    const fetch = vi.fn(
+      async (input: { url: string; render?: string; waitMs?: number }) => ({
+        url: input.url,
+        mode: "full" as const,
+        content: "Rendered Markdown",
+      }),
+    );
+    const tool = webFetchTool({ operations: operations({ fetch }) });
+    const result = await call(tool, {
+      url: "https://fixture.test",
+      render: "agent-browser",
+      waitMs: 1250,
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      {
+        url: "https://fixture.test",
+        tree: undefined,
+        section_id: undefined,
+        full: undefined,
+        tree_threshold: undefined,
+        render: "agent-browser",
+        waitMs: 1250,
+      },
+      undefined,
+    );
+    expect(result.content[0]?.text).toBe("Rendered Markdown");
+
+    await expect(
+      call(tool, {
+        url: "https://fixture.test",
+        render: "agent-browser",
+      }),
+    ).rejects.toThrow("waitMs is required");
+    await expect(
+      call(tool, {
+        url: "https://fixture.test",
+        render: "fetch",
+        waitMs: 0,
+      }),
+    ).rejects.toThrow("waitMs is only valid");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves structured fetch failures for Pi callers", async () => {
+    const failure = Object.assign(
+      new Error("javascript rendering may be required"),
+      {
+        code: "javascript_rendering_may_be_required",
+        details: {
+          retryableWithRender: true,
+          suggestedArguments: { render: "agent-browser", waitMs: 2000 },
+        },
+      },
+    );
+    const tool = webFetchTool({
+      operations: operations({
+        fetch: async () => {
+          throw failure;
+        },
+      }),
+    });
+    await expect(call(tool, { url: "https://fixture.test" })).rejects.toBe(
+      failure,
+    );
+
+    const blocked = Object.assign(new Error("render domain not allowed"), {
+      code: "render_domain_not_allowed",
+      details: {
+        retryable: false,
+        reportUrl: "https://github.com/guionai/web/issues/new",
+        blockedHostname: "cdn.fixture.test",
+      },
+    });
+    const blockedTool = webFetchTool({
+      operations: operations({
+        fetch: async () => {
+          throw blocked;
+        },
+      }),
+    });
+    await expect(
+      call(blockedTool, {
+        url: "https://fixture.test",
+        render: "agent-browser",
+        waitMs: 0,
+      }),
+    ).rejects.toBe(blocked);
   });
 
   it("starts searches concurrently, merges successes deterministically, and reports partial failures", async () => {

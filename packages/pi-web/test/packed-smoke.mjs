@@ -1,5 +1,13 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -87,11 +95,42 @@ try {
     throw new Error("packed extension did not register exactly four web tools");
   }
 
+  const fakeBin = join(root, "fake-bin");
+  await mkdir(fakeBin);
+  const fakeLog = join(root, "agent-browser.log");
+  await writeFile(
+    join(fakeBin, "agent-browser"),
+    `#!/usr/bin/env node
+const { appendFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(fakeLog)}, JSON.stringify(args) + "\\n");
+const command = args.at(-1) === "close" ? "close" : args.includes("eval") ? "eval" : "open";
+if (command === "eval") {
+  console.log(JSON.stringify({ success: true, data: { result: "<html><body><article><h1>Rendered fixture</h1><p>JavaScript output from fake agent-browser.</p></article></body></html>" } }));
+} else {
+  console.log(JSON.stringify({ success: true, data: {} }));
+}
+`,
+    { mode: 0o700 },
+  );
+  await chmod(join(fakeBin, "agent-browser"), 0o700);
+
   const originalFetch = globalThis.fetch;
   const originalExaKey = process.env.EXA_API_KEY;
+  const originalPath = process.env.PATH;
+  const originalHome = process.env.HOME;
+  const originalCache = process.env.XDG_CACHE_HOME;
   process.env.EXA_API_KEY = "fixture-exa-key";
+  process.env.PATH = `${fakeBin}:${originalPath ?? ""}`;
+  process.env.HOME = root;
+  process.env.XDG_CACHE_HOME = join(root, "cache");
   globalThis.fetch = async (url, init = {}) => {
     const target = String(url);
+    if (target === "https://93.184.216.34/direct")
+      return new Response(
+        "<html><body><article><h1>Direct fixture</h1><p>Browserless output.</p></article></body></html>",
+        { headers: { "Content-Type": "text/html" } },
+      );
     if (target !== "https://api.exa.ai/search")
       throw new Error(`unexpected fixture URL ${target}`);
     if (
@@ -119,10 +158,58 @@ try {
     });
     if (search.details.results[0]?.title !== "Packed search")
       throw new Error("packed extension could not execute its search tool");
+
+    const fetchTool = registered.find((tool) => tool.name === "web_fetch");
+    if (!fetchTool)
+      throw new Error("packed extension did not register web_fetch");
+    const direct = await fetchTool.execute("test", {
+      url: "https://93.184.216.34/direct",
+      full: true,
+    });
+    if (!direct.content[0]?.text.includes("Browserless output."))
+      throw new Error("packed extension did not execute browserless fetch");
+    try {
+      await readFile(fakeLog, "utf8");
+      throw new Error("browserless fetch unexpectedly launched agent-browser");
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("unexpectedly"))
+        throw error;
+    }
+
+    const rendered = await fetchTool.execute("test", {
+      url: "https://93.184.216.34/rendered",
+      render: "agent-browser",
+      waitMs: 0,
+      full: true,
+    });
+    if (
+      !rendered.content[0]?.text.includes(
+        "JavaScript output from fake agent-browser.",
+      )
+    )
+      throw new Error("packed extension did not execute fake rendered fetch");
+    const browserCommands = (await readFile(fakeLog, "utf8"))
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    if (
+      browserCommands.length !== 3 ||
+      browserCommands.at(-1)?.at(-1) !== "close"
+    )
+      throw new Error(
+        "packed rendered fetch did not close its browser session",
+      );
   } finally {
     globalThis.fetch = originalFetch;
     if (originalExaKey === undefined) delete process.env.EXA_API_KEY;
     else process.env.EXA_API_KEY = originalExaKey;
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    if (originalCache === undefined) delete process.env.XDG_CACHE_HOME;
+    else process.env.XDG_CACHE_HOME = originalCache;
   }
 } finally {
   await rm(root, { recursive: true, force: true });
