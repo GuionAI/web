@@ -150,7 +150,9 @@ const SEARCH_PROMPT_GUIDELINES = [
 ];
 const FETCH_PROMPT_GUIDELINES = [
   "Use web_fetch to read a web page; large pages are truncated with a continuation notice, so follow up with tree or section_id to navigate.",
-  'web_fetch has direct fetch (the default) and explicit agent-browser rendering for client-rendered pages. If rendering may be required, choose render: "agent-browser" with waitMs from 0 through 30000 only when the host has agent-browser installed; there is no automatic fallback.',
+  'web_fetch has two backends: omit render or use render: "fetch" for direct HTML-to-Markdown (the default for static, SSR, and pre-rendered pages).',
+  'For a client-rendered or SPA page, or after javascript_rendering_may_be_required, retry explicitly with render: "agent-browser" and waitMs: 2000 only when the host has agent-browser installed. Increase waitMs explicitly or abandon an incomplete page; there is no automatic fallback.',
+  "Never send waitMs with direct fetch. agent-browser is a host capability, not a package dependency.",
 ];
 const DOCS_PROMPT_GUIDELINES = [
   "Use web_docs with action resolve, then action fetch, to read library documentation instead of fetching documentation sites page by page.",

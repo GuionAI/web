@@ -278,7 +278,7 @@ function webFetchTool(
     defineTool({
       name: "web_fetch",
       description:
-        "Fetch an HTTP or HTTPS page as Markdown with direct fetch or explicit host-installed agent-browser rendering; rendered fetch requires waitMs for client-rendered pages.",
+        "Use direct fetch for static, SSR, and pre-rendered pages. For client-rendered or SPA pages, set render: agent-browser with required waitMs on a host that has agent-browser installed; there is no automatic fallback.",
       parameters: fetchParameters,
       output: fetchOutput,
       isConcurrencySafe: () => true,
