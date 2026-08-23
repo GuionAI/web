@@ -116,8 +116,7 @@ pnpm test:pack
 version synchronization, stable/beta dist-tags, exact-version skipping, and
 fail-closed registry responses. `test:artifacts` and `test:pack` pack all three
 public packages into test-owned temporary directories and validate their
-published contracts. `test:windows` is the focused Windows CI smoke for packed
-CLI installation and the `LOCALAPPDATA` cache path.
+published contracts.
 
 ## Releases
 

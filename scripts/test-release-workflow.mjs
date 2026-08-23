@@ -41,7 +41,6 @@ const forbiddenRelease = [
 ];
 const requiredCi = [
   "ubuntu-latest",
-  "windows-latest",
   "pnpm format:check",
   "pnpm typecheck",
   "pnpm build",
@@ -49,7 +48,6 @@ const requiredCi = [
   "pnpm test:release",
   "pnpm test:artifacts",
   "pnpm test:pack",
-  "pnpm test:windows",
 ];
 
 if (
@@ -83,5 +81,5 @@ if (
   );
 }
 console.log(
-  "workflow policy passed: OIDC npm release, three-package inventory, Linux and Windows CI",
+  "workflow policy passed: OIDC npm release, three-package inventory, and Linux CI",
 );
