@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createWebOperations, type WebOperations } from "@guionai/web-core";
 
 import {
   BRAVE_CREDENTIAL_REF,
@@ -6,6 +7,10 @@ import {
   SEARCH_PROVIDER_ID,
 } from "../src/contract.js";
 import { createGuionSearchProvider } from "../src/provider.js";
+
+function withOperations(overrides: Partial<WebOperations>): WebOperations {
+  return { ...createWebOperations(), ...overrides };
+}
 
 describe("Guion DSH search provider", () => {
   it("routes each stock PTC query through the live selected provider and resolved credential", async () => {
@@ -18,20 +23,22 @@ describe("Guion DSH search provider", () => {
           return { value: "dsh-secret", source: "file" };
         },
       },
-      search: async (input) => {
-        received = input;
-        return {
-          provider: "Brave",
-          results: [
-            {
-              title: "One",
-              link: "https://example.test/one",
-              snippet: "First",
-              position: 1,
-            },
-          ],
-        };
-      },
+      operations: withOperations({
+        search: async (input) => {
+          received = input;
+          return {
+            provider: "Brave",
+            results: [
+              {
+                title: "One",
+                link: "https://example.test/one",
+                snippet: "First",
+                position: 1,
+              },
+            ],
+          };
+        },
+      }),
     });
     const controller = new AbortController();
     const results = await Promise.all(
@@ -68,9 +75,11 @@ describe("Guion DSH search provider", () => {
           return { value: secret, source: "file" };
         },
       },
-      search: async () => {
-        throw new Error(`transport saw ${secret}`);
-      },
+      operations: withOperations({
+        search: async () => {
+          throw new Error(`transport saw ${secret}`);
+        },
+      }),
     });
 
     await expect(provider.search({ query: "failed" })).rejects.toThrow(
@@ -87,9 +96,11 @@ describe("Guion DSH search provider", () => {
       credentials: {
         resolve: async () => ({ value: "secret", source: "file" }),
       },
-      search: async () => ({
-        provider: "Exa",
-        results: [{ title: "ok", link: "", snippet: "bad", position: 1 }],
+      operations: withOperations({
+        search: async () => ({
+          provider: "Exa",
+          results: [{ title: "ok", link: "", snippet: "bad", position: 1 }],
+        }),
       }),
     });
     await expect(provider.search({ query: "invalid" })).rejects.toThrow(

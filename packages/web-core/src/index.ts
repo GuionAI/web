@@ -1,4 +1,15 @@
 import {
+  docsFetch,
+  docsResolve,
+  type Context7Credentials,
+  type DocsFetchInput,
+  type DocsFetchResult,
+  type DocsResolveInput,
+  type DocsResolveResult,
+} from "./docs.js";
+import { fetchWebPage, type FetchInput, type FetchResult } from "./fetch.js";
+import { sgraphSearch, type SGraphInput, type SGraphResult } from "./sgraph.js";
+import {
   boundedRequest,
   isOperationAborted,
   isRequestTimeout,
@@ -59,6 +70,8 @@ export type SearchCredentials = {
   braveApiKey?: string;
 };
 
+export type WebCredentials = SearchCredentials & Context7Credentials;
+
 export type SearchResult = {
   title: string;
   link: string;
@@ -80,6 +93,25 @@ export type SearchInput = {
   endpoints?: Partial<Record<SearchProvider, string>>;
   timeoutMs?: number;
 };
+
+export type WebOperations = {
+  search(input: SearchInput): Promise<SearchResponse>;
+  fetch(input: FetchInput, signal?: AbortSignal): Promise<FetchResult>;
+  docsResolve(input: DocsResolveInput): Promise<DocsResolveResult>;
+  docsFetch(input: DocsFetchInput): Promise<DocsFetchResult>;
+  sgraphSearch(input: SGraphInput): Promise<SGraphResult>;
+};
+
+/** Creates the default in-process implementation shared by every host adapter. */
+export function createWebOperations(): WebOperations {
+  return {
+    search,
+    fetch: fetchWebPage,
+    docsResolve,
+    docsFetch,
+    sgraphSearch,
+  };
+}
 
 /**
  * Performs one provider search using native fetch. Endpoints and fetch are

@@ -4,32 +4,13 @@ import { createMcpCommand } from "./mcp.js";
 
 import {
   formatSearchResults,
-  type DocsFetchInput,
-  type DocsFetchResult,
   type DocsLibrary,
-  type DocsResolveInput,
-  type DocsResolveResult,
-  type FetchInput,
-  type FetchResult,
-  type SearchCredentials,
-  type SearchInput,
-  type SearchResponse,
-  type SGraphInput,
-  type SGraphResult,
+  type WebCredentials,
+  type WebOperations,
 } from "@guionai/web-core";
 
-export type WebCredentials = SearchCredentials & { context7ApiKey?: string };
-
-export type WebService = {
-  search(input: SearchInput): Promise<SearchResponse>;
-  fetch(input: FetchInput, signal?: AbortSignal): Promise<FetchResult>;
-  docsResolve(input: DocsResolveInput): Promise<DocsResolveResult>;
-  docsFetch(input: DocsFetchInput): Promise<DocsFetchResult>;
-  sgraphSearch(input: SGraphInput): Promise<SGraphResult>;
-};
-
 export type ProgramDependencies = {
-  service: WebService;
+  operations: WebOperations;
   credentials: () => WebCredentials;
   writeOut?: (text: string) => void;
 };
@@ -59,7 +40,7 @@ function createSearchCommand(dependencies: ProgramDependencies): Command {
     .option("--provider <provider>", "Search provider: exa or brave")
     .action(
       async (query: string, options: { json?: boolean; provider?: string }) => {
-        const result = await dependencies.service.search({
+        const result = await dependencies.operations.search({
           query,
           provider: options.provider,
           credentials: dependencies.credentials(),
@@ -108,7 +89,7 @@ function createSGraphCommand(dependencies: ProgramDependencies): Command {
           json?: boolean;
         },
       ) => {
-        const result = await dependencies.service.sgraphSearch({
+        const result = await dependencies.operations.sgraphSearch({
           query,
           count: options.count,
           context: options.context,
@@ -138,7 +119,7 @@ function createDocsResolveCommand(dependencies: ProgramDependencies): Command {
     .argument("<query>", "Library name or package query")
     .option("--json", "Output the structured result as JSON")
     .action(async (query: string, options: { json?: boolean }) => {
-      const result = await dependencies.service.docsResolve({
+      const result = await dependencies.operations.docsResolve({
         query,
         credentials: dependencies.credentials(),
       });
@@ -170,7 +151,7 @@ function createDocsFetchCommand(dependencies: ProgramDependencies): Command {
         topic: string | undefined,
         options: { tokens?: number; json?: boolean },
       ) => {
-        const result = await dependencies.service.docsFetch({
+        const result = await dependencies.operations.docsFetch({
           library_id: libraryID,
           topic,
           tokens: options.tokens,
@@ -237,7 +218,7 @@ function createFetchCommand(dependencies: ProgramDependencies): Command {
           json?: boolean;
         },
       ) => {
-        const result = await dependencies.service.fetch({
+        const result = await dependencies.operations.fetch({
           url,
           tree: options.tree,
           section_id: options.section,

@@ -1,3 +1,4 @@
+import { createWebOperations } from "@guionai/web-core";
 import type { Context } from "@deepseek-ai/cordis";
 import { settingsNamespace } from "@deepseek-ai/dsh-settings";
 import z from "@deepseek-ai/schemastery";
@@ -26,11 +27,13 @@ export function apply(ctx: Context): void {
       applies: "live",
     },
   );
+  const operations = createWebOperations();
   ctx.web.registerSearchProvider(
     createGuionSearchProvider({
       getProvider: () => (settings.get() as GuionSettings).provider,
       credentials: ctx.credentials,
+      operations,
     }),
   );
-  registerWebTools(ctx, { credentials: ctx.credentials });
+  registerWebTools(ctx, { credentials: ctx.credentials, operations });
 }

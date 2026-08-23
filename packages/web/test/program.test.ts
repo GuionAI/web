@@ -16,7 +16,7 @@ const result = {
 };
 
 function setup() {
-  const service = {
+  const operations = {
     search: vi.fn(async () => result),
     fetch: vi.fn(async () => ({
       url: "https://example.test/page",
@@ -31,24 +31,24 @@ function setup() {
   };
   let stdout = "";
   const program = createProgram({
-    service,
+    operations,
     credentials: () => ({ braveApiKey: "fixture-key" }),
     writeOut: (text) => {
       stdout += text;
     },
   });
   let stderr = "";
-  return { program, service, output: () => ({ stdout, stderr }) };
+  return { program, operations, output: () => ({ stdout, stderr }) };
 }
 
 describe("web search Commander adapter", () => {
   it("passes an explicit provider and writes concise human output to stdout", async () => {
-    const { program, service, output } = setup();
+    const { program, operations, output } = setup();
     await program.parseAsync(["search", "tree sitter", "--provider", "brave"], {
       from: "user",
     });
 
-    expect(service.search).toHaveBeenCalledWith({
+    expect(operations.search).toHaveBeenCalledWith({
       query: "tree sitter",
       provider: "brave",
       credentials: { braveApiKey: "fixture-key" },
@@ -61,13 +61,13 @@ describe("web search Commander adapter", () => {
   });
 
   it("accepts a flag-like query after -- and emits exactly one JSON document", async () => {
-    const { program, service, output } = setup();
+    const { program, operations, output } = setup();
     await program.parseAsync(
       ["search", "--provider", "exa", "--json", "--", "-flag-like-query"],
       { from: "user" },
     );
 
-    expect(service.search).toHaveBeenCalledWith({
+    expect(operations.search).toHaveBeenCalledWith({
       query: "-flag-like-query",
       provider: "exa",
       credentials: { braveApiKey: "fixture-key" },
@@ -78,7 +78,7 @@ describe("web search Commander adapter", () => {
   });
 
   it("maps Sourcegraph flags, protects hyphenated queries with --, and emits one JSON document", async () => {
-    const { program, service, output } = setup();
+    const { program, operations, output } = setup();
     await program.parseAsync(
       [
         "sgraph",
@@ -95,7 +95,7 @@ describe("web search Commander adapter", () => {
       { from: "user" },
     );
 
-    expect(service.sgraphSearch).toHaveBeenCalledWith({
+    expect(operations.sgraphSearch).toHaveBeenCalledWith({
       query: "-repo:test",
       count: 14,
       context: 3,
@@ -110,8 +110,8 @@ describe("web search Commander adapter", () => {
   });
 
   it("dispatches nested docs commands with established human and one-document JSON output", async () => {
-    const { program, service, output } = setup();
-    service.docsResolve.mockResolvedValue({
+    const { program, operations, output } = setup();
+    operations.docsResolve.mockResolvedValue({
       query: "react",
       libraries: [
         {
@@ -125,7 +125,7 @@ describe("web search Commander adapter", () => {
       ],
     });
     await program.parseAsync(["docs", "resolve", "react"], { from: "user" });
-    expect(service.docsResolve).toHaveBeenCalledWith({
+    expect(operations.docsResolve).toHaveBeenCalledWith({
       query: "react",
       credentials: { braveApiKey: "fixture-key" },
     });
@@ -140,7 +140,7 @@ describe("web search Commander adapter", () => {
       content: "Documentation\n",
     }));
     const fetchProgram = createProgram({
-      service: { ...service, docsFetch },
+      operations: { ...operations, docsFetch },
       credentials: () => ({ context7ApiKey: "fixture-key" }),
       writeOut: (text) => {
         jsonOutput += text;
@@ -175,7 +175,7 @@ describe("web search Commander adapter", () => {
   });
 
   it("passes fetch navigation flags and writes human Markdown", async () => {
-    const { program, service, output } = setup();
+    const { program, operations, output } = setup();
     await program.parseAsync(
       [
         "fetch",
@@ -189,7 +189,7 @@ describe("web search Commander adapter", () => {
       { from: "user" },
     );
 
-    expect(service.fetch).toHaveBeenCalledWith({
+    expect(operations.fetch).toHaveBeenCalledWith({
       url: "https://example.test/page",
       tree: true,
       section_id: "7i",
@@ -200,13 +200,13 @@ describe("web search Commander adapter", () => {
   });
 
   it("writes fetch JSON as exactly one document", async () => {
-    const { program, service, output } = setup();
+    const { program, operations, output } = setup();
     await program.parseAsync(
       ["fetch", "https://example.test/page", "--full", "--json"],
       { from: "user" },
     );
 
-    expect(service.fetch).toHaveBeenCalledWith({
+    expect(operations.fetch).toHaveBeenCalledWith({
       url: "https://example.test/page",
       tree: undefined,
       section_id: undefined,
@@ -214,13 +214,13 @@ describe("web search Commander adapter", () => {
       tree_threshold: undefined,
     });
     expect(JSON.parse(output().stdout)).toEqual(
-      await service.fetch.mock.results[0]!.value,
+      await operations.fetch.mock.results[0]!.value,
     );
     expect(output().stdout.endsWith("\n")).toBe(true);
   });
 
   it("returns nonzero failures to stderr without writing a partial stdout result", async () => {
-    const service = {
+    const operations = {
       search: vi.fn(async () => {
         throw new Error(
           "EXA_API_KEY is required when --provider exa is selected",
@@ -235,7 +235,7 @@ describe("web search Commander adapter", () => {
     let stderr = "";
     const exitCode = await runCli(
       ["node", "web", "search", "query", "--provider", "exa"],
-      { service, credentials: () => ({}) },
+      { operations, credentials: () => ({}) },
       {
         stdout: (text) => {
           stdout += text;

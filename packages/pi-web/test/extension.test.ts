@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 import { Value } from "typebox/value";
+import type { WebOperations } from "@guionai/web-core";
 
 import {
   webDocsSchema,
@@ -13,6 +14,20 @@ import {
   webSgraphSchema,
   webSgraphTool,
 } from "../src/tool.js";
+
+function operations(overrides: Partial<WebOperations>): WebOperations {
+  const unused = async (): Promise<never> => {
+    throw new Error("unused test operation");
+  };
+  return {
+    search: unused,
+    fetch: unused,
+    docsResolve: unused,
+    docsFetch: unused,
+    sgraphSearch: unused,
+    ...overrides,
+  };
+}
 
 function call(
   definition: ReturnType<typeof webSearchTool>,
@@ -53,7 +68,7 @@ describe("pi-web extension", () => {
     ).toBe(true);
 
     const search = vi.fn();
-    const tool = webSearchTool({ search });
+    const tool = webSearchTool({ operations: operations({ search }) });
     await expect(
       call(tool, { queries: ["x", "y", "z", "w", "v"] }),
     ).rejects.toThrow(/1 to 4 non-empty strings/);
@@ -104,9 +119,12 @@ describe("pi-web extension", () => {
     const search = vi.fn(
       (input: { query: string }) => pending[nextSearch++]!.promise,
     );
-    const resultPromise = call(webSearchTool({ search }), {
-      queries: ["slow", "fast", "broken", "slow"],
-    });
+    const resultPromise = call(
+      webSearchTool({ operations: operations({ search }) }),
+      {
+        queries: ["slow", "fast", "broken", "slow"],
+      },
+    );
 
     expect(search.mock.calls.map(([input]) => input.query)).toEqual([
       "slow",
@@ -161,23 +179,43 @@ describe("pi-web extension", () => {
       });
     const definitions: Array<[ReturnType<typeof webSearchTool>, unknown]> = [
       [
-        webSearchTool({ search: ({ signal }) => abortable(signal) }),
+        webSearchTool({
+          operations: operations({
+            search: ({ signal }) => abortable(signal),
+          }),
+        }),
         { queries: ["wait"] },
       ],
       [
-        webFetchTool({ fetch: (_input, signal) => abortable(signal) }),
+        webFetchTool({
+          operations: operations({
+            fetch: (_input, signal) => abortable(signal),
+          }),
+        }),
         { url: "https://fixture.test" },
       ],
       [
-        webDocsTool({ docsResolve: ({ signal }) => abortable(signal) }),
+        webDocsTool({
+          operations: operations({
+            docsResolve: ({ signal }) => abortable(signal),
+          }),
+        }),
         { action: "resolve", query: "fixture" },
       ],
       [
-        webDocsTool({ docsFetch: ({ signal }) => abortable(signal) }),
+        webDocsTool({
+          operations: operations({
+            docsFetch: ({ signal }) => abortable(signal),
+          }),
+        }),
         { action: "fetch", library_id: "/fixture" },
       ],
       [
-        webSgraphTool({ sgraphSearch: ({ signal }) => abortable(signal) }),
+        webSgraphTool({
+          operations: operations({
+            sgraphSearch: ({ signal }) => abortable(signal),
+          }),
+        }),
         { query: "fixture" },
       ],
     ];
@@ -196,10 +234,12 @@ describe("pi-web extension", () => {
       (_, index) => `line ${index}`,
     ).join("\n");
     const tool = webFetchTool({
-      fetch: async () => ({
-        url: "https://fixture.test",
-        mode: "full",
-        content,
+      operations: operations({
+        fetch: async () => ({
+          url: "https://fixture.test",
+          mode: "full",
+          content,
+        }),
       }),
     });
     const result = await call(tool, { url: "https://fixture.test" });

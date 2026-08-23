@@ -1,9 +1,14 @@
 import { Context } from "@deepseek-ai/cordis";
 import { WebRuntime } from "@deepseek-ai/dsh-web";
 import { describe, expect, it } from "vitest";
+import { createWebOperations, type WebOperations } from "@guionai/web-core";
 
 import { SEARCH_PROVIDER_ID } from "../src/contract.js";
 import { createGuionSearchProvider } from "../src/provider.js";
+
+function withOperations(overrides: Partial<WebOperations>): WebOperations {
+  return { ...createWebOperations(), ...overrides };
+}
 
 describe("DSH Web package composition", () => {
   it("works at the supported rc.8 WebRuntime provider seam for concurrent PTC queries", async () => {
@@ -19,10 +24,12 @@ describe("DSH Web package composition", () => {
             credentials: {
               resolve: async () => ({ value: "test-secret", source: "file" }),
             },
-            search: async (input) => {
-              calls.push(input.query);
-              return { provider: "Exa", results: [] };
-            },
+            operations: withOperations({
+              search: async (input) => {
+                calls.push(input.query);
+                return { provider: "Exa", results: [] };
+              },
+            }),
           }),
         );
       },

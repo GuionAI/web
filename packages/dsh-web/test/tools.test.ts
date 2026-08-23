@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createWebOperations, type WebOperations } from "@guionai/web-core";
 
 import { CONTEXT7_CREDENTIAL_REF } from "../src/contract.js";
 import {
@@ -16,6 +17,10 @@ function call(
 ): Promise<unknown> {
   return definition.execute(args, { signal: abortSignal } as never);
 }
+function operations(overrides: Partial<WebOperations>): WebOperations {
+  return { ...createWebOperations(), ...overrides };
+}
+
 function dependencies(
   overrides: Partial<WebToolDependencies> = {},
 ): WebToolDependencies {
@@ -69,26 +74,28 @@ describe("DSH direct web tools", () => {
     const controller = new AbortController();
     const [fetch, docs, sgraph] = createWebToolDefinitions(
       dependencies({
-        fetch: async (input, abortSignal) => {
-          calls.push({ kind: "fetch", input, abortSignal });
-          return { url: input.url, mode: "section", content: "selected" };
-        },
-        docsResolve: async (input) => {
-          calls.push({ kind: "resolve", input });
-          return { query: input.query, libraries: [] };
-        },
-        docsFetch: async (input) => {
-          calls.push({ kind: "docs", input });
-          return {
-            library_id: input.library_id,
-            topic: input.topic,
-            content: "documentation",
-          };
-        },
-        sgraphSearch: async (input) => {
-          calls.push({ kind: "sgraph", input });
-          return { content: "# results" };
-        },
+        operations: operations({
+          fetch: async (input, abortSignal) => {
+            calls.push({ kind: "fetch", input, abortSignal });
+            return { url: input.url, mode: "section", content: "selected" };
+          },
+          docsResolve: async (input) => {
+            calls.push({ kind: "resolve", input });
+            return { query: input.query, libraries: [] };
+          },
+          docsFetch: async (input) => {
+            calls.push({ kind: "docs", input });
+            return {
+              library_id: input.library_id,
+              topic: input.topic,
+              content: "documentation",
+            };
+          },
+          sgraphSearch: async (input) => {
+            calls.push({ kind: "sgraph", input });
+            return { content: "# results" };
+          },
+        }),
       }),
     );
 
@@ -166,10 +173,12 @@ describe("DSH direct web tools", () => {
             return { value: secret, source: "file" };
           },
         },
-        docsFetch: async (input) => {
-          expect(input.credentials).toEqual({ context7ApiKey: secret });
-          throw new Error(secret);
-        },
+        operations: operations({
+          docsFetch: async (input) => {
+            expect(input.credentials).toEqual({ context7ApiKey: secret });
+            throw new Error(secret);
+          },
+        }),
       }),
     )[1]!;
     await expect(
@@ -184,7 +193,7 @@ describe("DSH direct web tools", () => {
     const fetch = vi.fn();
     const docsResolve = vi.fn();
     const [fetchTool, docsTool, sgraphTool] = createWebToolDefinitions(
-      dependencies({ fetch, docsResolve }),
+      dependencies({ operations: operations({ fetch, docsResolve }) }),
     );
     await expect(
       call(fetchTool!, { url: "https://example.test", extra: true }),

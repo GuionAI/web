@@ -1,8 +1,8 @@
 import {
-  search,
+  createWebOperations,
   type SearchCredentials,
-  type SearchInput,
   type SearchResponse,
+  type WebOperations,
 } from "@guionai/web-core";
 import {
   credentialRef,
@@ -23,7 +23,7 @@ export interface SearchProviderDependencies {
   credentials: {
     resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined>;
   };
-  search?: (input: SearchInput) => Promise<SearchResponse>;
+  operations?: WebOperations;
 }
 
 function credentialFor(provider: SearchProviderName): {
@@ -83,7 +83,7 @@ function validateSearchResult(
 export function createGuionSearchProvider(
   dependencies: SearchProviderDependencies,
 ): WebSearchProvider {
-  const searchOperation = dependencies.search ?? search;
+  const operations = dependencies.operations ?? createWebOperations();
   return {
     id: SEARCH_PROVIDER_ID,
     // Selection is explicit in live DSH settings. Credentials are resolved for
@@ -103,7 +103,7 @@ export function createGuionSearchProvider(
         resolved === undefined ? {} : { [credential.field]: resolved.value };
       let result: SearchResponse;
       try {
-        result = await searchOperation({
+        result = await operations.search({
           query: request.query,
           provider,
           credentials,

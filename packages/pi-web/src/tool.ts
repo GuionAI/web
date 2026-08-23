@@ -1,25 +1,12 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-  docsFetch,
-  docsResolve,
+  createWebOperations,
   normalizeDocsToolInput,
-  fetchWebPage,
-  search,
-  sgraphSearch,
-  type Context7Credentials,
-  type DocsFetchInput,
-  type DocsFetchResult,
   type DocsToolInput,
-  type DocsResolveInput,
-  type DocsResolveResult,
-  type FetchInput,
-  type FetchResult,
-  type SearchCredentials,
-  type SearchInput,
+  type WebCredentials,
+  type WebOperations,
   type SearchResponse,
-  type SGraphInput,
-  type SGraphResult,
 } from "@guionai/web-core";
 import { Type, type Static, type TSchema } from "typebox";
 
@@ -124,17 +111,12 @@ export type WebFetchInput = Static<typeof webFetchSchema>;
 export type WebDocsInput = Static<typeof webDocsSchema>;
 export type WebSgraphInput = Static<typeof webSgraphSchema>;
 
-type WebCredentials = SearchCredentials & Context7Credentials;
 type SearchResult = SearchResponse & {
   errors?: Array<{ query: string; error: string }>;
 };
 
 export type WebToolDependencies = {
-  search?: (input: SearchInput) => Promise<SearchResponse>;
-  fetch?: (input: FetchInput, signal?: AbortSignal) => Promise<FetchResult>;
-  docsResolve?: (input: DocsResolveInput) => Promise<DocsResolveResult>;
-  docsFetch?: (input: DocsFetchInput) => Promise<DocsFetchResult>;
-  sgraphSearch?: (input: SGraphInput) => Promise<SGraphResult>;
+  operations?: WebOperations;
   credentials?: () => WebCredentials;
 };
 
@@ -217,7 +199,7 @@ function normalizeDocs(input: unknown): DocsToolInput {
 }
 
 export function webSearchTool(dependencies: WebToolDependencies = {}) {
-  const searchOperation = dependencies.search ?? search;
+  const operations = dependencies.operations ?? createWebOperations();
   const credentials = dependencies.credentials ?? environmentCredentials;
   return makeTool({
     name: "web_search",
@@ -231,7 +213,7 @@ export function webSearchTool(dependencies: WebToolDependencies = {}) {
       const queries = requireQueries(params);
       const settled = await Promise.allSettled(
         queries.map((query) =>
-          searchOperation({
+          operations.search({
             query,
             credentials: credentials(),
             signal,
@@ -275,7 +257,7 @@ export function webSearchTool(dependencies: WebToolDependencies = {}) {
 }
 
 export function webFetchTool(dependencies: WebToolDependencies = {}) {
-  const fetchOperation = dependencies.fetch ?? fetchWebPage;
+  const operations = dependencies.operations ?? createWebOperations();
   return makeTool({
     name: "web_fetch",
     label: "Web fetch",
@@ -285,7 +267,7 @@ export function webFetchTool(dependencies: WebToolDependencies = {}) {
     promptGuidelines: FETCH_PROMPT_GUIDELINES,
     parameters: webFetchSchema,
     execute: async (params, signal) => {
-      const data = await fetchOperation(
+      const data = await operations.fetch(
         {
           url: requireString(params, "url"),
           tree: (params as WebFetchInput).tree,
@@ -303,8 +285,7 @@ export function webFetchTool(dependencies: WebToolDependencies = {}) {
 }
 
 export function webDocsTool(dependencies: WebToolDependencies = {}) {
-  const resolve = dependencies.docsResolve ?? docsResolve;
-  const fetch = dependencies.docsFetch ?? docsFetch;
+  const operations = dependencies.operations ?? createWebOperations();
   const credentials = dependencies.credentials ?? environmentCredentials;
   return makeTool({
     name: "web_docs",
@@ -317,7 +298,7 @@ export function webDocsTool(dependencies: WebToolDependencies = {}) {
     execute: async (params, signal) => {
       const input = normalizeDocs(params);
       if (input.action === "resolve") {
-        const data = await resolve({
+        const data = await operations.docsResolve({
           query: input.query,
           credentials: credentials(),
           signal,
@@ -333,7 +314,7 @@ export function webDocsTool(dependencies: WebToolDependencies = {}) {
           hint: "Use web_docs action fetch with a library_id from the results.",
         });
       }
-      const data = await fetch({
+      const data = await operations.docsFetch({
         ...input,
         credentials: credentials(),
         signal,
@@ -346,7 +327,7 @@ export function webDocsTool(dependencies: WebToolDependencies = {}) {
 }
 
 export function webSgraphTool(dependencies: WebToolDependencies = {}) {
-  const operation = dependencies.sgraphSearch ?? sgraphSearch;
+  const operations = dependencies.operations ?? createWebOperations();
   return makeTool({
     name: "web_sgraph",
     label: "Web source search",
@@ -357,7 +338,7 @@ export function webSgraphTool(dependencies: WebToolDependencies = {}) {
     parameters: webSgraphSchema,
     execute: async (params, signal) => {
       const input = params as WebSgraphInput;
-      const data = await operation({
+      const data = await operations.sgraphSearch({
         query: requireString(params, "query"),
         count: input.count,
         context: input.context,
@@ -404,8 +385,12 @@ export function registerWebTools(
   pi: Pick<ExtensionAPI, "registerTool">,
   dependencies: WebToolDependencies = {},
 ): void {
-  pi.registerTool(webSearchTool(dependencies));
-  pi.registerTool(webFetchTool(dependencies));
-  pi.registerTool(webDocsTool(dependencies));
-  pi.registerTool(webSgraphTool(dependencies));
+  const shared = {
+    ...dependencies,
+    operations: dependencies.operations ?? createWebOperations(),
+  };
+  pi.registerTool(webSearchTool(shared));
+  pi.registerTool(webFetchTool(shared));
+  pi.registerTool(webDocsTool(shared));
+  pi.registerTool(webSgraphTool(shared));
 }

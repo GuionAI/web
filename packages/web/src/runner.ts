@@ -1,11 +1,8 @@
-import {
-  createProgram,
-  type WebCredentials,
-  type WebService,
-} from "./program.js";
+import { createProgram } from "./program.js";
+import type { WebCredentials, WebOperations } from "@guionai/web-core";
 
 export type CliDependencies = {
-  service: WebService;
+  operations: WebOperations;
   credentials: () => WebCredentials;
 };
 

@@ -7,7 +7,7 @@ import {
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { Command } from "commander";
 
-import type { WebCredentials, WebService } from "./program.js";
+import type { WebCredentials, WebOperations } from "@guionai/web-core";
 
 const DEFAULT_FETCH_TREE_THRESHOLD = 5000;
 
@@ -33,7 +33,7 @@ type SGraphToolInput = {
 };
 
 export type McpDependencies = {
-  service: WebService;
+  operations: WebOperations;
   credentials: () => WebCredentials;
   /** A provider selected at startup and used by every search request. */
   provider?: string;
@@ -198,7 +198,7 @@ export function createMcpServer(dependencies: McpDependencies): McpServer {
     async ({ query }, context) =>
       runTool(
         () =>
-          dependencies.service.search({
+          dependencies.operations.search({
             query,
             provider: dependencies.provider,
             credentials: dependencies.credentials(),
@@ -219,7 +219,7 @@ export function createMcpServer(dependencies: McpDependencies): McpServer {
     async ({ url, tree, section_id, full, tree_threshold }, context) =>
       runTool(
         () =>
-          dependencies.service.fetch(
+          dependencies.operations.fetch(
             {
               url,
               tree: tree ?? false,
@@ -244,7 +244,7 @@ export function createMcpServer(dependencies: McpDependencies): McpServer {
     async ({ query }, context) =>
       runTool(
         () =>
-          dependencies.service.docsResolve({
+          dependencies.operations.docsResolve({
             query,
             credentials: dependencies.credentials(),
             signal: context.mcpReq.signal,
@@ -264,7 +264,7 @@ export function createMcpServer(dependencies: McpDependencies): McpServer {
     async ({ library_id, topic, tokens }, context) =>
       runTool(
         () =>
-          dependencies.service.docsFetch({
+          dependencies.operations.docsFetch({
             library_id,
             topic,
             tokens: tokens ?? 0,
@@ -286,7 +286,7 @@ export function createMcpServer(dependencies: McpDependencies): McpServer {
     async ({ query, count, context: contextWindow, timeout }, context) =>
       runTool(
         () =>
-          dependencies.service.sgraphSearch({
+          dependencies.operations.sgraphSearch({
             query,
             count: count ?? 10,
             context: contextWindow ?? 10,

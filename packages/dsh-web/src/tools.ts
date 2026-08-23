@@ -1,21 +1,15 @@
 import {
-  docsFetch,
-  docsResolve,
+  createWebOperations,
   normalizeDocsToolInput,
-  fetchWebPage,
-  sgraphSearch,
   formatSize,
   truncateHead,
   type Context7Credentials,
-  type DocsFetchInput,
   type DocsFetchResult,
-  type DocsToolInput,
-  type DocsResolveInput,
   type DocsResolveResult,
-  type FetchInput,
+  type DocsToolInput,
   type FetchResult,
-  type SGraphInput,
   type SGraphResult,
+  type WebOperations,
 } from "@guionai/web-core";
 import {
   credentialRef,
@@ -33,10 +27,7 @@ export interface WebToolDependencies {
   credentials: {
     resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined>;
   };
-  fetch?: (input: FetchInput, signal?: AbortSignal) => Promise<FetchResult>;
-  docsResolve?: (input: DocsResolveInput) => Promise<DocsResolveResult>;
-  docsFetch?: (input: DocsFetchInput) => Promise<DocsFetchResult>;
-  sgraphSearch?: (input: SGraphInput) => Promise<SGraphResult>;
+  operations?: WebOperations;
 }
 
 const fetchParameters = {
@@ -269,8 +260,10 @@ function formatDocsResolve(result: DocsResolveResult): string {
   return `Found ${result.libraries.length} libraries:\n${result.libraries.map((library) => `- ${library.id}: ${library.title}`).join("\n")}`;
 }
 
-function webFetchTool(dependencies: WebToolDependencies): ToolDefinition {
-  const fetch = dependencies.fetch ?? fetchWebPage;
+function webFetchTool(
+  dependencies: WebToolDependencies,
+  operations: WebOperations,
+): ToolDefinition {
   return strictDefinition(
     defineTool({
       name: "web_fetch",
@@ -281,7 +274,7 @@ function webFetchTool(dependencies: WebToolDependencies): ToolDefinition {
       isConcurrencySafe: () => true,
       async execute(args, exec) {
         rejectUnknownFields(args, Object.keys(fetchParameters), "web_fetch");
-        return fetch(
+        return operations.fetch(
           {
             url: requireString(args, "url"),
             tree: args.tree,
@@ -296,9 +289,10 @@ function webFetchTool(dependencies: WebToolDependencies): ToolDefinition {
   );
 }
 
-function webDocsTool(dependencies: WebToolDependencies): ToolDefinition {
-  const resolve = dependencies.docsResolve ?? docsResolve;
-  const fetch = dependencies.docsFetch ?? docsFetch;
+function webDocsTool(
+  dependencies: WebToolDependencies,
+  operations: WebOperations,
+): ToolDefinition {
   return strictDefinition(
     defineTool({
       name: "web_docs",
@@ -312,12 +306,16 @@ function webDocsTool(dependencies: WebToolDependencies): ToolDefinition {
         const credentials = await context7Credentials(dependencies);
         try {
           return input.action === "resolve"
-            ? await resolve({
+            ? await operations.docsResolve({
                 query: input.query,
                 credentials,
                 signal: exec.signal,
               })
-            : await fetch({ ...input, credentials, signal: exec.signal });
+            : await operations.docsFetch({
+                ...input,
+                credentials,
+                signal: exec.signal,
+              });
         } catch (error) {
           if (error instanceof Error && error.message === "Operation aborted")
             throw error;
@@ -328,8 +326,10 @@ function webDocsTool(dependencies: WebToolDependencies): ToolDefinition {
   );
 }
 
-function webSgraphTool(dependencies: WebToolDependencies): ToolDefinition {
-  const operation = dependencies.sgraphSearch ?? sgraphSearch;
+function webSgraphTool(
+  dependencies: WebToolDependencies,
+  operations: WebOperations,
+): ToolDefinition {
   return strictDefinition(
     defineTool({
       name: "web_sgraph",
@@ -339,7 +339,7 @@ function webSgraphTool(dependencies: WebToolDependencies): ToolDefinition {
       isConcurrencySafe: () => true,
       async execute(args, exec) {
         rejectUnknownFields(args, Object.keys(sgraphParameters), "web_sgraph");
-        return operation({
+        return operations.sgraphSearch({
           query: requireString(args, "query"),
           count: args.count,
           context: args.context,
@@ -354,10 +354,11 @@ function webSgraphTool(dependencies: WebToolDependencies): ToolDefinition {
 export function createWebToolDefinitions(
   dependencies: WebToolDependencies,
 ): readonly [ToolDefinition, ToolDefinition, ToolDefinition] {
+  const operations = dependencies.operations ?? createWebOperations();
   return [
-    webFetchTool(dependencies),
-    webDocsTool(dependencies),
-    webSgraphTool(dependencies),
+    webFetchTool(dependencies, operations),
+    webDocsTool(dependencies, operations),
+    webSgraphTool(dependencies, operations),
   ];
 }
 

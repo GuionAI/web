@@ -3,9 +3,9 @@ import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { describe, expect, it, vi } from "vitest";
 
 import { createMcpServer } from "../src/mcp.js";
-import type { WebService } from "../src/program.js";
+import type { WebOperations } from "@guionai/web-core";
 
-function webService(): WebService {
+function webService(): WebOperations {
   return {
     search: vi.fn(async () => ({
       provider: "Brave" as const,
@@ -44,9 +44,9 @@ function webService(): WebService {
   };
 }
 
-async function connect(service = webService(), provider?: string) {
+async function connect(operations = webService(), provider?: string) {
   const server = createMcpServer({
-    service,
+    operations,
     provider,
     credentials: () => ({
       braveApiKey: "brave-secret",
@@ -58,7 +58,7 @@ async function connect(service = webService(), provider?: string) {
   await server.connect(serverTransport);
   const client = new Client({ name: "web-test", version: "test" });
   await client.connect(clientTransport);
-  return { client, service };
+  return { client, operations };
 }
 
 describe("web stdio MCP adapter", () => {
@@ -103,7 +103,7 @@ describe("web stdio MCP adapter", () => {
   });
 
   it("maps every input to the shared core and returns structured results", async () => {
-    const { client, service } = await connect(webService(), "brave");
+    const { client, operations } = await connect(webService(), "brave");
 
     const search = await client.callTool({
       name: "search",
@@ -137,7 +137,7 @@ describe("web stdio MCP adapter", () => {
     expect(sgraph.structuredContent).toMatchObject({
       content: "# Sourcegraph results",
     });
-    expect(service.search).toHaveBeenCalledWith(
+    expect(operations.search).toHaveBeenCalledWith(
       expect.objectContaining({
         query: "typed mcp",
         provider: "brave",
@@ -147,7 +147,7 @@ describe("web stdio MCP adapter", () => {
         },
       }),
     );
-    expect(service.fetch).toHaveBeenCalledWith(
+    expect(operations.fetch).toHaveBeenCalledWith(
       {
         url: "https://example.test/page",
         tree: true,
@@ -157,14 +157,14 @@ describe("web stdio MCP adapter", () => {
       },
       expect.any(AbortSignal),
     );
-    expect(service.docsFetch).toHaveBeenCalledWith(
+    expect(operations.docsFetch).toHaveBeenCalledWith(
       expect.objectContaining({
         library_id: "effect-ts/effect",
         topic: "schema",
         tokens: 1200,
       }),
     );
-    expect(service.sgraphSearch).toHaveBeenCalledWith(
+    expect(operations.sgraphSearch).toHaveBeenCalledWith(
       expect.objectContaining({
         query: "repo:guionai",
         count: 10,
@@ -174,13 +174,13 @@ describe("web stdio MCP adapter", () => {
     );
   });
 
-  it("keeps service failures as tool errors and recovers for the next request", async () => {
-    const service = webService();
-    vi.mocked(service.search).mockImplementation(async ({ query }) => {
+  it("keeps operations failures as tool errors and recovers for the next request", async () => {
+    const operations = webService();
+    vi.mocked(operations.search).mockImplementation(async ({ query }) => {
       if (query === "offline") throw new Error("brave-secret unavailable");
       return { provider: "Brave", results: [] };
     });
-    const { client } = await connect(service);
+    const { client } = await connect(operations);
 
     const failed = await client.callTool({
       name: "search",
@@ -203,7 +203,7 @@ describe("web stdio MCP adapter", () => {
   });
 
   it("leaves malformed tool input to MCP validation instead of invoking the core", async () => {
-    const { client, service } = await connect();
+    const { client, operations } = await connect();
     await client.listTools();
 
     const result = await client.callTool({
@@ -219,14 +219,14 @@ describe("web stdio MCP adapter", () => {
         },
       ],
     });
-    expect(service.search).not.toHaveBeenCalled();
+    expect(operations.search).not.toHaveBeenCalled();
   });
 
   it("passes MCP cancellation into the shared core", async () => {
     const started = deferred<void>();
     const canceled = deferred<void>();
-    const service = webService();
-    vi.mocked(service.search).mockImplementation(
+    const operations = webService();
+    vi.mocked(operations.search).mockImplementation(
       ({ signal }) =>
         new Promise((_, reject) => {
           started.resolve();
@@ -240,7 +240,7 @@ describe("web stdio MCP adapter", () => {
           );
         }),
     );
-    const { client } = await connect(service);
+    const { client } = await connect(operations);
     const controller = new AbortController();
     const call = client.callTool(
       { name: "search", arguments: { query: "wait" } },
@@ -254,16 +254,16 @@ describe("web stdio MCP adapter", () => {
   });
 
   it("pins the selected provider for every search over a server lifetime", async () => {
-    const { client, service } = await connect(webService(), "exa");
+    const { client, operations } = await connect(webService(), "exa");
 
     await client.callTool({ name: "search", arguments: { query: "first" } });
     await client.callTool({ name: "search", arguments: { query: "second" } });
 
-    expect(service.search).toHaveBeenNthCalledWith(
+    expect(operations.search).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({ provider: "exa" }),
     );
-    expect(service.search).toHaveBeenNthCalledWith(
+    expect(operations.search).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ provider: "exa" }),
     );

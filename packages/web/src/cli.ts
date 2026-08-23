@@ -1,10 +1,14 @@
 #!/usr/bin/env node
-import { createWebService, credentialsFromEnvironment } from "./runtime.js";
+import { createWebOperations } from "@guionai/web-core";
+import { credentialsFromEnvironment } from "./runtime.js";
 import { runCli } from "./runner.js";
 
 const exitCode = await runCli(
   process.argv,
-  { service: createWebService(), credentials: credentialsFromEnvironment },
+  {
+    operations: createWebOperations(),
+    credentials: credentialsFromEnvironment,
+  },
   {
     stdout: (text) => process.stdout.write(text),
     stderr: (text) => process.stderr.write(text),
