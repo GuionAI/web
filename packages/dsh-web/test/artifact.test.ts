@@ -92,6 +92,20 @@ describe("DSH rc.8 packed package contract", () => {
     expect(packed.name).toBe("@guionai/dsh-web");
     expect(packed.main).toBe("dist/index.js");
     expect(packed.types).toBe("dist/index.d.ts");
+    expect(packed.dsh).toEqual({
+      bundle: { patch: "./cordis.patch.yml" },
+      client: {
+        platform: "web",
+        inject: [
+          "@deepseek-ai/dsh-api-remotes",
+          "@deepseek-ai/dsh-client-connection",
+          "@deepseek-ai/dsh-client-locale",
+          "@deepseek-ai/dsh-client-runtime",
+          "@deepseek-ai/dsh-client-ui-settings",
+          "@deepseek-ai/dsh-client-ui-settings-plugins",
+        ],
+      },
+    });
     expect(packed.exports["./client"]).toEqual({
       types: "./dist/client.d.cts",
       default: "./dist/client.js",

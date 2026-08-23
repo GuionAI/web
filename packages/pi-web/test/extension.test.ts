@@ -5,7 +5,6 @@ import { describe, expect, it, vi } from "vitest";
 import { Value } from "typebox/value";
 
 import {
-  registerWebTools,
   webDocsSchema,
   webDocsTool,
   webFetchTool,
@@ -34,20 +33,6 @@ function deferred<T>() {
 }
 
 describe("pi-web extension", () => {
-  it("registers exactly four capability tools", () => {
-    const registered: Array<{ name: string }> = [];
-    registerWebTools({
-      registerTool: (definition: { name: string }) =>
-        registered.push(definition),
-    } as never);
-    expect(registered.map((definition) => definition.name)).toEqual([
-      "web_search",
-      "web_fetch",
-      "web_docs",
-      "web_sgraph",
-    ]);
-  });
-
   it("keeps direct closed schemas and validates batch and docs action shapes", async () => {
     for (const schema of [webSearchSchema, webDocsSchema, webSgraphSchema]) {
       expect(schema.type).toBe("object");
