@@ -2,7 +2,6 @@ import {
   docsFetch,
   docsResolve,
   fetchWebPage,
-  formatSearchResults,
   search,
   sgraphSearch,
   type Context7Credentials,
@@ -17,36 +16,6 @@ import {
   type SearchResponse,
   type SGraphInput,
   type SGraphResult,
-} from "@guionai/web-core";
-
-export {
-  docsFetch,
-  docsResolve,
-  fetchWebPage,
-  formatSearchResults,
-  normalizeLibraryID,
-  renderMarkdown,
-  search,
-  sgraphSearch,
-  truncateContent,
-} from "@guionai/web-core";
-export type {
-  Context7Credentials,
-  DocsFetchInput,
-  DocsFetchResult,
-  DocsLibrary,
-  DocsResolveInput,
-  DocsResolveResult,
-  FetchCache,
-  FetchInput,
-  FetchOptions,
-  FetchResult,
-  MarkdownResult,
-  SearchCredentials,
-  SearchInput,
-  SearchResponse,
-  SGraphInput,
-  SGraphResult,
 } from "@guionai/web-core";
 
 export type WebCredentials = SearchCredentials & Context7Credentials;

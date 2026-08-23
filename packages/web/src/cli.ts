@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createWebService, credentialsFromEnvironment } from "./index.js";
+import { createWebService, credentialsFromEnvironment } from "./runtime.js";
 import { runCli } from "./runner.js";
 
 const exitCode = await runCli(

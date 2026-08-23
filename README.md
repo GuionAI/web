@@ -7,7 +7,10 @@ and DeepSeek Harness (DSH) integration.
 
 ## Install and configure
 
-Node.js 20 or later is required.
+Node.js 20 or later is required. `@guionai/web` intentionally exposes only
+its `web` executable and stdio MCP server; it does not provide a root
+JavaScript or TypeScript SDK. Use the Pi or DSH packages for those host
+integrations.
 
 ```bash
 npm install --global @guionai/web
