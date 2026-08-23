@@ -163,7 +163,7 @@ else console.log(JSON.stringify({ success: true, data: {} }));
         "docs_resolve",
         "fetch",
         "search",
-        "sgraph_search",
+        "source_search",
       ])
     ) {
       throw new Error(`packed MCP tools = ${names.join(", ")}`);

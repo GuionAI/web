@@ -159,7 +159,7 @@ const DOCS_PROMPT_GUIDELINES = [
   "For web_docs action fetch, provide the library_id returned by action resolve; use topic or tokens to narrow the result.",
 ];
 const SGRAPH_PROMPT_GUIDELINES = [
-  "Use web_sgraph to search public source code through Sourcegraph.",
+  "Use web_source_search to search public source code through Sourcegraph.",
 ];
 
 function environmentCredentials(): WebCredentials {
@@ -383,11 +383,11 @@ export function webDocsTool(dependencies: WebToolDependencies = {}) {
 export function webSgraphTool(dependencies: WebToolDependencies = {}) {
   const operations = dependencies.operations ?? createWebOperations();
   return makeTool({
-    name: "web_sgraph",
+    name: "web_source_search",
     label: "Web source search",
     description:
       "Search public source code through Sourcegraph. Text output is limited to 2,000 lines or 50KB; truncated output is saved to a temporary file.",
-    promptSnippet: "Search public source code with web_sgraph",
+    promptSnippet: "Search public source code with web_source_search",
     promptGuidelines: SGRAPH_PROMPT_GUIDELINES,
     parameters: webSgraphSchema,
     execute: async (params, signal) => {

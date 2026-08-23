@@ -344,13 +344,17 @@ function webSgraphTool(
 ): ToolDefinition {
   return strictDefinition(
     defineTool({
-      name: "web_sgraph",
+      name: "web_source_search",
       description: "Search public source code through Sourcegraph.",
       parameters: sgraphParameters,
       output: sgraphOutput,
       isConcurrencySafe: () => true,
       async execute(args, exec) {
-        rejectUnknownFields(args, Object.keys(sgraphParameters), "web_sgraph");
+        rejectUnknownFields(
+          args,
+          Object.keys(sgraphParameters),
+          "web_source_search",
+        );
         return operations.sgraphSearch({
           query: requireString(args, "query"),
           count: args.count,

@@ -110,7 +110,7 @@ try {
   extension.default({ registerTool: (tool) => registered.push(tool) });
   if (
     registered.map((tool) => tool.name).join(",") !==
-    "web_search,web_fetch,web_docs,web_sgraph"
+    "web_search,web_fetch,web_docs,web_source_search"
   ) {
     throw new Error("packed extension did not register exactly four web tools");
   }

@@ -313,7 +313,7 @@ export function createMcpServer(dependencies: McpDependencies): McpServer {
   );
 
   server.registerTool(
-    "sgraph_search",
+    "source_search",
     toolConfig(
       "Search public source code",
       "Search public source code through Sourcegraph and return Markdown results.",
