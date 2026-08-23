@@ -1,0 +1,173 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.2
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Sync package versions from tag
+        run: node scripts/sync-version.mjs "${GITHUB_REF_NAME#v}"
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
+
+      - name: Release version invariant fixtures
+        run: pnpm test:release
+
+      - name: Verify synchronized release versions
+        run: node scripts/release-dry-run.mjs "${GITHUB_REF_NAME#v}"
+
+      - name: Packed installation smoke tests
+        run: pnpm test:pack
+
+      - name: Upload built package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-dist
+          path: |
+            packages/web/package.json
+            packages/web/dist
+            packages/pi-web/package.json
+            packages/pi-web/dist
+            packages/dsh-web/package.json
+            packages/dsh-web/dist
+          if-no-files-found: error
+
+      - name: Publish release preflight summary
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          version="$(node -p 'require("./packages/web/package.json").version')"
+          case "${version%%+*}" in
+            *-*) dist_tag=beta ;;
+            *) dist_tag=latest ;;
+          esac
+          {
+            echo "## Release preflight passed"
+            echo
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            printf '| Tag | `%s` |\n' "$RELEASE_TAG"
+            printf '| Commit | `%s` |\n' "$RELEASE_SHA"
+            echo '| Packages | `@guionai/web, @guionai/pi-web, @guionai/dsh-web` |'
+            printf '| Synchronized version | `%s` |\n' "$version"
+            printf '| npm dist-tag | `%s` |\n' "$dist_tag"
+            echo "| Checks | format, typecheck, build, tests, release version invariants, packed smoke |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    needs: preflight
+    name: Publish ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    environment:
+      name: npm
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: "@guionai/web"
+            directory: web
+          - package: "@guionai/pi-web"
+            directory: pi-web
+          - package: "@guionai/dsh-web"
+            directory: dsh-web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Ensure npm Trusted Publishing CLI
+        run: |
+          npm install --global npm@11.10.0
+          NPM_VERSION="$(npm --version)" node -e '
+            const [major, minor, patch] = process.env.NPM_VERSION.split(".").map(Number);
+            if (major < 11 || (major === 11 && (minor < 10 || (minor === 10 && patch < 0)))) {
+              throw new Error(`npm ${major}.${minor}.${patch} is below the Trusted Publishing minimum 11.10.0`);
+            }
+            console.log(`npm ${major}.${minor}.${patch} is ready for Trusted Publishing`);
+          '
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.2
+
+      # @guionai/web bundles Commander, so npm publish needs the package-local
+      # pnpm dependency link in addition to the preflight-built dist artifact.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download built package artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: release-dist
+          path: packages
+
+      - name: Derive npm dist-tag from synchronized version
+        id: version
+        run: |
+          version="$(node -p 'require(process.argv[1]).version' "./packages/${{ matrix.directory }}/package.json")"
+          case "${version%%+*}" in
+            *-*) dist_tag=beta ;;
+            *) dist_tag=latest ;;
+          esac
+          echo "dist-tag=$dist_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Publish through npm Trusted Publishing
+        working-directory: packages/${{ matrix.directory }}
+        run: npm publish --no-git-checks --access public --provenance --tag "${{ steps.version.outputs.dist-tag }}"
+
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes

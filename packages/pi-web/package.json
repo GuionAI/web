@@ -1,0 +1,49 @@
+{
+  "name": "@guionai/pi-web",
+  "version": "0.1.0",
+  "description": "Pi extension for in-process web search, page fetch, documentation, and Sourcegraph code search.",
+  "homepage": "https://github.com/guionai/web#readme",
+  "bugs": {
+    "url": "https://github.com/guionai/web/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/guionai/web.git",
+    "directory": "packages/pi-web"
+  },
+  "license": "Apache-2.0",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
+  "type": "module",
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./dist/index.js"
+    ]
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.84.1",
+    "@earendil-works/pi-coding-agent": "0.84.1",
+    "typebox": "1.3.7"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit -p ../../tsconfig.json",
+    "test:pack": "node test/packed-smoke.mjs"
+  }
+}

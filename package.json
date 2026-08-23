@@ -1,0 +1,28 @@
+{
+  "name": "guionai-web-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@10.26.2",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter './packages/*' run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:release": "node scripts/test-release-invariants.mjs",
+    "test:pack": "pnpm --filter @guionai/web run test:pack && pnpm --filter @guionai/pi-web run test:pack && pnpm --filter @guionai/dsh-web run test:pack",
+    "format": "prettier --write README.md package.json pnpm-workspace.yaml tsconfig.json \"packages/**/*.{ts,tsx,js,mjs,cjs,json,yml,yaml}\" \"scripts/**/*.{mjs,ts}\" \".github/**/*.{yml,yaml}\"",
+    "format:check": "prettier --check README.md package.json pnpm-workspace.yaml tsconfig.json \"packages/**/*.{ts,tsx,js,mjs,cjs,json,yml,yaml}\" \"scripts/**/*.{mjs,ts}\" \".github/**/*.{yml,yaml}\""
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
+    "@types/markdown-it": "14.1.2",
+    "@types/node": "24.0.0",
+    "prettier": "3.6.2",
+    "tsup": "8.5.0",
+    "typescript": "5.8.3",
+    "vitest": "3.2.4"
+  }
+}
