@@ -1,9 +1,10 @@
 # Guion Web
 
 Guion Web is a Node.js web research toolkit. It provides Exa or Brave search,
-browserless HTML-to-Markdown extraction, Context7 library documentation lookup,
-and Sourcegraph public code search through a CLI, stdio MCP server, Pi extension,
-and DeepSeek Harness (DSH) integration.
+Context7 library documentation lookup, Sourcegraph public code search, and two
+page-fetch backends through a CLI, stdio MCP server, Pi extension, and DeepSeek
+Harness (DSH) integration: direct HTML-to-Markdown extraction and explicit
+`agent-browser` rendering for client-rendered pages on supported hosts.
 
 ## Install and configure
 
@@ -64,7 +65,9 @@ web mcp --provider brave
 
 The server exposes five read-only tools: `search`, `fetch`, `docs_resolve`,
 `docs_fetch`, and `sgraph_search`. Its stdout is reserved for MCP protocol
-messages; diagnostics go to stderr.
+messages; diagnostics go to stderr. For a client-rendered page, explicitly call
+`fetch` with `render: "agent-browser"` and an integer `waitMs`; this optional
+retry requires a host-installed executable and never happens automatically.
 
 ## Pi
 
@@ -76,7 +79,9 @@ pi install npm:@guionai/pi-web
 
 It registers `web_search`, `web_fetch`, `web_docs`, and `web_sgraph` and calls
 the bundled core in-process. Pi and TypeBox are peer dependencies supplied by
-the host; no CLI executable or MCP configuration is required.
+the host; no CLI executable or MCP configuration is required. `web_fetch` uses
+direct fetch by default and can explicitly use `render: "agent-browser"` with
+an integer `waitMs` when its host provides that optional executable.
 
 ## DSH
 
@@ -90,13 +95,18 @@ The included profile patch routes stock PTC web search through the selected Exa
 or Brave provider. Its settings UI stores provider selection and manages
 namespaced write-only credentials. Fetch, documentation, and Sourcegraph tools
 also run in-process. The host DSH packages and React are peers supplied by DSH.
+`web_fetch` uses direct fetch by default and can explicitly use
+`render: "agent-browser"` with an integer `waitMs` on a host that supplies the
+optional executable.
 
-## Optional JavaScript rendering
+## Page-fetch backends
 
-`web fetch` is browserless by default. It uses Node `fetch`, `linkedom`, and
-Defuddle, never launches a subprocess for an ordinary fetch, and does not
-execute page JavaScript. If the response is an application shell, retry
-explicitly; there is no automatic browser fallback:
+`web fetch` has two backends. `fetch` (the default) uses Node `fetch`,
+`linkedom`, and Defuddle for direct HTML-to-Markdown extraction from static,
+SSR, and pre-rendered pages. `agent-browser` renders client-side pages through
+a separately installed host executable. Direct fetch is used by default; choose
+agent-browser explicitly when needed. The implementation never falls back
+automatically:
 
 ```bash
 web fetch https://example.com/app --render=agent-browser --wait=2000
@@ -105,18 +115,27 @@ web fetch https://example.com/app --render=agent-browser --wait=10000
 ```
 
 `--wait` is mandatory with `--render=agent-browser`, including `--wait=0`, and
-accepts only an integer from 0 through 30,000 milliseconds. Browserless fetches
-must not provide `--wait`. The same `render: "agent-browser"` and required
+accepts only an integer from 0 through 30,000 milliseconds. Direct `fetch`
+requests must not provide `--wait`. The same `render: "agent-browser"` and required
 `waitMs` fields are available on the MCP `fetch`, Pi `web_fetch`, and DSH
-`web_fetch` tools. A browserless failure may return the structured
+`web_fetch` tools. A direct-fetch failure may return the structured
 `javascript_rendering_may_be_required` hint with the 2,000 ms suggestion; the
 agent decides whether to retry with a longer wait or abandon the page.
 
-Rendering is an optional host capability. The host must already have a
-compatible `agent-browser` executable directly runnable from `PATH`; this
-project does not install it, download Chromium, or reuse browser credentials.
-The renderer is supported on macOS and Linux hosts. The three npm packages
-remain browserless and installable when `agent-browser` is absent.
+Rendering is an optional host capability. If you choose to use it, install
+[agent-browser](https://github.com/vercel-labs/agent-browser) separately on the
+host:
+
+```bash
+npm install --global agent-browser
+agent-browser install
+```
+
+`agent-browser install` manages its own browser runtime; Guion packages never
+run it, bundle it, or reuse browser credentials. A compatible executable must be
+directly runnable from `PATH` without a shell. The renderer is supported on
+macOS and Linux hosts. Direct fetch remains available, and the three npm
+packages remain installable when `agent-browser` is absent.
 
 A rendered session is fresh and non-persistent. Before launch, the target must
 be an HTTP(S) public hostname or address. The browser allowlist then contains
