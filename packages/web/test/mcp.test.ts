@@ -213,7 +213,7 @@ describe("web stdio MCP adapter", () => {
       "docs_resolve",
       "fetch",
       "search",
-      "sgraph_search",
+      "source_search",
     ]);
     for (const tool of tools) {
       expect(tool.annotations).toMatchObject({
@@ -233,7 +233,7 @@ describe("web stdio MCP adapter", () => {
     >;
     const docsFetchProperties = byName.docs_fetch!.inputSchema
       .properties! as Record<string, unknown>;
-    const sgraphProperties = byName.sgraph_search!.inputSchema
+    const sgraphProperties = byName.source_search!.inputSchema
       .properties! as Record<string, unknown>;
     expect(fetchProperties.tree_threshold).toMatchObject({ default: 5000 });
     expect(fetchProperties.render).toMatchObject({
@@ -283,7 +283,7 @@ describe("web stdio MCP adapter", () => {
       },
     });
     const sgraph = await client.callTool({
-      name: "sgraph_search",
+      name: "source_search",
       arguments: { query: "repo:guionai" },
     });
 

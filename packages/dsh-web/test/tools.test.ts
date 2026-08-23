@@ -46,12 +46,12 @@ describe("DSH direct web tools", () => {
     expect(definitions.map((definition) => definition.name)).toEqual([
       "web_fetch",
       "web_docs",
-      "web_sgraph",
+      "web_source_search",
     ]);
     expect(registered.map((definition) => definition.name)).toEqual([
       "web_fetch",
       "web_docs",
-      "web_sgraph",
+      "web_source_search",
     ]);
     expect([
       definitions[0]!.isConcurrencySafe?.({ url: "https://example.test" }),

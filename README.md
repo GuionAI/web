@@ -64,7 +64,7 @@ web mcp --provider brave
 ```
 
 The server exposes five read-only tools: `search`, `fetch`, `docs_resolve`,
-`docs_fetch`, and `sgraph_search`. Its stdout is reserved for MCP protocol
+`docs_fetch`, and `source_search`. Its stdout is reserved for MCP protocol
 messages; diagnostics go to stderr. For a client-rendered page, explicitly call
 `fetch` with `render: "agent-browser"` and an integer `waitMs`; this optional
 retry requires a host-installed executable and never happens automatically.
@@ -77,7 +77,7 @@ Install the independently bundled Pi extension:
 pi install npm:@guionai/pi-web
 ```
 
-It registers `web_search`, `web_fetch`, `web_docs`, and `web_sgraph` and calls
+It registers `web_search`, `web_fetch`, `web_docs`, and `web_source_search` and calls
 the bundled core in-process. Pi and TypeBox are peer dependencies supplied by
 the host; no CLI executable or MCP configuration is required. `web_fetch` uses
 direct fetch by default and can explicitly use `render: "agent-browser"` with
