@@ -10,6 +10,7 @@ const publicPackages = [
   { directory: "pi-web", name: "@guionai/pi-web" },
   { directory: "dsh-web", name: "@guionai/dsh-web" },
 ];
+const repositoryUrl = "git+https://github.com/GuionAI/web.git";
 const semver =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const workspace = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -26,6 +27,11 @@ for (const { directory, name } of publicPackages) {
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   if (manifest.name !== name || manifest.private === true) {
     errors.push(`${manifestPath} is not the public ${name} package`);
+  }
+  if (manifest.repository?.url !== repositoryUrl) {
+    errors.push(
+      `${name}: repository.url ${JSON.stringify(manifest.repository?.url)} != ${repositoryUrl}`,
+    );
   }
   if (manifest.version !== version) {
     errors.push(`${name}: version ${manifest.version} != ${version}`);
