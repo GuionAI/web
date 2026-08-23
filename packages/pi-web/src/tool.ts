@@ -150,7 +150,7 @@ const SEARCH_PROMPT_GUIDELINES = [
 ];
 const FETCH_PROMPT_GUIDELINES = [
   "Use web_fetch to read a web page; large pages are truncated with a continuation notice, so follow up with tree or section_id to navigate.",
-  'Browserless fetching is the default. If the result says JavaScript rendering may be required, retry explicitly with render: "agent-browser" and waitMs from 0 through 30000.',
+  'Browserless fetching is the default. If the result says JavaScript rendering may be required, retry explicitly with render: "agent-browser" and waitMs from 0 through 30000 only when the host has agent-browser installed; there is no automatic fallback.',
 ];
 const DOCS_PROMPT_GUIDELINES = [
   "Use web_docs with action resolve, then action fetch, to read library documentation instead of fetching documentation sites page by page.",

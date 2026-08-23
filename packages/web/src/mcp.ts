@@ -244,7 +244,7 @@ export function createMcpServer(dependencies: McpDependencies): McpServer {
     "fetch",
     toolConfig(
       "Fetch a web page",
-      "Fetch a web page and return rendered Markdown content.",
+      "Fetch a browserless web page as Markdown, or explicitly use host-installed agent-browser rendering with required waitMs.",
       fetchInputSchema,
       fetchOutputSchema,
     ),

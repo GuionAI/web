@@ -1,7 +1,7 @@
 {
   "name": "@guionai/web",
   "version": "0.1.0",
-  "description": "Browserless web research CLI and stdio MCP server.",
+  "description": "Browserless-first web research CLI and stdio MCP server with optional host rendering.",
   "homepage": "https://github.com/guionai/web#readme",
   "bugs": {
     "url": "https://github.com/guionai/web/issues"

@@ -23,8 +23,12 @@ and Sourcegraph all run in-process through the bundled Guion Web core.
 `web_fetch` remains browserless by default; an agent may explicitly request
 `render: "agent-browser"` with a required integer `waitMs` from 0 through
 30,000 to render a client-side page through a host-installed `agent-browser`
-executable. The optional renderer is supported on macOS and Linux, is not an
-npm dependency, and never reuses persistent browser state or credentials.
+executable. To enable that optional capability, install
+[agent-browser](https://github.com/vercel-labs/agent-browser) separately with
+`npm install --global agent-browser` followed by `agent-browser install`. Its
+browser runtime is managed outside this package; the renderer is supported on
+macOS and Linux, is not an npm dependency, and never reuses persistent browser
+state or credentials.
 
 Rendered requests are bounded and constrained to the requested hostname,
 `*.<requested-hostname>` (the target and its subdomains), and this fixed common

@@ -278,7 +278,7 @@ function webFetchTool(
     defineTool({
       name: "web_fetch",
       description:
-        "Fetch and read an HTTP or HTTPS web page as Markdown with heading-tree and section navigation.",
+        "Fetch a browserless HTTP or HTTPS page as Markdown with heading-tree and section navigation; explicitly choose host-installed agent-browser rendering with required waitMs for client-rendered pages.",
       parameters: fetchParameters,
       output: fetchOutput,
       isConcurrencySafe: () => true,

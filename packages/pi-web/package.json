@@ -1,7 +1,7 @@
 {
   "name": "@guionai/pi-web",
   "version": "0.1.0",
-  "description": "Pi extension for in-process web search, page fetch, documentation, and Sourcegraph code search.",
+  "description": "Pi extension for in-process web research with optional host-installed page rendering.",
   "homepage": "https://github.com/guionai/web#readme",
   "bugs": {
     "url": "https://github.com/guionai/web/issues"
