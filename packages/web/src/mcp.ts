@@ -7,7 +7,13 @@ import {
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { Command } from "commander";
 
-import type { WebCredentials, WebOperations } from "@guionai/web-core";
+import {
+  FetchCapabilityError,
+  RENDER_REPORT_URL,
+  type FetchErrorDetails,
+  type WebCredentials,
+  type WebOperations,
+} from "@guionai/web-core";
 
 const DEFAULT_FETCH_TREE_THRESHOLD = 5000;
 
@@ -18,6 +24,8 @@ type FetchToolInput = {
   section_id?: string;
   full?: boolean;
   tree_threshold?: number;
+  render?: "fetch" | "agent-browser";
+  waitMs?: number;
 };
 type DocsResolveToolInput = { query: string };
 type DocsFetchToolInput = {
@@ -46,6 +54,7 @@ const searchInputSchema = schema<SearchToolInput>({
 });
 const fetchInputSchema = schema<FetchToolInput>({
   type: "object",
+  additionalProperties: false,
   properties: {
     url: { type: "string", description: "HTTP or HTTPS URL to fetch" },
     tree: { type: "boolean", description: "show the page heading tree" },
@@ -62,8 +71,31 @@ const fetchInputSchema = schema<FetchToolInput>({
       description: "automatic tree threshold; defaults to 5000",
       default: DEFAULT_FETCH_TREE_THRESHOLD,
     },
+    render: {
+      type: "string",
+      enum: ["fetch", "agent-browser"],
+      default: "fetch",
+      description: "optional renderer; browserless fetch is the default",
+    },
+    waitMs: {
+      type: "integer",
+      minimum: 0,
+      maximum: 30_000,
+      description:
+        "required post-load wait for agent-browser rendering (0-30000)",
+    },
   },
   required: ["url"],
+  oneOf: [
+    {
+      properties: { render: { enum: ["fetch"] } },
+      not: { required: ["waitMs"] },
+    },
+    {
+      properties: { render: { const: "agent-browser" } },
+      required: ["render", "waitMs"],
+    },
+  ],
 });
 const docsResolveInputSchema = schema<DocsResolveToolInput>({
   type: "object",
@@ -216,7 +248,10 @@ export function createMcpServer(dependencies: McpDependencies): McpServer {
       fetchInputSchema,
       fetchOutputSchema,
     ),
-    async ({ url, tree, section_id, full, tree_threshold }, context) =>
+    async (
+      { url, tree, section_id, full, tree_threshold, render, waitMs },
+      context,
+    ) =>
       runTool(
         () =>
           dependencies.operations.fetch(
@@ -226,6 +261,8 @@ export function createMcpServer(dependencies: McpDependencies): McpServer {
               section_id,
               full: full ?? false,
               tree_threshold: tree_threshold ?? DEFAULT_FETCH_TREE_THRESHOLD,
+              ...(render !== undefined ? { render } : {}),
+              ...(waitMs !== undefined ? { waitMs } : {}),
             },
             context.mcpReq.signal,
           ),
@@ -352,11 +389,53 @@ async function runTool<T extends Record<string, unknown>>(
       structuredContent: result,
     };
   } catch (error) {
+    if (error instanceof FetchCapabilityError) {
+      const structured = {
+        code: error.code,
+        details: safeFetchErrorDetails(error.details),
+      };
+      return {
+        content: [{ type: "text", text: JSON.stringify(structured) }],
+        structuredContent: structured,
+        isError: true,
+      };
+    }
     return {
       content: [{ type: "text", text: redactError(error, credentials) }],
       isError: true,
     };
   }
+}
+
+function safeFetchErrorDetails(details: FetchErrorDetails): FetchErrorDetails {
+  const safe: FetchErrorDetails = {};
+  if (typeof details.retryableWithRender === "boolean")
+    safe.retryableWithRender = details.retryableWithRender;
+  if (typeof details.retryable === "boolean")
+    safe.retryable = details.retryable;
+  if (
+    details.suggestedArguments?.render === "agent-browser" &&
+    details.suggestedArguments.waitMs === 2000
+  ) {
+    safe.suggestedArguments = { render: "agent-browser", waitMs: 2000 };
+  }
+  if (details.reportUrl === RENDER_REPORT_URL)
+    safe.reportUrl = details.reportUrl;
+  if (
+    typeof details.blockedHostname === "string" &&
+    isSafeHostname(details.blockedHostname)
+  ) {
+    safe.blockedHostname = details.blockedHostname.toLowerCase();
+  }
+  return safe;
+}
+
+function isSafeHostname(hostname: string): boolean {
+  return (
+    hostname.length <= 253 &&
+    /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(hostname) &&
+    !hostname.includes("..")
+  );
 }
 
 function redactError(error: unknown, credentials: WebCredentials): string {

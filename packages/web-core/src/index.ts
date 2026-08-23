@@ -19,7 +19,11 @@ import {
 
 export {
   fetchWebPage,
+  FetchCapabilityError,
+  RENDER_CDN_ALLOWLIST,
+  RENDER_REPORT_URL,
   type FetchCache,
+  type FetchErrorDetails,
   type FetchInput,
   type FetchOptions,
   type FetchResult,

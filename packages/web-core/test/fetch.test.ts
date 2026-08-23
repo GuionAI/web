@@ -5,9 +5,11 @@ import {
   type ServerResponse,
 } from "node:http";
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -166,9 +168,13 @@ describe.sequential("browserless fetch migrated from Organon", () => {
     });
     try {
       await withTempCache(async (fetchPage) => {
-        await expect(fetchPage({ url: `${url}/empty` })).rejects.toThrow(
-          "no content could be extracted",
-        );
+        await expect(fetchPage({ url: `${url}/empty` })).rejects.toMatchObject({
+          code: "javascript_rendering_may_be_required",
+          details: {
+            retryableWithRender: true,
+            suggestedArguments: { render: "agent-browser", waitMs: 2000 },
+          },
+        });
         await expect(fetchPage({ url })).rejects.toThrow(
           /binary content.*curl -L -O/s,
         );
@@ -286,6 +292,348 @@ describe.sequential("browserless fetch migrated from Organon", () => {
     }
   });
 
+  it("renders only through an explicit, isolated agent-browser session", async () => {
+    await withFakeAgentBrowser(async (logPath) => {
+      const cacheDirectory = mkdtempSync(
+        join(tmpdir(), "guionai-web-render-cache-"),
+      );
+      const resolveHost = async () => ["93.184.216.34"];
+      const directFetch = vi.fn(
+        async () =>
+          new Response("<html><body><p>Direct content.</p></body></html>", {
+            headers: { "content-type": "text/html" },
+          }),
+      ) as typeof fetch;
+      try {
+        await expect(
+          fetchWebPage(
+            { url: "https://render.test/page", render: "fetch" },
+            undefined,
+            { cacheDirectory, fetch: directFetch, resolveHost },
+          ),
+        ).resolves.toMatchObject({ content: "Direct content.\n" });
+        expect(readFakeLog(logPath)).toEqual([]);
+        await fetchWebPage({ url: "https://render.test/default" }, undefined, {
+          cacheDirectory,
+          fetch: directFetch,
+          resolveHost,
+        });
+        expect(readFakeLog(logPath)).toEqual([]);
+
+        await expect(
+          fetchWebPage(
+            {
+              url: "https://render.test/page",
+              render: "agent-browser",
+              waitMs: 0,
+              full: true,
+            },
+            undefined,
+            { cacheDirectory, fetch: directFetch, resolveHost },
+          ),
+        ).resolves.toMatchObject({ content: "SPA\\_MARKER\\_RENDERED\n" });
+        expect(directFetch).toHaveBeenCalledTimes(2);
+
+        const first = readFakeLog(logPath);
+        expect(first).toHaveLength(3);
+        expect(first.map((entry) => command(entry.args))).toEqual([
+          "open",
+          "eval",
+          "close",
+        ]);
+        const open = first[0]!;
+        expect(open.args).toEqual(
+          expect.arrayContaining([
+            "--json",
+            "--allowed-domains",
+            "render.test,*.render.test,cdn.jsdelivr.net,unpkg.com,cdnjs.cloudflare.com,ajax.googleapis.com,fonts.googleapis.com,fonts.gstatic.com,esm.sh",
+            "--idle-timeout",
+            "10s",
+            "open",
+            "https://render.test/page",
+          ]),
+        );
+        const session = optionValue(open.args, "--session");
+        expect(session).toMatch(/^[0-9a-f-]{36}$/);
+        expect(
+          first.every(
+            (entry) => optionValue(entry.args, "--session") === session,
+          ),
+        ).toBe(true);
+        expect(open.cwd).not.toBe(process.cwd());
+        expect(open.home).toContain("guionai-web-render-");
+        expect(open.config).toBe("{}\n");
+        expect(open.profile).toBeUndefined();
+
+        await fetchWebPage(
+          {
+            url: "https://render.test/page",
+            render: "agent-browser",
+            waitMs: 1,
+          },
+          undefined,
+          { cacheDirectory, fetch: directFetch, resolveHost },
+        );
+        expect(readFakeLog(logPath)).toHaveLength(6);
+      } finally {
+        rmSync(cacheDirectory, { recursive: true, force: true });
+      }
+    });
+  });
+
+  it("cancels the post-load wait and still closes the isolated session", async () => {
+    await withFakeAgentBrowser(async (logPath) => {
+      const controller = new AbortController();
+      const pending = fetchWebPage(
+        {
+          url: "https://render.test/page",
+          render: "agent-browser",
+          waitMs: 30_000,
+        },
+        controller.signal,
+        { resolveHost: async () => ["93.184.216.34"] },
+      );
+      await waitForFakeCommands(logPath, 1);
+      controller.abort();
+      await expect(pending).rejects.toThrow("Operation aborted");
+      expect(readFakeLog(logPath).map((entry) => command(entry.args))).toEqual([
+        "open",
+        "close",
+      ]);
+    });
+  });
+
+  it("SIGKILLs a cancellation-resistant command promptly before closing its session", async () => {
+    await withFakeAgentBrowser(async (logPath) => {
+      const controller = new AbortController();
+      const pending = fetchWebPage(
+        {
+          url: "https://ignore-term.test/page",
+          render: "agent-browser",
+          waitMs: 0,
+        },
+        controller.signal,
+        { resolveHost: async () => ["93.184.216.34"] },
+      );
+      await waitForFakeCommands(logPath, 1);
+      const cancelledAt = Date.now();
+      controller.abort();
+      await expect(pending).rejects.toThrow("Operation aborted");
+      expect(Date.now() - cancelledAt).toBeGreaterThanOrEqual(150);
+      expect(Date.now() - cancelledAt).toBeLessThan(1_000);
+      expect(readFakeLog(logPath).map((entry) => command(entry.args))).toEqual([
+        "open",
+        "close",
+      ]);
+    });
+  }, 2_000);
+
+  it("rejects rendered URL credentials before DNS or subprocess launch", async () => {
+    await withFakeAgentBrowser(async (logPath) => {
+      const resolveHost = vi.fn(async () => ["93.184.216.34"]);
+      const secret = "not-for-output";
+      const failure = await fetchWebPage(
+        {
+          url: `https://user:${secret}@render.test/page`,
+          render: "agent-browser",
+          waitMs: 0,
+        },
+        undefined,
+        { resolveHost },
+      ).then(
+        () => new Error("expected rendered URL credentials to fail"),
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toContain(
+        "URL must not include a username or password",
+      );
+      expect((failure as Error).message).not.toContain(secret);
+      expect(resolveHost).not.toHaveBeenCalled();
+      expect(readFakeLog(logPath)).toEqual([]);
+    });
+  });
+
+  it("rejects canonicalized private IPv4-in-IPv6 rendered targets", async () => {
+    await withFakeAgentBrowser(async (logPath) => {
+      for (const address of ["::ffff:c0a8:101", "::c0a8:101"]) {
+        await expect(
+          fetchWebPage({
+            url: `https://[${address}]/page`,
+            render: "agent-browser",
+            waitMs: 0,
+          }),
+        ).rejects.toThrow("private or reserved");
+      }
+
+      for (const address of ["::ffff:c0a8:101", "::c0a8:101"]) {
+        const resolveHost = vi.fn(async () => [address]);
+        await expect(
+          fetchWebPage(
+            {
+              url: "https://resolved.test/page",
+              render: "agent-browser",
+              waitMs: 0,
+            },
+            undefined,
+            { resolveHost },
+          ),
+        ).rejects.toThrow("private or reserved");
+        expect(resolveHost).toHaveBeenCalledWith("resolved.test");
+      }
+      expect(readFakeLog(logPath)).toEqual([]);
+    });
+  });
+
+  it("keeps cleanup failures and timeouts diagnostic-only", async () => {
+    await withFakeAgentBrowser(async (logPath) => {
+      const diagnostics: string[] = [];
+      let workDirectory = "";
+      await expect(
+        fetchWebPage(
+          {
+            url: "https://render.test/page",
+            render: "agent-browser",
+            waitMs: 0,
+          },
+          undefined,
+          {
+            resolveHost: async () => ["93.184.216.34"],
+            onRendererDiagnostic: (message) => diagnostics.push(message),
+            removeWorkDirectory: async (path) => {
+              workDirectory = path;
+              await new Promise<void>(() => {});
+            },
+            rendererCleanupTimeoutMs: 1_000,
+          },
+        ),
+      ).resolves.toMatchObject({ content: "SPA\\_MARKER\\_RENDERED\n" });
+      expect(workDirectory).toContain("guionai-web-render-");
+      expect(diagnostics).toContain(
+        "agent-browser temporary directory cleanup timed out",
+      );
+      rmSync(workDirectory, { recursive: true, force: true });
+      let failedDirectory = "";
+      await expect(
+        fetchWebPage(
+          {
+            url: "https://blocked.test/page",
+            render: "agent-browser",
+            waitMs: 0,
+          },
+          undefined,
+          {
+            resolveHost: async () => ["93.184.216.34"],
+            onRendererDiagnostic: (message) => diagnostics.push(message),
+            removeWorkDirectory: async (path) => {
+              failedDirectory = path;
+              throw new Error("test cleanup failure");
+            },
+          },
+        ),
+      ).rejects.toMatchObject({ code: "render_domain_not_allowed" });
+      expect(diagnostics).toContain(
+        "agent-browser temporary directory cleanup failed",
+      );
+      rmSync(failedDirectory, { recursive: true, force: true });
+      expect(readFakeLog(logPath).map((entry) => command(entry.args))).toEqual([
+        "open",
+        "eval",
+        "close",
+        "open",
+        "close",
+      ]);
+    });
+  });
+
+  it("rejects unsafe rendered targets and maps allowlist gaps without launching a browser", async () => {
+    await expect(
+      fetchWebPage({
+        url: "https://render.test/page",
+        render: "agent-browser",
+      }),
+    ).rejects.toThrow("waitMs is required");
+    await expect(
+      fetchWebPage({ url: "https://render.test/page", waitMs: 0 }),
+    ).rejects.toThrow("waitMs is only valid");
+    await expect(
+      fetchWebPage({
+        url: "https://render.test/page",
+        render: "agent-browser",
+        waitMs: 30_001,
+      }),
+    ).rejects.toThrow("waitMs must be an integer");
+
+    await withFakeAgentBrowser(async (logPath) => {
+      const options = { resolveHost: async () => ["93.184.216.34"] };
+      await expect(
+        fetchWebPage({
+          url: "http://127.0.0.1/private",
+          render: "agent-browser",
+          waitMs: 0,
+        }),
+      ).rejects.toThrow("private or reserved");
+      expect(readFakeLog(logPath)).toEqual([]);
+
+      await expect(
+        fetchWebPage(
+          {
+            url: "https://blocked.test/page",
+            render: "agent-browser",
+            waitMs: 0,
+          },
+          undefined,
+          options,
+        ),
+      ).rejects.toMatchObject({
+        code: "render_domain_not_allowed",
+        details: {
+          retryable: false,
+          reportUrl: "https://github.com/guionai/web/issues/new",
+          blockedHostname: "missing.cdn.test",
+        },
+      });
+      expect(readFakeLog(logPath).map((entry) => command(entry.args))).toEqual([
+        "open",
+        "close",
+      ]);
+    });
+  });
+
+  it("recognizes only whole-page JavaScript placeholders", async () => {
+    await withTempCache(async (_fetchPage, cacheDirectory) => {
+      for (const content of [
+        "<html><body><p>Loading...</p></body></html>",
+        "<html><body><p>Please enable JavaScript to continue.</p></body></html>",
+      ]) {
+        await expect(
+          fetchWebPage({ url: "https://placeholder.test/page" }, undefined, {
+            cacheDirectory,
+            fetch: async () =>
+              new Response(content, {
+                headers: { "content-type": "text/html" },
+              }),
+          }),
+        ).rejects.toMatchObject({
+          code: "javascript_rendering_may_be_required",
+        });
+      }
+      await expect(
+        fetchWebPage(
+          { url: "https://legitimate-short-page.test/" },
+          undefined,
+          {
+            cacheDirectory,
+            fetch: async () =>
+              new Response("<html><body><p>Welcome.</p></body></html>", {
+                headers: { "content-type": "text/html" },
+              }),
+          },
+        ),
+      ).resolves.toMatchObject({ content: "Welcome.\n" });
+    });
+  });
+
   it("keeps client-only SPA script output unrendered", async () => {
     const { server, url } = await startServer((_req, res) => {
       res.setHeader("Content-Type", "text/html");
@@ -304,3 +652,88 @@ describe.sequential("browserless fetch migrated from Organon", () => {
     }
   });
 });
+
+async function withFakeAgentBrowser<T>(
+  fn: (logPath: string) => Promise<T>,
+): Promise<T> {
+  const directory = mkdtempSync(
+    join(tmpdir(), "guionai-web-fake-agent-browser-"),
+  );
+  const executable = join(directory, "agent-browser");
+  const logPath = join(directory, "commands.jsonl");
+  const previousPath = process.env.PATH;
+  writeFileSync(
+    executable,
+    `#!/usr/bin/env node
+import { appendFileSync, readFileSync } from "node:fs";
+const args = process.argv.slice(2);
+const command = ["open", "eval", "close"].find((value) => args.includes(value));
+appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({
+  args,
+  cwd: process.cwd(),
+  home: process.env.HOME,
+  config: readFileSync(process.env.AGENT_BROWSER_CONFIG, "utf8"),
+  profile: process.env.AGENT_BROWSER_PROFILE,
+}) + "\\n");
+if (command === "open" && args.includes("https://ignore-term.test/page")) {
+  process.on("SIGTERM", () => {});
+  setInterval(() => {}, 1_000);
+}
+if (command === "open" && args.includes("https://blocked.test/page")) {
+  console.log(JSON.stringify({ success: false, error: { message: "domain not allowed", hostname: "missing.cdn.test" } }));
+  process.exit(1);
+}
+if (command === "eval") {
+  console.log(JSON.stringify({ success: true, data: { result: "<html><body><main><p>SPA_MARKER_RENDERED</p></main></body></html>" } }));
+} else {
+  console.log(JSON.stringify({ success: true, data: {} }));
+}
+`,
+    { mode: 0o700 },
+  );
+  chmodSync(executable, 0o700);
+  process.env.PATH = `${directory}:${previousPath ?? ""}`;
+  try {
+    return await fn(logPath);
+  } finally {
+    process.env.PATH = previousPath;
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+type FakeCommand = {
+  args: string[];
+  cwd: string;
+  home?: string;
+  config: string;
+  profile?: string;
+};
+
+function readFakeLog(path: string): FakeCommand[] {
+  try {
+    return readFileSync(path, "utf8")
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as FakeCommand);
+  } catch {
+    return [];
+  }
+}
+
+function command(args: string[]): string | undefined {
+  return ["open", "eval", "close"].find((value) => args.includes(value));
+}
+
+function optionValue(args: string[], option: string): string | undefined {
+  const index = args.indexOf(option);
+  return index < 0 ? undefined : args[index + 1];
+}
+
+async function waitForFakeCommands(path: string, count: number): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    if (readFakeLog(path).length >= count) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error("fake agent-browser command did not start");
+}

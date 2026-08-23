@@ -200,6 +200,15 @@ function createFetchCommand(dependencies: ProgramDependencies): Command {
     .description("Fetch a static, SSR, or pre-rendered page as Markdown")
     .argument("<url>", "HTTP or HTTPS URL")
     .option("--tree", "Show the heading tree")
+    .option(
+      "--render <backend>",
+      "Rendering backend: fetch (default) or agent-browser",
+    )
+    .option(
+      "--wait <milliseconds>",
+      "Required post-load wait for --render agent-browser (0-30000)",
+      Number,
+    )
     .option("-s, --section <id>", "Read one heading section")
     .option(
       "--full",
@@ -212,6 +221,8 @@ function createFetchCommand(dependencies: ProgramDependencies): Command {
         url: string,
         options: {
           tree?: boolean;
+          render?: "fetch" | "agent-browser";
+          wait?: number;
           section?: string;
           full?: boolean;
           treeThreshold?: number;
@@ -221,6 +232,8 @@ function createFetchCommand(dependencies: ProgramDependencies): Command {
         const result = await dependencies.operations.fetch({
           url,
           tree: options.tree,
+          ...(options.render !== undefined ? { render: options.render } : {}),
+          ...(options.wait !== undefined ? { waitMs: options.wait } : {}),
           section_id: options.section,
           full: options.full,
           tree_threshold: options.treeThreshold,

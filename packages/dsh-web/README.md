@@ -18,6 +18,31 @@ settings expose only configured/source/writable metadata.
 
 The published package is a dual host/browser bundle. Its host and client
 artifacts, profile patch, and exact DSH `0.1.0-rc.8` peer contract are included
-in the npm package. Search, page fetch, Context7 documentation, and
-Sourcegraph all run in-process through the bundled Guion Web core; no native
-binary, subprocess, or global environment credential is used.
+in the npm package. Search, browserless page fetch, Context7 documentation,
+and Sourcegraph all run in-process through the bundled Guion Web core.
+`web_fetch` remains browserless by default; an agent may explicitly request
+`render: "agent-browser"` with a required integer `waitMs` from 0 through
+30,000 to render a client-side page through a host-installed `agent-browser`
+executable. The optional renderer is supported on macOS and Linux, is not an
+npm dependency, and never reuses persistent browser state or credentials.
+
+Rendered requests are bounded and constrained to the requested hostname,
+`*.<requested-hostname>` (the target and its subdomains), and this fixed common
+CDN list: `cdn.jsdelivr.net`, `unpkg.com`, `cdnjs.cloudflare.com`,
+`ajax.googleapis.com`, `fonts.googleapis.com`, `fonts.gstatic.com`, and `esm.sh`.
+The caller cannot widen the list. A redirect, API, frame, worker, socket, or
+other dependency on an unknown domain fails closed as
+`render_domain_not_allowed`; increasing `waitMs` will not help. For example,
+retry a shell with `render: "agent-browser", waitMs: 2000`, then explicitly
+retry with a longer wait such as `waitMs: 10000` or abandon the page. Report a
+likely missing first-party or common-CDN domain at
+https://github.com/guionai/web/issues/new, including the page URL and blocked
+domain without credentials or page secrets.
+
+Literal and DNS-resolved private/reserved targets are rejected before launch,
+but this is only a browser-level hostname boundary: an allowlisted malicious
+hostname can change its DNS answer to a private address after validation (DNS
+rebinding), and this backend provides no operating-system host-egress
+isolation. It is not a complete SSRF boundary for arbitrary untrusted URLs in
+a public or multi-tenant service; that deployment needs a per-connection
+SSRF-filtering proxy or container/microVM egress isolation.
