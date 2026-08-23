@@ -28,6 +28,15 @@ const env = {
   npm_config_store_dir: join(root, "store"),
   npm_config_ignore_scripts: "true",
 };
+const pnpmEntrypoint = process.env.npm_execpath;
+if (!pnpmEntrypoint) throw new Error("pnpm entrypoint is unavailable");
+
+async function runPnpm(args, cwd) {
+  return execFileAsync(process.execPath, [pnpmEntrypoint, ...args], {
+    cwd,
+    env,
+  });
+}
 
 const server = createServer((_request, response) => {
   response.setHeader("content-type", "text/html; charset=utf-8");
@@ -38,10 +47,7 @@ try {
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address();
   const pack = join(root, "pack");
-  await execFileAsync("pnpm", ["pack", "--pack-destination", pack], {
-    cwd: packageRoot,
-    env,
-  });
+  await runPnpm(["pack", "--pack-destination", pack], packageRoot);
   const tarballs = (await readdir(pack)).filter((file) =>
     file.endsWith(".tgz"),
   );
@@ -50,18 +56,14 @@ try {
     join(root, "package.json"),
     JSON.stringify({ name: "windows-web-smoke", private: true }),
   );
-  await execFileAsync(
-    "pnpm",
+  await runPnpm(
     ["add", "--offline", "--ignore-scripts", `file:${join(pack, tarballs[0])}`],
-    {
-      cwd: root,
-      env,
-    },
+    root,
   );
-  const binary = join(root, "node_modules", ".bin", "web.cmd");
+  const cli = join(root, "node_modules", "@guionai", "web", "dist", "cli.js");
   const { stdout } = await execFileAsync(
-    binary,
-    ["fetch", `http://127.0.0.1:${port}/page`, "--full", "--json"],
+    process.execPath,
+    [cli, "fetch", `http://127.0.0.1:${port}/page`, "--full", "--json"],
     {
       cwd: root,
       env,
