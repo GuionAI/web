@@ -72,6 +72,22 @@ try {
     }
   }
 
+  const repositoryManifestPath = join(
+    fixture,
+    "packages",
+    "web",
+    "package.json",
+  );
+  const repositoryManifest = JSON.parse(
+    readFileSync(repositoryManifestPath, "utf8"),
+  );
+  repositoryManifest.repository.url = "git+https://github.com/guionai/web.git";
+  writeFileSync(
+    repositoryManifestPath,
+    JSON.stringify(repositoryManifest) + "\n",
+  );
+  expectFailure(fixture, "release-dry-run.mjs", "1.2.3", 1);
+
   writeFileSync(
     join(fixture, "packages", "web", "package.json"),
     JSON.stringify({ name: "@guionai/web", version: "0.0.0" }) + "\n",
