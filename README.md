@@ -131,7 +131,8 @@ agent-browser install
 ```
 
 `agent-browser install` manages its own browser runtime; Guion packages never
-run it, bundle it, or reuse browser credentials. The renderer is supported on
+run it, bundle it, or reuse browser credentials. A compatible executable must be
+directly runnable from `PATH` without a shell. The renderer is supported on
 macOS and Linux hosts. The three npm packages remain browserless and installable
 when `agent-browser` is absent.
 

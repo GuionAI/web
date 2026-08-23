@@ -1,7 +1,7 @@
 {
   "name": "@guionai/dsh-web",
   "version": "0.1.0",
-  "description": "Guion Web provider and settings for DeepSeek Harness rc.8 with optional host rendering.",
+  "description": "DeepSeek Harness rc.8 provider for browserless HTML-to-Markdown web research with optional host rendering.",
   "homepage": "https://github.com/guionai/web#readme",
   "bugs": {
     "url": "https://github.com/guionai/web/issues"

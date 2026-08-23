@@ -26,7 +26,8 @@ and Sourcegraph all run in-process through the bundled Guion Web core.
 executable. To enable that optional capability, install
 [agent-browser](https://github.com/vercel-labs/agent-browser) separately with
 `npm install --global agent-browser` followed by `agent-browser install`. Its
-browser runtime is managed outside this package; the renderer is supported on
+browser runtime is managed outside this package; the compatible executable must
+be directly runnable from `PATH` without a shell. The renderer is supported on
 macOS and Linux, is not an npm dependency, and never reuses persistent browser
 state or credentials.
 
