@@ -1,6 +1,14 @@
-import { Client } from "@modelcontextprotocol/client";
+import {
+  Client,
+  type JSONRPCMessage,
+  type Transport,
+} from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
+import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
+
+import { FetchCapabilityError } from "@guionai/web-core";
 
 import { createMcpServer } from "../src/mcp.js";
 import type { WebOperations } from "@guionai/web-core";
@@ -44,15 +52,19 @@ function webService(): WebOperations {
   };
 }
 
-async function connect(operations = webService(), provider?: string) {
-  const server = createMcpServer({
+function createDependencies(operations: WebOperations, provider?: string) {
+  return {
     operations,
     provider,
     credentials: () => ({
       braveApiKey: "brave-secret",
       context7ApiKey: "context7-secret",
     }),
-  });
+  };
+}
+
+async function connect(operations = webService(), provider?: string) {
+  const server = createMcpServer(createDependencies(operations, provider));
   const [serverTransport, clientTransport] =
     InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -61,7 +73,137 @@ async function connect(operations = webService(), provider?: string) {
   return { client, operations };
 }
 
+async function connectStdio(operations = webService()) {
+  const server = createMcpServer(createDependencies(operations));
+  const clientToServer = new PassThrough();
+  const serverToClient = new PassThrough();
+  const serverTransport = new StdioServerTransport(
+    clientToServer,
+    serverToClient,
+  );
+  await server.connect(serverTransport);
+  const clientTransport = new LoopbackStdioTransport(
+    serverToClient,
+    clientToServer,
+  );
+  const client = new Client({ name: "web-stdio-test", version: "test" });
+  await client.connect(clientTransport);
+  return {
+    client,
+    operations,
+    close: async () => {
+      await client.close();
+      await serverTransport.close();
+    },
+  };
+}
+
+class LoopbackStdioTransport implements Transport {
+  onclose?: () => void;
+  onerror?: (error: Error) => void;
+  onmessage?: (message: JSONRPCMessage) => void;
+  private buffer = "";
+
+  constructor(
+    private readonly input: PassThrough,
+    private readonly output: PassThrough,
+  ) {}
+
+  start(): Promise<void> {
+    this.input.on("data", this.handleData);
+    return Promise.resolve();
+  }
+
+  send(message: JSONRPCMessage): Promise<void> {
+    this.output.write(`${JSON.stringify(message)}\n`);
+    return Promise.resolve();
+  }
+
+  async close(): Promise<void> {
+    this.input.off("data", this.handleData);
+    this.onclose?.();
+  }
+
+  private handleData = (chunk: Buffer) => {
+    this.buffer += chunk.toString("utf8");
+    let newline: number;
+    while ((newline = this.buffer.indexOf("\n")) !== -1) {
+      const line = this.buffer.slice(0, newline);
+      this.buffer = this.buffer.slice(newline + 1);
+      if (!line) continue;
+      try {
+        this.onmessage?.(JSON.parse(line) as JSONRPCMessage);
+      } catch (error) {
+        this.onerror?.(
+          error instanceof Error ? error : new Error("invalid MCP message"),
+        );
+      }
+    }
+  };
+}
+
 describe("web stdio MCP adapter", () => {
+  it("preserves fetch behavior and errors over serialized stdio", async () => {
+    const operations = webService();
+    vi.mocked(operations.fetch)
+      .mockRejectedValueOnce(
+        new FetchCapabilityError("javascript_rendering_may_be_required", {
+          retryableWithRender: true,
+          suggestedArguments: { render: "agent-browser", waitMs: 2000 },
+        }),
+      )
+      .mockResolvedValueOnce({
+        url: "https://example.test/page",
+        mode: "full",
+        content: "Rendered through stdio",
+      });
+    const connection = await connectStdio(operations);
+
+    try {
+      const retry = await connection.client.callTool({
+        name: "fetch",
+        arguments: { url: "https://example.test/page" },
+      });
+      const rendered = await connection.client.callTool({
+        name: "fetch",
+        arguments: {
+          url: "https://example.test/page",
+          render: "agent-browser",
+          waitMs: 2000,
+        },
+      });
+
+      expect(retry).toMatchObject({
+        isError: true,
+        structuredContent: {
+          code: "javascript_rendering_may_be_required",
+          details: {
+            retryableWithRender: true,
+            suggestedArguments: { render: "agent-browser", waitMs: 2000 },
+          },
+        },
+      });
+      expect(rendered.structuredContent).toMatchObject({
+        content: "Rendered through stdio",
+      });
+      expect(operations.fetch).toHaveBeenNthCalledWith(
+        2,
+        {
+          url: "https://example.test/page",
+          tree: false,
+          full: false,
+          section_id: undefined,
+          tree_threshold: 5000,
+          render: "agent-browser",
+          waitMs: 2000,
+        },
+        expect.any(AbortSignal),
+      );
+    } finally {
+      await connection.close();
+    }
+  });
+
   it("lists exactly five typed read-only, idempotent, open-world tools", async () => {
     const { client } = await connect();
     const { tools } = await client.listTools();
@@ -94,6 +236,16 @@ describe("web stdio MCP adapter", () => {
     const sgraphProperties = byName.sgraph_search!.inputSchema
       .properties! as Record<string, unknown>;
     expect(fetchProperties.tree_threshold).toMatchObject({ default: 5000 });
+    expect(fetchProperties.render).toMatchObject({
+      enum: ["fetch", "agent-browser"],
+      default: "fetch",
+    });
+    expect(fetchProperties.waitMs).toMatchObject({
+      type: "integer",
+      minimum: 0,
+      maximum: 30000,
+    });
+    expect(fetchProperties.timeout).toBeUndefined();
     expect(docsFetchProperties.tokens).toMatchObject({ default: 0 });
     expect(sgraphProperties).toMatchObject({
       count: { default: 10 },
@@ -111,7 +263,12 @@ describe("web stdio MCP adapter", () => {
     });
     const fetch = await client.callTool({
       name: "fetch",
-      arguments: { url: "https://example.test/page", tree: true },
+      arguments: {
+        url: "https://example.test/page",
+        tree: true,
+        render: "agent-browser",
+        waitMs: 125,
+      },
     });
     const resolve = await client.callTool({
       name: "docs_resolve",
@@ -154,6 +311,8 @@ describe("web stdio MCP adapter", () => {
         full: false,
         section_id: undefined,
         tree_threshold: 5000,
+        render: "agent-browser",
+        waitMs: 125,
       },
       expect.any(AbortSignal),
     );
@@ -172,6 +331,100 @@ describe("web stdio MCP adapter", () => {
         timeout: 0,
       }),
     );
+  });
+
+  it("validates the renderer wait contract before invoking the core", async () => {
+    const { client, operations } = await connect();
+    await client.listTools();
+
+    for (const arguments_ of [
+      { url: "https://example.test/page", render: "agent-browser" },
+      { url: "https://example.test/page", render: "fetch", waitMs: 0 },
+      { url: "https://example.test/page", render: "agent-browser", waitMs: -1 },
+      {
+        url: "https://example.test/page",
+        render: "agent-browser",
+        waitMs: 30_001,
+      },
+      {
+        url: "https://example.test/page",
+        render: "agent-browser",
+        waitMs: 1.5,
+      },
+    ]) {
+      const result = await client.callTool({
+        name: "fetch",
+        arguments: arguments_,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.content).toMatchObject([
+        {
+          type: "text",
+          text: expect.stringContaining("Input validation error"),
+        },
+      ]);
+    }
+    expect(operations.fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps fetch capability details structured and recovers after a renderer failure", async () => {
+    const operations = webService();
+    vi.mocked(operations.fetch)
+      .mockRejectedValueOnce(
+        new FetchCapabilityError("render_domain_not_allowed", {
+          retryable: false,
+          reportUrl: "https://github.com/guionai/web/issues/new",
+          blockedHostname: "missing.cdn.test",
+        }),
+      )
+      .mockResolvedValueOnce({
+        url: "https://example.test/page",
+        mode: "full",
+        content: "Rendered page",
+      });
+    const { client } = await connect(operations);
+
+    const failed = await client.callTool({
+      name: "fetch",
+      arguments: {
+        url: "https://example.test/page",
+        render: "agent-browser",
+        waitMs: 2000,
+      },
+    });
+    const recovered = await client.callTool({
+      name: "fetch",
+      arguments: { url: "https://example.test/page" },
+    });
+
+    expect(failed).toMatchObject({
+      isError: true,
+      structuredContent: {
+        code: "render_domain_not_allowed",
+        details: {
+          retryable: false,
+          reportUrl: "https://github.com/guionai/web/issues/new",
+          blockedHostname: "missing.cdn.test",
+        },
+      },
+    });
+    expect(failed.content).toMatchObject([
+      {
+        type: "text",
+        text: JSON.stringify({
+          code: "render_domain_not_allowed",
+          details: {
+            retryable: false,
+            reportUrl: "https://github.com/guionai/web/issues/new",
+            blockedHostname: "missing.cdn.test",
+          },
+        }),
+      },
+    ]);
+    expect(recovered.isError).not.toBe(true);
+    expect(recovered.structuredContent).toMatchObject({
+      content: "Rendered page",
+    });
   });
 
   it("keeps operations failures as tool errors and recovers for the next request", async () => {
@@ -226,8 +479,8 @@ describe("web stdio MCP adapter", () => {
     const started = deferred<void>();
     const canceled = deferred<void>();
     const operations = webService();
-    vi.mocked(operations.search).mockImplementation(
-      ({ signal }) =>
+    vi.mocked(operations.fetch).mockImplementation(
+      (_input, signal) =>
         new Promise((_, reject) => {
           started.resolve();
           signal?.addEventListener(
@@ -243,7 +496,14 @@ describe("web stdio MCP adapter", () => {
     const { client } = await connect(operations);
     const controller = new AbortController();
     const call = client.callTool(
-      { name: "search", arguments: { query: "wait" } },
+      {
+        name: "fetch",
+        arguments: {
+          url: "https://example.test/page",
+          render: "agent-browser",
+          waitMs: 0,
+        },
+      },
       { signal: controller.signal },
     );
 

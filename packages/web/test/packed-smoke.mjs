@@ -105,6 +105,18 @@ try {
       throw new Error(`packed MCP tools = ${names.join(", ")}`);
     }
 
+    const mcpFetch = await client.callTool({
+      name: "fetch",
+      arguments: { url: `http://127.0.0.1:${port}/page`, full: true },
+    });
+    if (
+      mcpFetch.isError ||
+      mcpFetch.structuredContent?.mode !== "full" ||
+      mcpFetch.structuredContent?.content !== "Packed fetch fixture.\n"
+    ) {
+      throw new Error("packed MCP stdio could not fetch the local fixture");
+    }
+
     const result = await execFileAsync(
       binary,
       ["fetch", `http://127.0.0.1:${port}/page`, "--full", "--json"],
