@@ -3,12 +3,14 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   docsFetch,
   docsResolve,
+  normalizeDocsToolInput,
   fetchWebPage,
   search,
   sgraphSearch,
   type Context7Credentials,
   type DocsFetchInput,
   type DocsFetchResult,
+  type DocsToolInput,
   type DocsResolveInput,
   type DocsResolveResult,
   type FetchInput,
@@ -122,10 +124,6 @@ export type WebFetchInput = Static<typeof webFetchSchema>;
 export type WebDocsInput = Static<typeof webDocsSchema>;
 export type WebSgraphInput = Static<typeof webSgraphSchema>;
 
-type DocsInput =
-  | { action: "resolve"; query: string }
-  | { action: "fetch"; library_id: string; topic?: string; tokens?: number };
-
 type WebCredentials = SearchCredentials & Context7Credentials;
 type SearchResult = SearchResponse & {
   errors?: Array<{ query: string; error: string }>;
@@ -213,41 +211,9 @@ function mergeSearchResults(responses: SearchResponse[]): SearchResponse {
   }
 }
 
-function normalizeDocs(input: unknown): DocsInput {
+function normalizeDocs(input: unknown): DocsToolInput {
   if (!isRecord(input)) throw new Error("web_docs input must be an object");
-  for (const field of Object.keys(input)) {
-    if (!["action", "query", "library_id", "topic", "tokens"].includes(field)) {
-      throw new Error(`web_docs input does not accept field ${field}`);
-    }
-  }
-  if (input.action !== "resolve" && input.action !== "fetch") {
-    throw new Error('web_docs action must be "resolve" or "fetch"');
-  }
-  if (input.action === "resolve") {
-    if ("library_id" in input || "topic" in input || "tokens" in input) {
-      throw new Error(
-        'web_docs action "resolve" does not accept library_id, topic, or tokens',
-      );
-    }
-    return { action: "resolve", query: requireString(input, "query") };
-  }
-  if ("query" in input)
-    throw new Error('web_docs action "fetch" does not accept query');
-  const library_id = requireString(input, "library_id");
-  if (input.topic !== undefined && typeof input.topic !== "string")
-    throw new Error("topic must be a string");
-  if (
-    input.tokens !== undefined &&
-    (!Number.isInteger(input.tokens) || typeof input.tokens !== "number")
-  ) {
-    throw new Error("tokens must be an integer");
-  }
-  return {
-    action: "fetch",
-    library_id,
-    topic: input.topic as string | undefined,
-    tokens: input.tokens as number | undefined,
-  };
+  return normalizeDocsToolInput(input);
 }
 
 export function webSearchTool(dependencies: WebToolDependencies = {}) {

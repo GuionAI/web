@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { docsFetch, docsResolve, normalizeLibraryID } from "../src/index.js";
+import {
+  docsFetch,
+  docsResolve,
+  normalizeDocsToolInput,
+  normalizeLibraryID,
+} from "../src/index.js";
 
 const library = {
   id: "/reactjs/react.dev",
@@ -19,6 +24,37 @@ function json(value: unknown, status = 200): Response {
 }
 
 describe("Context7 v1 client migrated from Organon", () => {
+  it("normalizes the action-shaped docs input shared by host adapters", () => {
+    expect(
+      normalizeDocsToolInput({ action: "resolve", query: "react" }),
+    ).toEqual({
+      action: "resolve",
+      query: "react",
+    });
+    expect(
+      normalizeDocsToolInput({
+        action: "fetch",
+        library_id: "/reactjs/react.dev",
+        topic: "hooks",
+        tokens: 500,
+      }),
+    ).toEqual({
+      action: "fetch",
+      library_id: "/reactjs/react.dev",
+      topic: "hooks",
+      tokens: 500,
+    });
+    expect(() =>
+      normalizeDocsToolInput({
+        action: "resolve",
+        query: "react",
+        library_id: "/reactjs/react.dev",
+      }),
+    ).toThrow(
+      'web_docs action "resolve" does not accept library_id, topic, or tokens',
+    );
+  });
+
   it("resolves through the v1 path, escapes the query, authenticates, and retains library fields", async () => {
     let requestURL = "";
     let headers: Headers | undefined;

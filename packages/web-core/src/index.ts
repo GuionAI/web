@@ -1,3 +1,5 @@
+import { createRequestSignal } from "./request.js";
+
 export {
   fetchWebPage,
   type FetchCache,
@@ -19,10 +21,12 @@ export {
 export {
   docsFetch,
   docsResolve,
+  normalizeDocsToolInput,
   normalizeLibraryID,
   type Context7Credentials,
   type DocsFetchInput,
   type DocsFetchResult,
+  type DocsToolInput,
   type DocsLibrary,
   type DocsResolveInput,
   type DocsResolveResult,
@@ -354,29 +358,4 @@ function abortedError(): Error {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
-}
-
-function createRequestSignal(
-  caller: AbortSignal | undefined,
-  timeoutMs: number,
-) {
-  const controller = new AbortController();
-  let timedOut = false;
-  const abort = () => controller.abort(caller?.reason);
-  if (caller?.aborted) abort();
-  caller?.addEventListener("abort", abort, { once: true });
-  const timer = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, timeoutMs);
-  return {
-    signal: controller.signal,
-    get timedOut() {
-      return timedOut;
-    },
-    cleanup() {
-      clearTimeout(timer);
-      caller?.removeEventListener("abort", abort);
-    },
-  };
 }

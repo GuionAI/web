@@ -1,3 +1,5 @@
+import { createRequestSignal } from "./request.js";
+
 const CONTEXT7_BASE_URL = "https://context7.com";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
@@ -43,6 +45,59 @@ export type DocsFetchInput = Context7Options & {
   topic?: string;
   tokens?: number;
 };
+
+export type DocsToolInput =
+  | { action: "resolve"; query: string }
+  | { action: "fetch"; library_id: string; topic?: string; tokens?: number };
+
+/** Normalizes the action-shaped documentation input shared by host adapters. */
+export function normalizeDocsToolInput(
+  input: Record<string, unknown>,
+): DocsToolInput {
+  for (const field of Object.keys(input)) {
+    if (!["action", "query", "library_id", "topic", "tokens"].includes(field)) {
+      throw new Error(`web_docs input does not accept field ${field}`);
+    }
+  }
+  if (input.action !== "resolve" && input.action !== "fetch") {
+    throw new Error('web_docs action must be "resolve" or "fetch"');
+  }
+  if (input.action === "resolve") {
+    if ("library_id" in input || "topic" in input || "tokens" in input) {
+      throw new Error(
+        'web_docs action "resolve" does not accept library_id, topic, or tokens',
+      );
+    }
+    return { action: "resolve", query: requireDocsString(input, "query") };
+  }
+  if ("query" in input)
+    throw new Error('web_docs action "fetch" does not accept query');
+  const library_id = requireDocsString(input, "library_id");
+  if (input.topic !== undefined && typeof input.topic !== "string")
+    throw new Error("topic must be a string");
+  if (
+    input.tokens !== undefined &&
+    (!Number.isInteger(input.tokens) || typeof input.tokens !== "number")
+  ) {
+    throw new Error("tokens must be an integer");
+  }
+  return {
+    action: "fetch",
+    library_id,
+    topic: input.topic as string | undefined,
+    tokens: input.tokens as number | undefined,
+  };
+}
+
+function requireDocsString(
+  input: Record<string, unknown>,
+  field: string,
+): string {
+  const value = input[field];
+  if (typeof value !== "string" || value.length === 0)
+    throw new Error(`${field} must be a non-empty string`);
+  return value;
+}
 
 /** Resolves a library query using Context7 v1. */
 export async function docsResolve(
@@ -347,29 +402,4 @@ function abortedError(): Error {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
-}
-
-function createRequestSignal(
-  caller: AbortSignal | undefined,
-  timeoutMs: number,
-) {
-  const controller = new AbortController();
-  let timedOut = false;
-  const abort = () => controller.abort(caller?.reason);
-  if (caller?.aborted) abort();
-  caller?.addEventListener("abort", abort, { once: true });
-  const timer = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, timeoutMs);
-  return {
-    signal: controller.signal,
-    get timedOut() {
-      return timedOut;
-    },
-    cleanup() {
-      clearTimeout(timer);
-      caller?.removeEventListener("abort", abort);
-    },
-  };
 }

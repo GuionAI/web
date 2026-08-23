@@ -1,3 +1,5 @@
+import { createRequestSignal } from "./request.js";
+
 const SOURCEGRAPH_ENDPOINT = "https://sourcegraph.com/.api/graphql";
 const DEFAULT_COUNT = 10;
 const MAX_COUNT = 20;
@@ -38,7 +40,11 @@ export async function sgraphSearch(input: SGraphInput): Promise<SGraphResult> {
   const count = normalizeCount(input.count);
   const context = normalizeContext(input.context);
   const timeout = normalizeTimeout(input.timeout);
-  const request = createRequestSignal(input.signal, timeout);
+  const request = createRequestSignal(
+    input.signal,
+    timeout > 0 ? timeout * 1000 : TRANSPORT_TIMEOUT_MS,
+    { timeoutIsOperationTimeout: timeout > 0 },
+  );
 
   try {
     const response = await (input.fetch ?? globalThis.fetch)(
@@ -278,27 +284,4 @@ function throwIfTimedOut(timedOut: boolean, timeout: number): void {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
-}
-
-function createRequestSignal(caller: AbortSignal | undefined, timeout: number) {
-  const controller = new AbortController();
-  let timedOut = false;
-  const abort = () => controller.abort(caller?.reason);
-  if (caller?.aborted) abort();
-  caller?.addEventListener("abort", abort, { once: true });
-  const timeoutMs = timeout > 0 ? timeout * 1000 : TRANSPORT_TIMEOUT_MS;
-  const timer = setTimeout(() => {
-    timedOut = timeout > 0;
-    controller.abort();
-  }, timeoutMs);
-  return {
-    signal: controller.signal,
-    get timedOut() {
-      return timedOut;
-    },
-    cleanup() {
-      clearTimeout(timer);
-      caller?.removeEventListener("abort", abort);
-    },
-  };
 }

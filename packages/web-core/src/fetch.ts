@@ -7,6 +7,7 @@ import { Defuddle } from "defuddle/node";
 import { parseHTML } from "linkedom";
 
 import { renderMarkdown, truncateContent } from "./markdown.js";
+import { createRequestSignal } from "./request.js";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 const MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024;
@@ -90,7 +91,9 @@ async function fetchLocal(
 ): Promise<string> {
   throwIfAborted(callerSignal);
   const fetcher = options?.fetch ?? globalThis.fetch;
-  const request = createRequestSignal(callerSignal, REQUEST_TIMEOUT_MS);
+  const request = createRequestSignal(callerSignal, REQUEST_TIMEOUT_MS, {
+    timeoutReason: new Error("request timeout"),
+  });
   try {
     const response = await fetcher(url, {
       headers: { "User-Agent": WEB_FETCH_AGENT },
@@ -320,29 +323,4 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 
 function abortedError(): Error {
   return new Error("Operation aborted");
-}
-
-function createRequestSignal(
-  callerSignal: AbortSignal | undefined,
-  timeoutMs: number,
-) {
-  const controller = new AbortController();
-  let timedOut = false;
-  const onAbort = () => controller.abort(callerSignal?.reason);
-  if (callerSignal?.aborted) onAbort();
-  callerSignal?.addEventListener("abort", onAbort, { once: true });
-  const timer = setTimeout(() => {
-    timedOut = true;
-    controller.abort(new Error("request timeout"));
-  }, timeoutMs);
-  return {
-    signal: controller.signal,
-    get timedOut() {
-      return timedOut;
-    },
-    cleanup() {
-      clearTimeout(timer);
-      callerSignal?.removeEventListener("abort", onAbort);
-    },
-  };
 }
