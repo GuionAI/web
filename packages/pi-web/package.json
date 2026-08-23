@@ -1,7 +1,7 @@
 {
   "name": "@guionai/pi-web",
   "version": "0.1.0",
-  "description": "Pi extension for browserless HTML-to-Markdown web research with optional host rendering.",
+  "description": "Pi extension for web research with direct and optional agent-browser page-fetch backends.",
   "homepage": "https://github.com/guionai/web#readme",
   "bugs": {
     "url": "https://github.com/guionai/web/issues"

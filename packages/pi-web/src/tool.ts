@@ -59,7 +59,7 @@ export const webFetchSchema = Type.Union([
       ...fetchNavigationProperties,
       render: Type.Optional(
         StringEnum(["fetch"] as const, {
-          description: "Use browserless HTTP fetching (the default)",
+          description: "Use direct HTTP fetching (the default)",
         }),
       ),
     },
@@ -150,7 +150,7 @@ const SEARCH_PROMPT_GUIDELINES = [
 ];
 const FETCH_PROMPT_GUIDELINES = [
   "Use web_fetch to read a web page; large pages are truncated with a continuation notice, so follow up with tree or section_id to navigate.",
-  'Browserless fetching is the default. If the result says JavaScript rendering may be required, retry explicitly with render: "agent-browser" and waitMs from 0 through 30000 only when the host has agent-browser installed; there is no automatic fallback.',
+  'web_fetch has direct fetch (the default) and explicit agent-browser rendering for client-rendered pages. If rendering may be required, choose render: "agent-browser" with waitMs from 0 through 30000 only when the host has agent-browser installed; there is no automatic fallback.',
 ];
 const DOCS_PROMPT_GUIDELINES = [
   "Use web_docs with action resolve, then action fetch, to read library documentation instead of fetching documentation sites page by page.",
@@ -323,7 +323,7 @@ export function webFetchTool(dependencies: WebToolDependencies = {}) {
     name: "web_fetch",
     label: "Web fetch",
     description:
-      "Fetch and read an HTTP or HTTPS web page as Markdown, with heading-tree navigation. Browserless fetching is the default; explicitly choose render agent-browser with waitMs 0 through 30000 for JavaScript pages. Text output is limited to 2,000 lines or 50KB; truncated output is saved to a temporary file.",
+      "Fetch and read an HTTP or HTTPS web page as Markdown, with direct fetch or explicit agent-browser rendering for client-rendered pages. Rendered fetch requires waitMs 0 through 30000. Text output is limited to 2,000 lines or 50KB; truncated output is saved to a temporary file.",
     promptSnippet: "Fetch a web page with web_fetch",
     promptGuidelines: FETCH_PROMPT_GUIDELINES,
     parameters: webFetchSchema,

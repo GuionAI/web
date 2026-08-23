@@ -75,7 +75,7 @@ const fetchInputSchema = schema<FetchToolInput>({
       type: "string",
       enum: ["fetch", "agent-browser"],
       default: "fetch",
-      description: "optional renderer; browserless fetch is the default",
+      description: "optional page-fetch backend; direct fetch is the default",
     },
     waitMs: {
       type: "integer",
@@ -244,7 +244,7 @@ export function createMcpServer(dependencies: McpDependencies): McpServer {
     "fetch",
     toolConfig(
       "Fetch a web page",
-      "Fetch a browserless web page as Markdown, or explicitly use host-installed agent-browser rendering with required waitMs.",
+      "Fetch a page as Markdown with direct fetch or explicit host-installed agent-browser rendering; rendered fetch requires waitMs.",
       fetchInputSchema,
       fetchOutputSchema,
     ),

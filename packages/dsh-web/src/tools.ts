@@ -53,7 +53,7 @@ const fetchParameters = {
   render: {
     type: "string",
     enum: ["fetch", "agent-browser"],
-    description: "Rendering backend; defaults to browserless fetch",
+    description: "Page-fetch backend; defaults to direct fetch",
   },
   waitMs: {
     type: "integer",
@@ -278,7 +278,7 @@ function webFetchTool(
     defineTool({
       name: "web_fetch",
       description:
-        "Fetch a browserless HTTP or HTTPS page as Markdown with heading-tree and section navigation; explicitly choose host-installed agent-browser rendering with required waitMs for client-rendered pages.",
+        "Fetch an HTTP or HTTPS page as Markdown with direct fetch or explicit host-installed agent-browser rendering; rendered fetch requires waitMs for client-rendered pages.",
       parameters: fetchParameters,
       output: fetchOutput,
       isConcurrencySafe: () => true,
