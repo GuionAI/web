@@ -50,6 +50,16 @@ const fetchParameters = {
     default: DEFAULT_TREE_THRESHOLD,
     description: "Automatic tree threshold; defaults to 5000",
   },
+  render: {
+    type: "string",
+    enum: ["fetch", "agent-browser"],
+    description: "Rendering backend; defaults to browserless fetch",
+  },
+  waitMs: {
+    type: "integer",
+    description:
+      "Required post-load wait for agent-browser rendering (0-30000)",
+  },
 } as const;
 
 const docsParameters = {
@@ -281,6 +291,8 @@ function webFetchTool(
             section_id: args.section_id,
             full: args.full,
             tree_threshold: args.tree_threshold,
+            render: args.render,
+            waitMs: args.waitMs,
           },
           exec.signal,
         );

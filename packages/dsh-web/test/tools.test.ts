@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { createWebOperations, type WebOperations } from "@guionai/web-core";
+import {
+  createWebOperations,
+  FetchCapabilityError,
+  type WebOperations,
+} from "@guionai/web-core";
 
 import { CONTEXT7_CREDENTIAL_REF } from "../src/contract.js";
 import {
@@ -60,6 +64,13 @@ describe("DSH direct web tools", () => {
     expect((definitions[0]!.parameters as any).additionalProperties).toBe(
       false,
     );
+    expect((definitions[0]!.parameters as any).properties.render.enum).toEqual([
+      "fetch",
+      "agent-browser",
+    ]);
+    expect((definitions[0]!.parameters as any).properties.waitMs.type).toBe(
+      "integer",
+    );
     expect((definitions[1]!.parameters as any).properties.action.enum).toEqual([
       "resolve",
       "fetch",
@@ -102,7 +113,12 @@ describe("DSH direct web tools", () => {
     await expect(
       call(
         fetch!,
-        { url: "https://example.test", section_id: "install" },
+        {
+          url: "https://example.test",
+          section_id: "install",
+          render: "agent-browser",
+          waitMs: 2000,
+        },
         controller.signal,
       ),
     ).resolves.toMatchObject({ mode: "section" });
@@ -132,6 +148,8 @@ describe("DSH direct web tools", () => {
           section_id: "install",
           full: undefined,
           tree_threshold: undefined,
+          render: "agent-browser",
+          waitMs: 2000,
         },
         abortSignal: controller.signal,
       },
@@ -161,6 +179,115 @@ describe("DSH direct web tools", () => {
         },
       },
     ]);
+  });
+
+  it("preserves shared fetch validation, cancellation, and structured renderer failures", async () => {
+    const fetch = createWebToolDefinitions(dependencies())[0]!;
+    await expect(
+      call(fetch, {
+        url: "https://example.test",
+        render: "agent-browser",
+      }),
+    ).rejects.toThrow("waitMs is required");
+    await expect(
+      call(fetch, {
+        url: "https://example.test",
+        waitMs: 0,
+      }),
+    ).rejects.toThrow("waitMs is only valid");
+    await expect(
+      call(fetch, {
+        url: "https://example.test",
+        render: "agent-browser",
+        waitMs: 30_001,
+      }),
+    ).rejects.toThrow("waitMs must be an integer");
+
+    const retry = new FetchCapabilityError(
+      "javascript_rendering_may_be_required",
+      {
+        retryableWithRender: true,
+        suggestedArguments: { render: "agent-browser", waitMs: 2000 },
+      },
+    );
+    const allowlist = new FetchCapabilityError("render_domain_not_allowed", {
+      retryable: false,
+      reportUrl: "https://github.com/guionai/web/issues/new",
+      blockedHostname: "api.example.test",
+    });
+    const controller = new AbortController();
+    let aborted = false;
+    const cancel = createWebToolDefinitions(
+      dependencies({
+        operations: operations({
+          fetch: async (_input, signal) =>
+            new Promise<never>((_resolve, reject) => {
+              signal?.addEventListener(
+                "abort",
+                () => {
+                  aborted = true;
+                  reject(new Error("Operation aborted"));
+                },
+                { once: true },
+              );
+            }),
+        }),
+      }),
+    )[0]!;
+    const pending = call(
+      cancel,
+      { url: "https://example.test", render: "fetch" },
+      controller.signal,
+    );
+    controller.abort();
+    await expect(pending).rejects.toThrow("Operation aborted");
+    expect(aborted).toBe(true);
+
+    const retryDefinition = createWebToolDefinitions(
+      dependencies({
+        operations: operations({
+          fetch: async () => {
+            throw retry;
+          },
+        }),
+      }),
+    )[0]!;
+    await expect(
+      call(retryDefinition, {
+        url: "https://example.test",
+        render: "fetch",
+      }),
+    ).rejects.toMatchObject({
+      code: "javascript_rendering_may_be_required",
+      details: {
+        retryableWithRender: true,
+        suggestedArguments: { render: "agent-browser", waitMs: 2000 },
+      },
+    });
+
+    const allowlistDefinition = createWebToolDefinitions(
+      dependencies({
+        operations: operations({
+          fetch: async () => {
+            throw allowlist;
+          },
+        }),
+      }),
+    )[0]!;
+    await expect(
+      call(allowlistDefinition, {
+        url: "https://example.test",
+        render: "agent-browser",
+        waitMs: 0,
+      }),
+    ).rejects.toMatchObject({
+      code: "render_domain_not_allowed",
+      details: {
+        retryable: false,
+        reportUrl: "https://github.com/guionai/web/issues/new",
+        blockedHostname: "api.example.test",
+      },
+    });
   });
 
   it("passes a namespaced Context7 secret only to each docs core call and keeps errors secret-free", async () => {
