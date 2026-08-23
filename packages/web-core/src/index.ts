@@ -19,7 +19,9 @@ import {
 
 export {
   fetchWebPage,
+  FetchCapabilityError,
   type FetchCache,
+  type FetchErrorDetails,
   type FetchInput,
   type FetchOptions,
   type FetchResult,

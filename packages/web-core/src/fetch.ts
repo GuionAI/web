@@ -1,7 +1,10 @@
-import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { randomUUID, createHash } from "node:crypto";
+import { lookup } from "node:dns/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { isIP } from "node:net";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
 
 import { Defuddle } from "defuddle/node";
 import { parseHTML } from "linkedom";
@@ -11,14 +14,31 @@ import {
   boundedRequest,
   isOperationAborted,
   isRequestTimeout,
+  OperationAbortedError,
   readResponseBytes,
   throwIfAborted,
 } from "./request.js";
 
 const REQUEST_TIMEOUT_MS = 30_000;
+const RENDER_OPEN_TIMEOUT_MS = 30_000;
+const RENDER_CAPTURE_TIMEOUT_MS = 5_000;
+const RENDER_CLOSE_TIMEOUT_MS = 5_000;
+const RENDER_IDLE_TIMEOUT = "10s";
 const MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_BROWSER_STDOUT_BYTES = 10 * 1024 * 1024;
+const MAX_BROWSER_STDERR_BYTES = 64 * 1024;
 const MAX_BINARY_SCAN_BYTES = 8192;
 const WEB_FETCH_AGENT = "guionai-web/1.0";
+const RENDER_REPORT_URL = "https://github.com/guionai/web/issues/new";
+const RENDER_CDN_ALLOWLIST = [
+  "cdn.jsdelivr.net",
+  "unpkg.com",
+  "cdnjs.cloudflare.com",
+  "ajax.googleapis.com",
+  "fonts.googleapis.com",
+  "fonts.gstatic.com",
+  "esm.sh",
+] as const;
 
 export type FetchInput = {
   url: string;
@@ -26,6 +46,8 @@ export type FetchInput = {
   section_id?: string;
   full?: boolean;
   tree_threshold?: number;
+  render?: "fetch" | "agent-browser";
+  waitMs?: number;
 };
 
 export type FetchResult = {
@@ -33,6 +55,25 @@ export type FetchResult = {
   mode: "full" | "tree" | "section";
   content: string;
 };
+
+export type FetchErrorDetails = {
+  retryableWithRender?: boolean;
+  suggestedArguments?: { render: "agent-browser"; waitMs: 2000 };
+  retryable?: boolean;
+  reportUrl?: string;
+  blockedHostname?: string;
+};
+
+/** A stable fetch failure that host adapters can expose without parsing prose. */
+export class FetchCapabilityError extends Error {
+  constructor(
+    readonly code: string,
+    readonly details: FetchErrorDetails = {},
+  ) {
+    super(code);
+    this.name = "FetchCapabilityError";
+  }
+}
 
 export interface FetchCache {
   prepare(): Promise<void>;
@@ -47,16 +88,24 @@ export interface FetchOptions {
   cache?: FetchCache;
   /** Test-owned HTTP implementation; omitted uses Node's native fetch. */
   fetch?: typeof globalThis.fetch;
+  /** Test seam for public-target DNS validation; production uses system DNS. */
+  resolveHost?: (hostname: string) => Promise<string[]>;
+  /** Receives non-fatal renderer cleanup diagnostics. */
+  onRendererDiagnostic?: (message: string) => void;
 }
 
-/** Fetches static HTML or text and renders the established Markdown navigation modes. */
+/** Fetches static HTML or explicit browser-rendered DOM as established Markdown navigation modes. */
 export async function fetchWebPage(
   input: FetchInput,
   callerSignal?: AbortSignal,
   options?: FetchOptions,
 ): Promise<FetchResult> {
   const url = validateURL(input.url);
-  const content = await fetchCached(url, callerSignal, options);
+  const render = validateRenderInput(input);
+  const content =
+    render === "agent-browser"
+      ? await renderPage(url, input.waitMs!, callerSignal, options)
+      : await fetchCached(url, callerSignal, options);
   throwIfAborted(callerSignal);
   const rendered = renderMarkdown(
     content,
@@ -66,6 +115,26 @@ export async function fetchWebPage(
     input.tree_threshold,
   );
   return { url, mode: rendered.mode, content: rendered.content };
+}
+
+function validateRenderInput(input: FetchInput): "fetch" | "agent-browser" {
+  const render = input.render ?? "fetch";
+  if (render !== "fetch" && render !== "agent-browser")
+    throw new Error('render must be "fetch" or "agent-browser"');
+  if (render === "fetch") {
+    if (input.waitMs !== undefined)
+      throw new Error("waitMs is only valid with render agent-browser");
+    return render;
+  }
+  if (input.waitMs === undefined)
+    throw new Error("waitMs is required with render agent-browser");
+  if (
+    !Number.isInteger(input.waitMs) ||
+    input.waitMs < 0 ||
+    input.waitMs > 30_000
+  )
+    throw new Error("waitMs must be an integer from 0 through 30000");
+  return render;
 }
 
 async function fetchCached(
@@ -130,27 +199,21 @@ async function fetchLocal(
         if (contentType !== "" && contentType !== "text/html") {
           return truncateContent(new TextDecoder().decode(body));
         }
-
-        try {
-          const { document } = parseHTML(new TextDecoder().decode(body));
-          const parsed = await Defuddle(document, url, {
-            markdown: true,
-            useAsync: false,
-          });
-          throwIfAborted(callerSignal);
-          const content = parsed.content;
-          if (!content || content.trim() === "")
-            throw new Error("no content could be extracted");
-          return truncateContent(
-            content.endsWith("\n") ? content : content + "\n",
-          );
-        } catch (error) {
-          throw new Error(`defuddle parse failed: ${errorMessage(error)}`);
-        }
+        return extractHTML(
+          new TextDecoder().decode(body),
+          url,
+          callerSignal,
+          true,
+        );
       },
     );
   } catch (error) {
-    if (isOperationAborted(error) || isRequestTimeout(error)) throw error;
+    if (
+      isOperationAborted(error) ||
+      isRequestTimeout(error) ||
+      error instanceof FetchCapabilityError
+    )
+      throw error;
     if (
       error instanceof Error &&
       error.message.startsWith("binary content at ")
@@ -158,6 +221,449 @@ async function fetchLocal(
       throw error;
     throw new Error(`fetch ${url}: ${errorMessage(error)}`);
   }
+}
+
+async function renderPage(
+  url: string,
+  waitMs: number,
+  callerSignal: AbortSignal | undefined,
+  options: FetchOptions | undefined,
+): Promise<string> {
+  const target = new URL(url);
+  await validatePublicTarget(target, callerSignal, options);
+  throwIfAborted(callerSignal);
+
+  const workDirectory = await mkdtemp(join(tmpdir(), "guionai-web-render-"));
+  const configPath = join(workDirectory, "agent-browser.json");
+  const session = randomUUID();
+  const environment = rendererEnvironment(workDirectory, configPath);
+  const commonArgs = [
+    "--session",
+    session,
+    "--json",
+    "--config",
+    configPath,
+    "--allowed-domains",
+    renderAllowlist(target.hostname).join(","),
+    "--idle-timeout",
+    RENDER_IDLE_TIMEOUT,
+  ];
+  let commandAttempted = false;
+
+  try {
+    await writeFile(configPath, "{}\n", { encoding: "utf8", mode: 0o600 });
+    commandAttempted = true;
+    const opened = await runAgentBrowser(
+      [...commonArgs, "open", url],
+      environment,
+      workDirectory,
+      callerSignal,
+      RENDER_OPEN_TIMEOUT_MS,
+    );
+    assertCommandSuccess(opened.stdout);
+    await waitForRender(waitMs, callerSignal);
+    const capture = await runAgentBrowser(
+      [...commonArgs, "eval", "document.documentElement.outerHTML"],
+      environment,
+      workDirectory,
+      callerSignal,
+      RENDER_CAPTURE_TIMEOUT_MS,
+    );
+    const html = parseCapturedHTML(capture.stdout);
+    return await extractHTML(html, url, callerSignal, false);
+  } catch (error) {
+    throw rendererFailure(error);
+  } finally {
+    if (commandAttempted) {
+      try {
+        await runAgentBrowser(
+          [...commonArgs, "close"],
+          environment,
+          workDirectory,
+          undefined,
+          RENDER_CLOSE_TIMEOUT_MS,
+        );
+      } catch {
+        options?.onRendererDiagnostic?.("agent-browser session close failed");
+      }
+    }
+    await rm(workDirectory, { recursive: true, force: true });
+  }
+}
+
+async function extractHTML(
+  html: string,
+  url: string,
+  callerSignal: AbortSignal | undefined,
+  suggestRender: boolean,
+): Promise<string> {
+  try {
+    const { document } = parseHTML(html);
+    const parsed = await Defuddle(document, url, {
+      markdown: true,
+      useAsync: false,
+    });
+    throwIfAborted(callerSignal);
+    const content = parsed.content;
+    if (!content || content.trim() === "") {
+      if (suggestRender) {
+        throw new FetchCapabilityError("javascript_rendering_may_be_required", {
+          retryableWithRender: true,
+          suggestedArguments: { render: "agent-browser", waitMs: 2000 },
+        });
+      }
+      throw new Error("no content could be extracted");
+    }
+    return truncateContent(content.endsWith("\n") ? content : content + "\n");
+  } catch (error) {
+    if (error instanceof FetchCapabilityError) throw error;
+    throw new Error(`defuddle parse failed: ${errorMessage(error)}`);
+  }
+}
+
+async function validatePublicTarget(
+  url: URL,
+  callerSignal: AbortSignal | undefined,
+  options?: FetchOptions,
+): Promise<void> {
+  const hostname = url.hostname.replace(/^\[|\]$/g, "");
+  if (isIP(hostname) !== 0) {
+    if (isPrivateAddress(hostname))
+      throw new Error(
+        "render target must not use a private or reserved address",
+      );
+    return;
+  }
+
+  let addresses: string[];
+  try {
+    addresses = await awaitWithAbort(
+      options?.resolveHost
+        ? options.resolveHost(hostname)
+        : lookup(hostname, { all: true, verbatim: true }).then((results) =>
+            results.map(({ address }) => address),
+          ),
+      callerSignal,
+    );
+  } catch (error) {
+    if (isOperationAborted(error)) throw error;
+    throw new Error("render target DNS resolution failed");
+  }
+  throwIfAborted(callerSignal);
+  if (addresses.length === 0 || addresses.some(isPrivateAddress)) {
+    throw new Error("render target must not use a private or reserved address");
+  }
+}
+
+function renderAllowlist(hostname: string): string[] {
+  const target = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  return [target, `*.${target}`, ...RENDER_CDN_ALLOWLIST];
+}
+
+function rendererEnvironment(
+  workDirectory: string,
+  configPath: string,
+): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {
+    PATH: process.env.PATH,
+    HOME: workDirectory,
+    TMPDIR: workDirectory,
+    TMP: workDirectory,
+    TEMP: workDirectory,
+    AGENT_BROWSER_CONFIG: configPath,
+  };
+  for (const name of [
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
+  ]) {
+    if (process.env[name] !== undefined) environment[name] = process.env[name];
+  }
+  return environment;
+}
+
+type BrowserCommandResult = { stdout: string; stderr: string };
+type RendererCommandFailure =
+  | "aborted"
+  | "timeout"
+  | "output_limit"
+  | "unavailable"
+  | "failed";
+
+class RendererCommandError extends Error {
+  constructor(
+    readonly kind: RendererCommandFailure,
+    readonly stdout = "",
+    readonly stderr = "",
+  ) {
+    super(`agent-browser command ${kind}`);
+  }
+}
+
+function runAgentBrowser(
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  cwd: string,
+  callerSignal: AbortSignal | undefined,
+  timeoutMs: number,
+): Promise<BrowserCommandResult> {
+  return new Promise((resolve, reject) => {
+    let stdout: Buffer[] = [];
+    let stderr: Buffer[] = [];
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    let failure: RendererCommandFailure | undefined;
+    let spawnError: NodeJS.ErrnoException | undefined;
+    let settled = false;
+    const child = spawn("agent-browser", args, {
+      cwd,
+      env,
+      shell: false,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      clearTimeout(forceKill);
+      callerSignal?.removeEventListener("abort", abort);
+      callback();
+    };
+    const stop = (reason: RendererCommandFailure) => {
+      failure ??= reason;
+      child.kill("SIGTERM");
+    };
+    const abort = () => stop("aborted");
+    const timeout = setTimeout(() => stop("timeout"), timeoutMs);
+    const forceKill = setTimeout(() => child.kill("SIGKILL"), timeoutMs + 250);
+    callerSignal?.addEventListener("abort", abort, { once: true });
+    if (callerSignal?.aborted) abort();
+
+    const collect = (chunk: Buffer, stream: "stdout" | "stderr") => {
+      const max =
+        stream === "stdout"
+          ? MAX_BROWSER_STDOUT_BYTES
+          : MAX_BROWSER_STDERR_BYTES;
+      const size = stream === "stdout" ? stdoutBytes : stderrBytes;
+      if (size + chunk.byteLength > max) {
+        stop("output_limit");
+        return;
+      }
+      if (stream === "stdout") {
+        stdout.push(chunk);
+        stdoutBytes += chunk.byteLength;
+      } else {
+        stderr.push(chunk);
+        stderrBytes += chunk.byteLength;
+      }
+    };
+    child.stdout.on("data", (chunk: Buffer) => collect(chunk, "stdout"));
+    child.stderr.on("data", (chunk: Buffer) => collect(chunk, "stderr"));
+    child.on("error", (error: NodeJS.ErrnoException) => {
+      spawnError = error;
+    });
+    child.on("close", (code) => {
+      const output = {
+        stdout: Buffer.concat(stdout).toString("utf8"),
+        stderr: Buffer.concat(stderr).toString("utf8"),
+      };
+      if (callerSignal?.aborted || failure === "aborted") {
+        finish(() => reject(new RendererCommandError("aborted")));
+      } else if (failure) {
+        const reason = failure;
+        finish(() =>
+          reject(
+            new RendererCommandError(reason, output.stdout, output.stderr),
+          ),
+        );
+      } else if (spawnError) {
+        const error = spawnError;
+        finish(() =>
+          reject(
+            new RendererCommandError(
+              error.code === "ENOENT" ? "unavailable" : "failed",
+              output.stdout,
+              output.stderr,
+            ),
+          ),
+        );
+      } else if (code !== 0) {
+        finish(() =>
+          reject(
+            new RendererCommandError("failed", output.stdout, output.stderr),
+          ),
+        );
+      } else {
+        finish(() => resolve(output));
+      }
+    });
+  });
+}
+
+function parseCapturedHTML(stdout: string): string {
+  const record = parseSuccessEnvelope(stdout);
+  const data = record.data;
+  if (
+    record.success !== true ||
+    !data ||
+    typeof data !== "object" ||
+    Array.isArray(data) ||
+    typeof (data as Record<string, unknown>).result !== "string"
+  ) {
+    throw new FetchCapabilityError("render_capture_failed");
+  }
+  return (data as Record<string, unknown>).result as string;
+}
+
+function assertCommandSuccess(stdout: string): void {
+  parseSuccessEnvelope(stdout);
+}
+
+function parseSuccessEnvelope(stdout: string): Record<string, unknown> {
+  let envelope: unknown;
+  try {
+    envelope = JSON.parse(stdout);
+  } catch {
+    throw new FetchCapabilityError("render_invalid_output");
+  }
+  if (!envelope || typeof envelope !== "object" || Array.isArray(envelope))
+    throw new FetchCapabilityError("render_invalid_output");
+  const record = envelope as Record<string, unknown>;
+  if (record.success !== true)
+    throw new FetchCapabilityError("render_capture_failed");
+  return record;
+}
+
+function rendererFailure(error: unknown): Error {
+  if (isOperationAborted(error)) return error as Error;
+  if (error instanceof FetchCapabilityError) return error;
+  if (!(error instanceof RendererCommandError))
+    return new FetchCapabilityError("render_failed");
+  if (error.kind === "aborted") return new OperationAbortedError();
+  if (isDomainAllowlistFailure(error)) {
+    const blockedHost = blockedHostname(error.stdout, error.stderr);
+    return new FetchCapabilityError("render_domain_not_allowed", {
+      retryable: false,
+      reportUrl: RENDER_REPORT_URL,
+      ...(blockedHost ? { blockedHostname: blockedHost } : {}),
+    });
+  }
+  const code =
+    error.kind === "unavailable"
+      ? "render_unavailable"
+      : error.kind === "timeout"
+        ? "render_timed_out"
+        : error.kind === "output_limit"
+          ? "render_output_too_large"
+          : "render_failed";
+  return new FetchCapabilityError(code);
+}
+
+function isDomainAllowlistFailure(error: RendererCommandError): boolean {
+  const output = `${error.stdout}\n${error.stderr}`.toLowerCase();
+  return output.includes("domain") && output.includes("allow");
+}
+
+function blockedHostname(stdout: string, stderr: string): string | undefined {
+  const output = `${stdout}\n${stderr}`;
+  const jsonHostname = hostnameFromJson(stdout) ?? hostnameFromJson(stderr);
+  if (jsonHostname) return jsonHostname;
+  const match = [
+    /(?:not\s+allowed|blocked|rejected)\s*[:=-]?\s*["']?([a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)["']?/i,
+    /(?:domain|hostname|host)\s*[:=-]?\s*["']?([a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)["']?\s+(?:is\s+)?(?:not\s+allowed|blocked|rejected)/i,
+  ]
+    .map((pattern) => output.match(pattern)?.[1])
+    .find(
+      (candidate): candidate is string =>
+        candidate !== undefined && isValidHostname(candidate),
+    );
+  return match?.toLowerCase();
+}
+
+function hostnameFromJson(value: string): string | undefined {
+  try {
+    const envelope = JSON.parse(value);
+    if (!envelope || typeof envelope !== "object" || Array.isArray(envelope))
+      return undefined;
+    const record = envelope as Record<string, unknown>;
+    return findHostname(record.error) ?? findHostname(record.errors);
+  } catch {
+    return undefined;
+  }
+}
+
+function findHostname(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const hostname = findHostname(item);
+      if (hostname) return hostname;
+    }
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  for (const key of ["hostname", "host", "domain"]) {
+    const candidate = record[key];
+    if (typeof candidate === "string" && isValidHostname(candidate))
+      return candidate.toLowerCase();
+  }
+  for (const candidate of Object.values(record)) {
+    const hostname = findHostname(candidate);
+    if (hostname) return hostname;
+  }
+  return undefined;
+}
+
+function isValidHostname(value: string): boolean {
+  if (value.length > 253 || value.includes("..")) return false;
+  return /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(value);
+}
+
+function awaitWithAbort<T>(
+  work: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  throwIfAborted(signal);
+  if (!signal) return work;
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(new OperationAbortedError());
+    signal.addEventListener("abort", abort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener("abort", abort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+  });
+}
+
+function waitForRender(
+  ms: number,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  throwIfAborted(signal);
+  if (ms === 0) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(done, ms);
+    const abort = () => {
+      clearTimeout(timeout);
+      reject(new OperationAbortedError());
+    };
+    function done() {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    }
+    signal?.addEventListener("abort", abort, { once: true });
+  });
 }
 
 function validateURL(rawURL: string): string {
@@ -171,6 +677,37 @@ function validateURL(rawURL: string): string {
     throw new Error(`fetch ${rawURL}: URL must use http or https`);
   }
   return rawURL;
+}
+
+function isPrivateAddress(address: string): boolean {
+  if (isIP(address) === 4) {
+    const [first, second] = address.split(".").map(Number);
+    return (
+      first === 0 ||
+      first === 10 ||
+      first === 127 ||
+      first! >= 224 ||
+      (first === 100 && second! >= 64 && second! <= 127) ||
+      (first === 169 && second === 254) ||
+      (first === 172 && second! >= 16 && second! <= 31) ||
+      (first === 192 && (second === 0 || second === 88 || second === 168)) ||
+      (first === 198 && (second === 18 || second === 19 || second === 51)) ||
+      (first === 203 && second === 0)
+    );
+  }
+  if (isIP(address) !== 6) return true;
+  const normalized = address.toLowerCase();
+  const mappedIPv4 = normalized.match(/^::ffff:(.+)$/)?.[1];
+  if (mappedIPv4 && isIP(mappedIPv4) === 4) return isPrivateAddress(mappedIPv4);
+  return (
+    normalized === "::" ||
+    normalized === "::1" ||
+    normalized.startsWith("fc") ||
+    normalized.startsWith("fd") ||
+    normalized.startsWith("2001:db8:") ||
+    /^fe[89ab]/.test(normalized) ||
+    normalized.startsWith("ff")
+  );
 }
 
 function mediaType(contentType: string | null): string {

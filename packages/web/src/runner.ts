@@ -1,5 +1,9 @@
 import { createProgram } from "./program.js";
-import type { WebCredentials, WebOperations } from "@guionai/web-core";
+import {
+  FetchCapabilityError,
+  type WebCredentials,
+  type WebOperations,
+} from "@guionai/web-core";
 
 export type CliDependencies = {
   operations: WebOperations;
@@ -23,9 +27,28 @@ export async function runCli(
     await program.parseAsync(argv);
     return 0;
   } catch (error) {
-    output.stderr(
-      `${error instanceof Error ? error.message : "web search failed"}\n`,
-    );
+    output.stderr(formatCliError(error));
     return 1;
   }
+}
+
+function formatCliError(error: unknown): string {
+  if (!(error instanceof FetchCapabilityError))
+    return `${error instanceof Error ? error.message : "web search failed"}\n`;
+  if (error.code === "javascript_rendering_may_be_required") {
+    return (
+      "javascript_rendering_may_be_required: content may require JavaScript rendering\n" +
+      "Retry: web fetch <url> --render=agent-browser --wait=2000\n"
+    );
+  }
+  if (error.code === "render_domain_not_allowed") {
+    const hostname = error.details.blockedHostname
+      ? ` (${error.details.blockedHostname})`
+      : "";
+    return (
+      `render_domain_not_allowed${hostname}: increasing --wait will not help\n` +
+      `Report a likely missing first-party or common-CDN domain: ${error.details.reportUrl}\n`
+    );
+  }
+  return `${error.code}\n`;
 }

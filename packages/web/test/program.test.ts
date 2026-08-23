@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { FetchCapabilityError } from "@guionai/web-core";
 import { createProgram } from "../src/program.js";
 import { runCli } from "../src/runner.js";
 
@@ -199,6 +200,29 @@ describe("web search Commander adapter", () => {
     expect(output()).toEqual({ stdout: "# Fixture page\n", stderr: "" });
   });
 
+  it("forwards explicit browser rendering options", async () => {
+    const { program, operations } = setup();
+    await program.parseAsync(
+      [
+        "fetch",
+        "https://example.test/page",
+        "--render=agent-browser",
+        "--wait=0",
+      ],
+      { from: "user" },
+    );
+
+    expect(operations.fetch).toHaveBeenCalledWith({
+      url: "https://example.test/page",
+      tree: undefined,
+      render: "agent-browser",
+      waitMs: 0,
+      section_id: undefined,
+      full: undefined,
+      tree_threshold: undefined,
+    });
+  });
+
   it("writes fetch JSON as exactly one document", async () => {
     const { program, operations, output } = setup();
     await program.parseAsync(
@@ -217,6 +241,42 @@ describe("web search Commander adapter", () => {
       await operations.fetch.mock.results[0]!.value,
     );
     expect(output().stdout.endsWith("\n")).toBe(true);
+  });
+
+  it("formats the browser retry guidance without partial stdout", async () => {
+    const operations = {
+      search: vi.fn(),
+      fetch: vi.fn(async () => {
+        throw new FetchCapabilityError("javascript_rendering_may_be_required", {
+          retryableWithRender: true,
+          suggestedArguments: { render: "agent-browser", waitMs: 2000 },
+        });
+      }),
+      docsResolve: vi.fn(),
+      docsFetch: vi.fn(),
+      sgraphSearch: vi.fn(),
+    };
+    let stdout = "";
+    let stderr = "";
+    const exitCode = await runCli(
+      ["node", "web", "fetch", "https://example.test/page"],
+      { operations, credentials: () => ({}) },
+      {
+        stdout: (text) => {
+          stdout += text;
+        },
+        stderr: (text) => {
+          stderr += text;
+        },
+      },
+    );
+
+    expect(exitCode).toBe(1);
+    expect(stdout).toBe("");
+    expect(stderr).toBe(
+      "javascript_rendering_may_be_required: content may require JavaScript rendering\n" +
+        "Retry: web fetch <url> --render=agent-browser --wait=2000\n",
+    );
   });
 
   it("returns nonzero failures to stderr without writing a partial stdout result", async () => {
