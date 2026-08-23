@@ -9,6 +9,7 @@ import { Command } from "commander";
 
 import {
   FetchCapabilityError,
+  RENDER_REPORT_URL,
   type FetchErrorDetails,
   type WebCredentials,
   type WebOperations,
@@ -418,7 +419,7 @@ function safeFetchErrorDetails(details: FetchErrorDetails): FetchErrorDetails {
   ) {
     safe.suggestedArguments = { render: "agent-browser", waitMs: 2000 };
   }
-  if (details.reportUrl === "https://github.com/guionai/web/issues/new")
+  if (details.reportUrl === RENDER_REPORT_URL)
     safe.reportUrl = details.reportUrl;
   if (
     typeof details.blockedHostname === "string" &&

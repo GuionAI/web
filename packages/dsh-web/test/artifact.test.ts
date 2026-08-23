@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -15,6 +16,16 @@ import { parse } from "yaml";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const CDN_ALLOWLIST = [
+  "cdn.jsdelivr.net",
+  "unpkg.com",
+  "cdnjs.cloudflare.com",
+  "ajax.googleapis.com",
+  "fonts.googleapis.com",
+  "fonts.gstatic.com",
+  "esm.sh",
+];
+const REPORT_URL = "https://github.com/guionai/web/issues/new";
 let artifactRoot = "";
 let artifactTemp = "";
 
@@ -32,6 +43,17 @@ beforeAll(() => {
   );
   if (tarballs.length !== 1)
     throw new Error("expected one packed DSH Web artifact");
+  const tarContents = execFileSync(
+    "tar",
+    ["-tzf", join(artifactTemp, tarballs[0]!)],
+    { encoding: "utf8" },
+  );
+  if (
+    /agent-browser|chrom(e|ium)|playwright|puppeteer|node_modules\/@.*\/(linux|darwin|win32)/i.test(
+      tarContents,
+    )
+  )
+    throw new Error("DSH tarball contains browser or platform artifacts");
   const installed = join(artifactTemp, "installed");
   mkdirSync(installed);
   writeFileSync(
@@ -53,6 +75,30 @@ beforeAll(() => {
   artifactRoot = join(installed, "node_modules", "@guionai", "dsh-web");
   writeHostFakes();
 }, 30_000);
+
+function writeFakeAgentBrowser(): { bin: string; log: string } {
+  const bin = join(artifactTemp, "fake-browser-bin");
+  const log = join(artifactTemp, "agent-browser.jsonl");
+  mkdirSync(bin);
+  writeFileSync(
+    join(bin, "agent-browser"),
+    `#!/usr/bin/env node
+const { appendFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+const command = args.includes("close") ? "close" : args.includes("eval") ? "eval" : "open";
+appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + "\\n");
+if (command === "open" && args.some((value) => value.includes("/blocked"))) {
+  console.log(JSON.stringify({ success: false, error: { message: "domain not allowed", hostname: "missing.cdn.test" } }));
+  process.exit(1);
+}
+if (command === "eval")
+  console.log(JSON.stringify({ success: true, data: { result: "<html><body><article><p>Packed DSH rendered fixture.</p></article></body></html>" } }));
+else console.log(JSON.stringify({ success: true, data: {} }));
+`,
+  );
+  chmodSync(join(bin, "agent-browser"), 0o700);
+  return { bin, log };
+}
 
 function writeHostFakes(): void {
   const dependencies = {
@@ -121,7 +167,14 @@ describe("DSH rc.8 packed package contract", () => {
     expect(packed.dependencies).toBeUndefined();
     expect(packed.optionalDependencies).toBeUndefined();
     expect(
-      packed.scripts?.install ?? packed.scripts?.postinstall,
+      Object.keys(packed.peerDependencies).some((name) =>
+        /agent-browser|chrom(e|ium)|playwright|puppeteer/i.test(name),
+      ),
+    ).toBe(false);
+    expect(
+      packed.scripts?.preinstall ??
+        packed.scripts?.install ??
+        packed.scripts?.postinstall,
     ).toBeUndefined();
     expect(JSON.stringify(packed)).not.toContain("workspace:");
     expect(
@@ -132,8 +185,16 @@ describe("DSH rc.8 packed package contract", () => {
     expect(host.name).toBe("guionai-dsh-web");
     expect(host.inject).toEqual(["web", "credentials", "settings", "tools"]);
     let provider: any;
+    const tools: any[] = [];
+    const browser = writeFakeAgentBrowser();
     const originalFetch = globalThis.fetch;
+    const originalPath = process.env.PATH;
     globalThis.fetch = async (url, init = {}) => {
+      if (String(url) === "https://93.184.216.34/direct")
+        return new Response(
+          "<html><body><article><p>Packed DSH browserless fixture.</p></article></body></html>",
+          { headers: { "content-type": "text/html" } },
+        );
       expect(String(url)).toBe("https://api.exa.ai/search");
       expect(
         (init.headers as Headers).get?.("x-api-key") ??
@@ -160,7 +221,7 @@ describe("DSH rc.8 packed package contract", () => {
             provider = value;
           },
         },
-        tools: { register: () => undefined },
+        tools: { register: (definition: unknown) => tools.push(definition) },
       });
       await expect(
         provider.search({ query: "packed fixture" }),
@@ -170,7 +231,52 @@ describe("DSH rc.8 packed package contract", () => {
         ],
         truncated: false,
       });
+      const fetchTool = tools.find(
+        (definition) => definition.name === "web_fetch",
+      );
+      if (!fetchTool)
+        throw new Error("packed DSH artifact did not register web_fetch");
+      process.env.PATH = `${browser.bin}:${originalPath ?? ""}`;
+      const direct = await fetchTool.execute(
+        { url: "https://93.184.216.34/direct", full: true },
+        { signal: new AbortController().signal },
+      );
+      expect(direct.content).toBe("Packed DSH browserless fixture.\n");
+      expect(() => readFileSync(browser.log, "utf8")).toThrow();
+      const rendered = await fetchTool.execute(
+        {
+          url: "https://93.184.216.34/rendered",
+          render: "agent-browser",
+          waitMs: 0,
+          full: true,
+        },
+        { signal: new AbortController().signal },
+      );
+      expect(rendered.content).toBe("Packed DSH rendered fixture.\n");
+      const browserCommands = readFileSync(browser.log, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as string[]);
+      const open = browserCommands[0]!;
+      expect(open[open.indexOf("--allowed-domains") + 1]).toBe(
+        ["93.184.216.34", "*.93.184.216.34", ...CDN_ALLOWLIST].join(","),
+      );
+      expect(browserCommands).toHaveLength(3);
+      await expect(
+        fetchTool.execute(
+          {
+            url: "https://93.184.216.34/blocked",
+            render: "agent-browser",
+            waitMs: 0,
+          },
+          { signal: new AbortController().signal },
+        ),
+      ).rejects.toMatchObject({
+        code: "render_domain_not_allowed",
+        details: { retryable: false, reportUrl: REPORT_URL },
+      });
     } finally {
+      process.env.PATH = originalPath;
       globalThis.fetch = originalFetch;
     }
 

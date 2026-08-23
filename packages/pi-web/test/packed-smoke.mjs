@@ -16,6 +16,16 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const root = await mkdtemp(join(tmpdir(), "guionai-pi-web-pack-smoke-"));
+const CDN_ALLOWLIST = [
+  "cdn.jsdelivr.net",
+  "unpkg.com",
+  "cdnjs.cloudflare.com",
+  "ajax.googleapis.com",
+  "fonts.googleapis.com",
+  "fonts.gstatic.com",
+  "esm.sh",
+];
+const REPORT_URL = "https://github.com/guionai/web/issues/new";
 const pnpmEntrypoint = process.env.npm_execpath;
 if (!pnpmEntrypoint) throw new Error("pnpm entrypoint is unavailable");
 
@@ -39,6 +49,13 @@ try {
   if (tarballs.length !== 1)
     throw new Error(`expected one tarball, got ${tarballs.join(", ")}`);
   const tarball = join(packDirectory, tarballs[0]);
+  const { stdout: tarContents } = await execFileAsync("tar", ["-tzf", tarball]);
+  if (
+    /agent-browser|chrom(e|ium)|playwright|puppeteer|node_modules\/@.*\/(linux|darwin|win32)/i.test(
+      tarContents,
+    )
+  )
+    throw new Error("Pi tarball contains browser or platform artifacts");
 
   await writeFile(
     join(root, "package.json"),
@@ -74,6 +91,9 @@ try {
     manifest.bin ||
     manifest.dependencies ||
     manifest.optionalDependencies ||
+    Object.keys(manifest.peerDependencies ?? {}).some((name) =>
+      /agent-browser|chrom(e|ium)|playwright|puppeteer/i.test(name),
+    ) ||
     manifest.scripts?.preinstall ||
     manifest.scripts?.install ||
     manifest.scripts?.postinstall
@@ -105,7 +125,10 @@ const { appendFileSync } = require("node:fs");
 const args = process.argv.slice(2);
 appendFileSync(${JSON.stringify(fakeLog)}, JSON.stringify(args) + "\\n");
 const command = args.at(-1) === "close" ? "close" : args.includes("eval") ? "eval" : "open";
-if (command === "eval") {
+if (command === "open" && args.some((value) => value.includes("/blocked"))) {
+  console.log(JSON.stringify({ success: false, error: { message: "domain not allowed", hostname: "missing.cdn.test" } }));
+  process.exit(1);
+} else if (command === "eval") {
   console.log(JSON.stringify({ success: true, data: { result: "<html><body><article><h1>Rendered fixture</h1><p>JavaScript output from fake agent-browser.</p></article></body></html>" } }));
 } else {
   console.log(JSON.stringify({ success: true, data: {} }));
@@ -193,6 +216,13 @@ if (command === "eval") {
       .split("\n")
       .filter(Boolean)
       .map((line) => JSON.parse(line));
+    const open = browserCommands[0];
+    const allowed = open?.[open.indexOf("--allowed-domains") + 1];
+    if (
+      allowed !==
+      ["93.184.216.34", "*.93.184.216.34", ...CDN_ALLOWLIST].join(",")
+    )
+      throw new Error("Pi packed renderer used an inconsistent CDN allowlist");
     if (
       browserCommands.length !== 3 ||
       browserCommands.at(-1)?.at(-1) !== "close"
@@ -200,6 +230,21 @@ if (command === "eval") {
       throw new Error(
         "packed rendered fetch did not close its browser session",
       );
+
+    try {
+      await fetchTool.execute("test", {
+        url: "https://93.184.216.34/blocked",
+        render: "agent-browser",
+        waitMs: 0,
+      });
+      throw new Error("blocked rendered fetch unexpectedly succeeded");
+    } catch (error) {
+      if (
+        error?.details?.reportUrl !== REPORT_URL ||
+        error?.details?.retryable !== false
+      )
+        throw new Error("Pi packed renderer lost the allowlist issue URL");
+    }
   } finally {
     globalThis.fetch = originalFetch;
     if (originalExaKey === undefined) delete process.env.EXA_API_KEY;

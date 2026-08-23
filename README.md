@@ -91,13 +91,60 @@ or Brave provider. Its settings UI stores provider selection and manages
 namespaced write-only credentials. Fetch, documentation, and Sourcegraph tools
 also run in-process. The host DSH packages and React are peers supplied by DSH.
 
-## Browserless boundary
+## Optional JavaScript rendering
 
-Page extraction uses Node `fetch`, `linkedom`, and Defuddle to turn static HTML,
-server-side-rendered pages, and pre-rendered pages into clean Markdown. It does
-not execute page JavaScript, launch a browser, use Playwright or Chromium, or
-support true client-rendered SPA rendering. A page whose meaningful content is
-created only by client JavaScript therefore needs a browser-capable tool.
+`web fetch` is browserless by default. It uses Node `fetch`, `linkedom`, and
+Defuddle, never launches a subprocess for an ordinary fetch, and does not
+execute page JavaScript. If the response is an application shell, retry
+explicitly; there is no automatic browser fallback:
+
+```bash
+web fetch https://example.com/app --render=agent-browser --wait=2000
+# If it is still incomplete, retry explicitly with more time, or abandon it:
+web fetch https://example.com/app --render=agent-browser --wait=10000
+```
+
+`--wait` is mandatory with `--render=agent-browser`, including `--wait=0`, and
+accepts only an integer from 0 through 30,000 milliseconds. Browserless fetches
+must not provide `--wait`. The same `render: "agent-browser"` and required
+`waitMs` fields are available on the MCP `fetch`, Pi `web_fetch`, and DSH
+`web_fetch` tools. A browserless failure may return the structured
+`javascript_rendering_may_be_required` hint with the 2,000 ms suggestion; the
+agent decides whether to retry with a longer wait or abandon the page.
+
+Rendering is an optional host capability. The host must already have a
+compatible `agent-browser` executable directly runnable from `PATH`; this
+project does not install it, download Chromium, or reuse browser credentials.
+The renderer is supported on macOS and Linux hosts. The three npm packages
+remain browserless and installable when `agent-browser` is absent.
+
+A rendered session is fresh and non-persistent. Before launch, the target must
+be an HTTP(S) public hostname or address. The browser allowlist then contains
+only the requested hostname, `*.<requested-hostname>` (the target and its
+subdomains), and this fixed common-CDN set:
+
+- `cdn.jsdelivr.net`
+- `unpkg.com`
+- `cdnjs.cloudflare.com`
+- `ajax.googleapis.com`
+- `fonts.googleapis.com`
+- `fonts.gstatic.com`
+- `esm.sh`
+
+The caller cannot widen this list. Redirects, APIs, frames, workers, sockets,
+or other dependencies on unknown domains fail closed as
+`render_domain_not_allowed`; increasing `waitMs` will not help. Report a likely
+missing first-party or common-CDN domain at
+https://github.com/guionai/web/issues/new, including the page URL and blocked
+domain. Do not include credentials or page secrets in an issue.
+
+This is a browser-level hostname boundary, not complete SSRF protection or a
+host egress firewall. Literal and DNS-resolved private/reserved targets are
+rejected before launch, but an allowlisted malicious hostname can change its
+DNS answer to a private address after validation (DNS rebinding), and there is
+no operating-system host-egress isolation here. Do not use this backend for
+arbitrary untrusted URLs in a public or multi-tenant service without a
+per-connection SSRF-filtering proxy or container/microVM egress isolation.
 
 ## Development
 

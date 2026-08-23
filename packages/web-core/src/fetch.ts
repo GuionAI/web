@@ -29,8 +29,8 @@ const MAX_BROWSER_STDOUT_BYTES = 10 * 1024 * 1024;
 const MAX_BROWSER_STDERR_BYTES = 64 * 1024;
 const MAX_BINARY_SCAN_BYTES = 8192;
 const WEB_FETCH_AGENT = "guionai-web/1.0";
-const RENDER_REPORT_URL = "https://github.com/guionai/web/issues/new";
-const RENDER_CDN_ALLOWLIST = [
+export const RENDER_REPORT_URL = "https://github.com/guionai/web/issues/new";
+export const RENDER_CDN_ALLOWLIST = [
   "cdn.jsdelivr.net",
   "unpkg.com",
   "cdnjs.cloudflare.com",
