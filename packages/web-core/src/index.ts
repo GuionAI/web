@@ -1,4 +1,10 @@
-import { createRequestSignal } from "./request.js";
+import {
+  boundedRequest,
+  isOperationAborted,
+  isRequestTimeout,
+  readResponseText,
+  throwIfAborted,
+} from "./request.js";
 
 export {
   fetchWebPage,
@@ -35,7 +41,6 @@ export {
 const EXA_BASE_URL = "https://api.exa.ai";
 const BRAVE_BASE_URL = "https://api.search.brave.com/res/v1";
 const DEFAULT_TIMEOUT_MS = 30_000;
-const MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_RESULTS = 10;
 
 export type SearchProvider = "exa" | "brave";
@@ -77,30 +82,19 @@ export async function search(input: SearchInput): Promise<SearchResponse> {
   throwIfAborted(input.signal);
 
   const provider = selectProvider(input.provider, input.credentials);
-  const request = createRequestSignal(
-    input.signal,
-    input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-  );
   try {
     const result = await (provider === "exa"
-      ? searchExa(input, request.signal)
-      : searchBrave(input, request.signal));
+      ? searchExa(input)
+      : searchBrave(input));
     throwIfAborted(input.signal);
     return result;
   } catch (error) {
-    if (input.signal?.aborted) throw abortedError();
-    if (request.timedOut)
-      throw new Error(
-        `search timed out after ${(input.timeoutMs ?? DEFAULT_TIMEOUT_MS) / 1000} seconds`,
-      );
-    if (isAbortError(error)) throw abortedError();
+    if (isOperationAborted(error) || isRequestTimeout(error)) throw error;
     const message =
       error instanceof Error ? error.message : "search request failed";
     throw new Error(
       `search failed with ${provider === "exa" ? "Exa" : "Brave"} provider: ${message}`,
     );
-  } finally {
-    request.cleanup();
   }
 }
 
@@ -165,13 +159,10 @@ export function formatSearchResults(results: SearchResult[]): string {
   return output;
 }
 
-async function searchExa(
-  input: SearchInput,
-  signal: AbortSignal,
-): Promise<SearchResponse> {
+async function searchExa(input: SearchInput): Promise<SearchResponse> {
   const endpoint = `${(input.endpoints?.exa ?? EXA_BASE_URL).replace(/\/$/, "")}/search`;
-  const response = await request(
-    input.fetch,
+  const data = await providerRequest(
+    input,
     endpoint,
     {
       method: "POST",
@@ -185,11 +176,9 @@ async function searchExa(
         numResults: MAX_RESULTS,
         contents: { highlights: true },
       }),
-      signal,
     },
     "Exa",
   );
-  const data = await json(response, "Exa");
   const rawResults = asArray(data, "results", "Exa");
   return {
     provider: "Exa",
@@ -216,26 +205,24 @@ async function searchExa(
   };
 }
 
-async function searchBrave(
-  input: SearchInput,
-  signal: AbortSignal,
-): Promise<SearchResponse> {
+async function searchBrave(input: SearchInput): Promise<SearchResponse> {
   const base = (input.endpoints?.brave ?? BRAVE_BASE_URL).replace(/\/$/, "");
   const endpoint = `${base}/web/search?q=${encodeURIComponent(input.query)}&count=${MAX_RESULTS}`;
-  const response = await request(
-    input.fetch,
-    endpoint,
-    {
-      method: "GET",
-      headers: {
-        "X-Subscription-Token": input.credentials.braveApiKey!,
-        accept: "application/json",
+  const data = asRecord(
+    await providerRequest(
+      input,
+      endpoint,
+      {
+        method: "GET",
+        headers: {
+          "X-Subscription-Token": input.credentials.braveApiKey!,
+          accept: "application/json",
+        },
       },
-      signal,
-    },
+      "Brave",
+    ),
     "Brave",
   );
-  const data = asRecord(await json(response, "Brave"), "Brave");
   const web = asRecord(data.web, "Brave");
   const rawResults = asArray(web, "results", "Brave");
   return {
@@ -252,75 +239,50 @@ async function searchBrave(
   };
 }
 
-async function request(
-  fetcher: typeof globalThis.fetch | undefined,
+async function providerRequest(
+  input: SearchInput,
   url: string,
   init: RequestInit,
   provider: ProviderLabel,
-): Promise<Response> {
-  let response: Response;
-  try {
-    response = await (fetcher ?? globalThis.fetch)(url, init);
-  } catch (error) {
-    if (isAbortError(error)) throw error;
-    throw new Error(`${provider} search request failed`);
-  }
-  if (!response.ok) {
-    // Deliberately do not surface remote response bodies: they can contain
-    // provider diagnostics or request data, and status is enough to act on.
-    throw new Error(
-      `${provider.toLowerCase()} search: HTTP ${response.status}`,
-    );
-  }
-  return response;
-}
-
-async function json(
-  response: Response,
-  provider: ProviderLabel,
 ): Promise<unknown> {
-  let text: string;
-  try {
-    text = await readText(response);
-    return JSON.parse(text);
-  } catch {
-    throw new Error(`${provider.toLowerCase()} search: invalid JSON response`);
-  }
-}
-
-async function readText(response: Response): Promise<string> {
-  if (!response.body) {
-    const text = await response.text();
-    if (Buffer.byteLength(text) > MAX_RESPONSE_BYTES)
-      throw new Error("response too large");
-    return text;
-  }
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      length += value.byteLength;
-      if (length > MAX_RESPONSE_BYTES) throw new Error("response too large");
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  return new TextDecoder().decode(concat(chunks, length));
-}
-
-function concat(chunks: Uint8Array[], length: number): Uint8Array {
-  const output = new Uint8Array(length);
-  let offset = 0;
-  for (const chunk of chunks) {
-    output.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return output;
+  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  return boundedRequest(
+    input.fetch,
+    url,
+    init,
+    {
+      callerSignal: input.signal,
+      timeoutMs,
+      timeoutMessage: `search timed out after ${timeoutMs / 1000} seconds`,
+    },
+    async (response, signal) => {
+      if (!response.ok) {
+        // Deliberately do not surface remote response bodies: they can contain
+        // provider diagnostics or request data, and status is enough to act on.
+        throw new Error(
+          `${provider.toLowerCase()} search: HTTP ${response.status}`,
+        );
+      }
+      try {
+        return JSON.parse(
+          await readResponseText(response, 1024 * 1024, signal),
+        );
+      } catch (error) {
+        if (isOperationAborted(error) || isRequestTimeout(error)) throw error;
+        throw new Error(
+          `${provider.toLowerCase()} search: invalid JSON response`,
+        );
+      }
+    },
+  ).catch((error: unknown) => {
+    if (isOperationAborted(error) || isRequestTimeout(error)) throw error;
+    if (
+      error instanceof Error &&
+      error.message.startsWith(`${provider.toLowerCase()} search:`)
+    )
+      throw error;
+    throw new Error(`${provider} search request failed`);
+  });
 }
 
 function asRecord(
@@ -346,16 +308,4 @@ function asArray(
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
-}
-
-function throwIfAborted(signal: AbortSignal | undefined): void {
-  if (signal?.aborted) throw abortedError();
-}
-
-function abortedError(): Error {
-  return new Error("Operation aborted");
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === "AbortError";
 }

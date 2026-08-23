@@ -1,4 +1,11 @@
-import { createRequestSignal } from "./request.js";
+import {
+  boundedRequest,
+  isOperationAborted,
+  isRequestTimeout,
+  isResponseBodyLimit,
+  readResponseText,
+  throwIfAborted,
+} from "./request.js";
 
 const SOURCEGRAPH_ENDPOINT = "https://sourcegraph.com/.api/graphql";
 const DEFAULT_COUNT = 10;
@@ -6,7 +13,6 @@ const MAX_COUNT = 20;
 const DEFAULT_CONTEXT = 10;
 const MAX_TIMEOUT_SECONDS = 120;
 const TRANSPORT_TIMEOUT_MS = 30_000;
-const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 const MAX_GRAPHQL_ERROR_MESSAGE_CHARS = 4096;
 
 const GRAPHQL_QUERY =
@@ -40,59 +46,50 @@ export async function sgraphSearch(input: SGraphInput): Promise<SGraphResult> {
   const count = normalizeCount(input.count);
   const context = normalizeContext(input.context);
   const timeout = normalizeTimeout(input.timeout);
-  const request = createRequestSignal(
-    input.signal,
-    timeout > 0 ? timeout * 1000 : TRANSPORT_TIMEOUT_MS,
-    { timeoutIsOperationTimeout: timeout > 0 },
-  );
-
-  try {
-    const response = await (input.fetch ?? globalThis.fetch)(
-      input.endpoint ?? SOURCEGRAPH_ENDPOINT,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "user-agent": "guionai-web/1.0",
-        },
-        body: JSON.stringify({
-          query: GRAPHQL_QUERY,
-          variables: { query: input.query },
-        }),
-        signal: request.signal,
+  const timeoutMs = timeout > 0 ? timeout * 1000 : TRANSPORT_TIMEOUT_MS;
+  const timeoutSeconds = timeout > 0 ? timeout : TRANSPORT_TIMEOUT_MS / 1000;
+  return boundedRequest(
+    input.fetch,
+    input.endpoint ?? SOURCEGRAPH_ENDPOINT,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "user-agent": "guionai-web/1.0",
       },
-    );
-    throwIfAborted(input.signal);
-    throwIfTimedOut(request.timedOut, timeout);
-    if (!response.ok) {
-      void response.body?.cancel().catch(() => {});
-      throw new Error(`sourcegraph search: HTTP ${response.status}`);
-    }
+      body: JSON.stringify({
+        query: GRAPHQL_QUERY,
+        variables: { query: input.query },
+      }),
+    },
+    {
+      callerSignal: input.signal,
+      timeoutMs,
+      timeoutIsOperationTimeout: timeout > 0,
+      timeoutMessage: `sourcegraph search timed out after ${timeoutSeconds} seconds`,
+    },
+    async (response, signal) => {
+      throwIfAborted(input.signal);
+      if (!response.ok) {
+        void response.body?.cancel().catch(() => {});
+        throw new Error(`sourcegraph search: HTTP ${response.status}`);
+      }
 
-    let data: unknown;
-    try {
-      data = JSON.parse(await readText(response, request.signal));
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message.startsWith("sourcegraph search:")
-      )
-        throw error;
-      throw new Error("sourcegraph search: invalid JSON response");
-    }
-    throwIfAborted(input.signal);
-    throwIfTimedOut(request.timedOut, timeout);
-    return { content: formatSourcegraphResults(data, context, count) };
-  } catch (error) {
-    if (input.signal?.aborted) throw abortedError();
-    if (request.timedOut)
-      throw new Error(`sourcegraph search timed out after ${timeout} seconds`);
-    if (isAbortError(error)) throw abortedError();
-    if (error instanceof Error) throw error;
-    throw new Error("sourcegraph search: request failed");
-  } finally {
-    request.cleanup();
-  }
+      let data: unknown;
+      try {
+        data = JSON.parse(
+          await readResponseText(response, 10 * 1024 * 1024, signal),
+        );
+      } catch (error) {
+        if (isOperationAborted(error) || isRequestTimeout(error)) throw error;
+        if (isResponseBodyLimit(error))
+          throw new Error("sourcegraph search: response too large");
+        throw new Error("sourcegraph search: invalid JSON response");
+      }
+      throwIfAborted(input.signal);
+      return { content: formatSourcegraphResults(data, context, count) };
+    },
+  );
 }
 
 /** Formats Sourcegraph's GraphQL response exactly as the established CLI output. */
@@ -200,53 +197,6 @@ function normalizeTimeout(timeout: number | undefined): number {
   return Math.min(timeout, MAX_TIMEOUT_SECONDS);
 }
 
-async function readText(
-  response: Response,
-  signal: AbortSignal,
-): Promise<string> {
-  if (!response.body) {
-    const text = await response.text();
-    if (Buffer.byteLength(text) > MAX_RESPONSE_BYTES)
-      throw new Error("sourcegraph search: response too large");
-    return text;
-  }
-  const reader = response.body.getReader();
-  const cancelReader = () => {
-    void reader.cancel();
-  };
-  if (signal.aborted) cancelReader();
-  else signal.addEventListener("abort", cancelReader, { once: true });
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      size += value.byteLength;
-      if (size > MAX_RESPONSE_BYTES) {
-        await reader.cancel();
-        throw new Error("sourcegraph search: response too large");
-      }
-      chunks.push(value);
-    }
-  } finally {
-    signal.removeEventListener("abort", cancelReader);
-    reader.releaseLock();
-  }
-  const output = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    output.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  try {
-    return new TextDecoder().decode(output);
-  } catch {
-    throw new Error("sourcegraph search: invalid response body");
-  }
-}
-
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("invalid response format: missing data field");
@@ -267,21 +217,4 @@ function stringValue(value: unknown): string {
 
 function numberValue(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function throwIfAborted(signal: AbortSignal | undefined): void {
-  if (signal?.aborted) throw abortedError();
-}
-
-function abortedError(): Error {
-  return new Error("Operation aborted");
-}
-
-function throwIfTimedOut(timedOut: boolean, timeout: number): void {
-  if (timedOut)
-    throw new Error(`sourcegraph search timed out after ${timeout} seconds`);
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === "AbortError";
 }

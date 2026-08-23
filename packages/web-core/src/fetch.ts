@@ -7,7 +7,13 @@ import { Defuddle } from "defuddle/node";
 import { parseHTML } from "linkedom";
 
 import { renderMarkdown, truncateContent } from "./markdown.js";
-import { createRequestSignal } from "./request.js";
+import {
+  boundedRequest,
+  isOperationAborted,
+  isRequestTimeout,
+  readResponseBytes,
+  throwIfAborted,
+} from "./request.js";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 const MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024;
@@ -91,58 +97,66 @@ async function fetchLocal(
 ): Promise<string> {
   throwIfAborted(callerSignal);
   const fetcher = options?.fetch ?? globalThis.fetch;
-  const request = createRequestSignal(callerSignal, REQUEST_TIMEOUT_MS, {
-    timeoutReason: new Error("request timeout"),
-  });
   try {
-    const response = await fetcher(url, {
-      headers: { "User-Agent": WEB_FETCH_AGENT },
-      redirect: "follow",
-      signal: request.signal,
-    });
-    throwIfAborted(callerSignal);
-    if (response.status >= 400) throw new Error(`HTTP ${response.status}`);
+    return await boundedRequest(
+      fetcher,
+      url,
+      {
+        headers: { "User-Agent": WEB_FETCH_AGENT },
+        redirect: "follow",
+      },
+      {
+        callerSignal,
+        timeoutMs: REQUEST_TIMEOUT_MS,
+        timeoutMessage: `fetch timed out after ${REQUEST_TIMEOUT_MS / 1000} seconds`,
+      },
+      async (response, signal) => {
+        if (response.status >= 400) throw new Error(`HTTP ${response.status}`);
 
-    const body = await readBody(response, request.signal);
-    throwIfAborted(callerSignal);
-    const contentType = mediaType(response.headers.get("content-type"));
-    if (isBinaryContentType(contentType) || isBinaryBody(body)) {
-      throw binaryFetchError(url, response.headers.get("content-type") ?? "");
-    }
+        const body = await readResponseBytes(
+          response,
+          MAX_DOWNLOAD_BYTES,
+          signal,
+        );
+        throwIfAborted(callerSignal);
+        const contentType = mediaType(response.headers.get("content-type"));
+        if (isBinaryContentType(contentType) || isBinaryBody(body)) {
+          throw binaryFetchError(
+            url,
+            response.headers.get("content-type") ?? "",
+          );
+        }
 
-    if (contentType !== "" && contentType !== "text/html") {
-      return truncateContent(new TextDecoder().decode(body));
-    }
+        if (contentType !== "" && contentType !== "text/html") {
+          return truncateContent(new TextDecoder().decode(body));
+        }
 
-    try {
-      const { document } = parseHTML(new TextDecoder().decode(body));
-      const parsed = await Defuddle(document, url, {
-        markdown: true,
-        useAsync: false,
-      });
-      throwIfAborted(callerSignal);
-      const content = parsed.content;
-      if (!content || content.trim() === "")
-        throw new Error("no content could be extracted");
-      return truncateContent(content.endsWith("\n") ? content : content + "\n");
-    } catch (error) {
-      throw new Error(`defuddle parse failed: ${errorMessage(error)}`);
-    }
+        try {
+          const { document } = parseHTML(new TextDecoder().decode(body));
+          const parsed = await Defuddle(document, url, {
+            markdown: true,
+            useAsync: false,
+          });
+          throwIfAborted(callerSignal);
+          const content = parsed.content;
+          if (!content || content.trim() === "")
+            throw new Error("no content could be extracted");
+          return truncateContent(
+            content.endsWith("\n") ? content : content + "\n",
+          );
+        } catch (error) {
+          throw new Error(`defuddle parse failed: ${errorMessage(error)}`);
+        }
+      },
+    );
   } catch (error) {
-    if (callerSignal?.aborted) throw abortedError();
-    if (request.timedOut) {
-      throw new Error(
-        `fetch timed out after ${REQUEST_TIMEOUT_MS / 1000} seconds`,
-      );
-    }
+    if (isOperationAborted(error) || isRequestTimeout(error)) throw error;
     if (
       error instanceof Error &&
       error.message.startsWith("binary content at ")
     )
       throw error;
     throw new Error(`fetch ${url}: ${errorMessage(error)}`);
-  } finally {
-    request.cleanup();
   }
 }
 
@@ -157,50 +171,6 @@ function validateURL(rawURL: string): string {
     throw new Error(`fetch ${rawURL}: URL must use http or https`);
   }
   return rawURL;
-}
-
-async function readBody(
-  response: Response,
-  signal?: AbortSignal,
-): Promise<Uint8Array> {
-  if (!response.body) {
-    const body = new Uint8Array(await response.arrayBuffer());
-    if (body.byteLength > MAX_DOWNLOAD_BYTES) {
-      throw new Error(`response exceeds ${MAX_DOWNLOAD_BYTES} byte limit`);
-    }
-    return body;
-  }
-  const reader = response.body.getReader();
-  const cancelReader = () => {
-    void reader.cancel();
-  };
-  if (signal?.aborted) cancelReader();
-  else signal?.addEventListener("abort", cancelReader, { once: true });
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      total += value.byteLength;
-      if (total > MAX_DOWNLOAD_BYTES) {
-        await reader.cancel();
-        throw new Error(`response exceeds ${MAX_DOWNLOAD_BYTES} byte limit`);
-      }
-      chunks.push(value);
-    }
-  } finally {
-    signal?.removeEventListener("abort", cancelReader);
-    reader.releaseLock();
-  }
-  const body = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return body;
 }
 
 function mediaType(contentType: string | null): string {
@@ -297,7 +267,7 @@ class DailyCache implements FetchCache {
         mode: 0o644,
       });
     } catch {
-      if (signal?.aborted) throw abortedError();
+      if (signal?.aborted) throwIfAborted(signal);
       // Cache failures must not make a successful direct fetch fail.
     }
   }
@@ -315,12 +285,4 @@ function cacheFileName(url: string, date: Date): string {
     .join("-");
   const key = createHash("sha256").update(url).digest("hex");
   return `${key}__${day}.md`;
-}
-
-function throwIfAborted(signal: AbortSignal | undefined): void {
-  if (signal?.aborted) throw abortedError();
-}
-
-function abortedError(): Error {
-  return new Error("Operation aborted");
 }

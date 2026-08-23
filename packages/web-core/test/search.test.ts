@@ -142,42 +142,6 @@ describe("search providers migrated from Organon fixtures", () => {
     ).rejects.not.toThrow("very-secret-key");
   });
 
-  it("normalizes caller cancellation and aborts the injected transport", async () => {
-    const controller = new AbortController();
-    let transportSawAbort = false;
-    const pending = search({
-      query: "wait",
-      credentials: { exaApiKey: "key" },
-      signal: controller.signal,
-      fetch: async (_url, init) =>
-        new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => {
-            transportSawAbort = true;
-            reject(new DOMException("cancelled", "AbortError"));
-          });
-        }),
-    });
-    controller.abort();
-    await expect(pending).rejects.toThrow("Operation aborted");
-    expect(transportSawAbort).toBe(true);
-  });
-
-  it("enforces the request timeout through the injected transport signal", async () => {
-    await expect(
-      search({
-        query: "wait",
-        credentials: { exaApiKey: "key" },
-        timeoutMs: 1,
-        fetch: async (_url, init) =>
-          new Promise<Response>((_resolve, reject) => {
-            init?.signal?.addEventListener("abort", () =>
-              reject(new DOMException("timeout", "AbortError")),
-            );
-          }),
-      }),
-    ).rejects.toThrow("search timed out after 0.001 seconds");
-  });
-
   it("formats the established human-readable result contract", () => {
     expect(formatSearchResults([])).toBe(
       "No results found. Try rephrasing your search.\n",

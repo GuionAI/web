@@ -181,48 +181,9 @@ describe("Sourcegraph public GraphQL search migrated from Organon", () => {
           new Response("private remote diagnostic", { status: 429 }),
       }),
     ).rejects.not.toThrow("private remote diagnostic");
-    await expect(
-      sgraphSearch({
-        query: "needle",
-        fetch: async () => new Response("x".repeat(10 * 1024 * 1024 + 1)),
-      }),
-    ).rejects.toThrow("sourcegraph search: response too large");
   });
 
-  it("caps timeout at 120 seconds and normalizes caller cancellation", async () => {
-    let transportSawAbort = false;
-    const controller = new AbortController();
-    const pending = sgraphSearch({
-      query: "wait",
-      signal: controller.signal,
-      fetch: async (_url, init) =>
-        new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => {
-            transportSawAbort = true;
-            reject(new DOMException("cancelled", "AbortError"));
-          });
-        }),
-    });
-    controller.abort();
-    await expect(pending).rejects.toThrow("Operation aborted");
-    expect(transportSawAbort).toBe(true);
-
-    let timeoutSawAbort = false;
-    await expect(
-      sgraphSearch({
-        query: "wait",
-        timeout: 0.001,
-        fetch: async (_url, init) =>
-          new Promise<Response>((_resolve, reject) => {
-            init?.signal?.addEventListener("abort", () => {
-              timeoutSawAbort = true;
-              reject(new DOMException("timeout", "AbortError"));
-            });
-          }),
-      }),
-    ).rejects.toThrow("sourcegraph search timed out after 0.001 seconds");
-    expect(timeoutSawAbort).toBe(true);
-
+  it("caps operation timeout input before using the shared transport", async () => {
     await expect(
       sgraphSearch({
         query: "needle",

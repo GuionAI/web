@@ -1,4 +1,11 @@
-import { createRequestSignal } from "./request.js";
+import {
+  boundedRequest,
+  isOperationAborted,
+  isRequestTimeout,
+  isResponseBodyLimit,
+  readResponseText,
+  throwIfAborted,
+} from "./request.js";
 
 const CONTEXT7_BASE_URL = "https://context7.com";
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -187,37 +194,34 @@ async function context7Request<T>(
   input: Context7Options,
   consume: (response: Response, signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
-  const request = createRequestSignal(
-    input.signal,
-    input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-  );
+  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const headers = new Headers({
+    accept: operation === "resolve" ? "application/json" : "text/plain",
+  });
+  if (apiKey !== undefined) headers.set("Authorization", `Bearer ${apiKey}`);
   try {
-    const headers = new Headers({
-      accept: operation === "resolve" ? "application/json" : "text/plain",
-    });
-    if (apiKey !== undefined) headers.set("Authorization", `Bearer ${apiKey}`);
-    const response = await (input.fetch ?? globalThis.fetch)(url, {
-      method: "GET",
-      headers,
-      signal: request.signal,
-    });
-    throwIfAborted(input.signal);
-    if (!response.ok) throw await httpError(operation, response, apiKey);
-    const result = await consume(response, request.signal);
-    throwIfAborted(input.signal);
-    return result;
+    return await boundedRequest(
+      input.fetch,
+      url,
+      { method: "GET", headers },
+      {
+        callerSignal: input.signal,
+        timeoutMs,
+        timeoutMessage: `context7 ${operation} timed out after ${timeoutMs / 1000} seconds`,
+      },
+      async (response, signal) => {
+        if (!response.ok)
+          throw await httpError(operation, response, apiKey, signal);
+        const result = await consume(response, signal);
+        throwIfAborted(input.signal);
+        return result;
+      },
+    );
   } catch (error) {
-    if (input.signal?.aborted) throw abortedError();
-    if (request.timedOut)
-      throw new Error(
-        `context7 ${operation} timed out after ${(input.timeoutMs ?? DEFAULT_TIMEOUT_MS) / 1000} seconds`,
-      );
-    if (isAbortError(error)) throw abortedError();
+    if (isOperationAborted(error) || isRequestTimeout(error)) throw error;
     if (error instanceof Error && error.message.startsWith("context7 "))
       throw error;
     throw new Error(`context7 ${operation}: request failed`);
-  } finally {
-    request.cleanup();
   }
 }
 
@@ -227,9 +231,12 @@ async function responseJson(
   signal: AbortSignal,
 ): Promise<unknown> {
   try {
-    return JSON.parse(await readText(response, MAX_RESPONSE_BYTES, signal));
+    return JSON.parse(
+      await readResponseText(response, MAX_RESPONSE_BYTES, signal),
+    );
   } catch (error) {
-    if (error instanceof Error && error.message === "response too large")
+    if (isOperationAborted(error) || isRequestTimeout(error)) throw error;
+    if (isResponseBodyLimit(error))
       throw new Error(`context7 ${operation}: response too large`);
     throw new Error(`context7 ${operation}: invalid JSON response`);
   }
@@ -241,9 +248,10 @@ async function responseText(
   signal: AbortSignal,
 ): Promise<string> {
   try {
-    return await readText(response, MAX_RESPONSE_BYTES, signal);
+    return await readResponseText(response, MAX_RESPONSE_BYTES, signal);
   } catch (error) {
-    if (error instanceof Error && error.message === "response too large")
+    if (isOperationAborted(error) || isRequestTimeout(error)) throw error;
+    if (isResponseBodyLimit(error))
       throw new Error(`context7 ${operation}: response too large`);
     throw new Error(`context7 ${operation}: read body failed`);
   }
@@ -253,8 +261,9 @@ async function httpError(
   operation: "resolve" | "docs",
   response: Response,
   apiKey: string | undefined,
+  signal: AbortSignal,
 ): Promise<Error> {
-  const body = redact(await readErrorText(response), apiKey);
+  const body = redact(await readErrorText(response, signal), apiKey);
   const suffix = body === "" ? "" : `: ${body}`;
   switch (response.status) {
     case 202:
@@ -280,77 +289,18 @@ async function httpError(
   }
 }
 
-async function readErrorText(response: Response): Promise<string> {
-  if (!response.body)
-    return (await response.text()).slice(0, MAX_ERROR_BODY_BYTES);
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    while (size < MAX_ERROR_BODY_BYTES) {
-      const { done, value } = await reader.read();
-      if (done || !value) break;
-      const remaining = MAX_ERROR_BODY_BYTES - size;
-      chunks.push(value.slice(0, remaining));
-      size += Math.min(value.byteLength, remaining);
-      if (value.byteLength > remaining) await reader.cancel();
-    }
-  } catch {
-    return "";
-  } finally {
-    reader.releaseLock();
-  }
-  const output = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    output.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(output);
-}
-
-async function readText(
+async function readErrorText(
   response: Response,
-  maxBytes: number,
-  signal?: AbortSignal,
+  signal: AbortSignal,
 ): Promise<string> {
-  if (!response.body) {
-    const text = await response.text();
-    if (Buffer.byteLength(text) > maxBytes)
-      throw new Error("response too large");
-    return text;
-  }
-  const reader = response.body.getReader();
-  const cancelReader = () => {
-    void reader.cancel();
-  };
-  if (signal?.aborted) cancelReader();
-  else signal?.addEventListener("abort", cancelReader, { once: true });
-  const chunks: Uint8Array[] = [];
-  let size = 0;
   try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      size += value.byteLength;
-      if (size > maxBytes) {
-        await reader.cancel();
-        throw new Error("response too large");
-      }
-      chunks.push(value);
-    }
-  } finally {
-    signal?.removeEventListener("abort", cancelReader);
-    reader.releaseLock();
+    return await readResponseText(response, MAX_ERROR_BODY_BYTES, signal, {
+      truncate: true,
+    });
+  } catch (error) {
+    if (isOperationAborted(error) || isRequestTimeout(error)) throw error;
+    return "";
   }
-  const output = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    output.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(output);
 }
 
 function validateApiKey(credentials: Context7Credentials): string | undefined {
@@ -390,16 +340,4 @@ function redact(body: string, apiKey: string | undefined): string {
   return apiKey === undefined
     ? bounded
     : bounded.replaceAll(apiKey, "[redacted]");
-}
-
-function throwIfAborted(signal: AbortSignal | undefined): void {
-  if (signal?.aborted) throw abortedError();
-}
-
-function abortedError(): Error {
-  return new Error("Operation aborted");
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === "AbortError";
 }

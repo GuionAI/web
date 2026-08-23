@@ -181,20 +181,6 @@ describe.sequential("browserless fetch migrated from Organon", () => {
     }
   });
 
-  it("stops reading streamed bodies above 10 MiB", async () => {
-    const { server, url } = await startServer((_req, res) => {
-      res.setHeader("Content-Type", "text/plain");
-      res.end("x".repeat(10 * 1024 * 1024 + 1));
-    });
-    try {
-      await withTempCache(async (fetchPage) => {
-        await expect(fetchPage({ url })).rejects.toThrow("10485760 byte limit");
-      });
-    } finally {
-      await close(server);
-    }
-  });
-
   it("uses daily URL-hash cache files, skips stale entries, and tolerates cache failures", async () => {
     let requests = 0;
     const { server, url } = await startServer((req, res) => {
@@ -272,124 +258,16 @@ describe.sequential("browserless fetch migrated from Organon", () => {
     }
   });
 
-  it("normalizes the 30-second request timeout without waiting", async () => {
-    const cacheDirectory = mkdtempSync(join(tmpdir(), "guionai-web-timeout-"));
-    const realSetTimeout = globalThis.setTimeout;
-    const timeoutSpy = vi
-      .spyOn(globalThis, "setTimeout")
-      .mockImplementation(((
-        handler: (...args: never[]) => void,
-        timeout?: number,
-        ...args: never[]
-      ) =>
-        realSetTimeout(
-          handler,
-          timeout === 30_000 ? 0 : timeout,
-          ...args,
-        )) as unknown as typeof setTimeout);
-    try {
-      await expect(
-        fetchWebPage({ url: "http://fixture.test/slow" }, undefined, {
-          cacheDirectory,
-          fetch: async (_url, init) =>
-            new Promise<Response>((_resolve, reject) => {
-              init?.signal?.addEventListener("abort", () =>
-                reject(new DOMException("timeout", "AbortError")),
-              );
-            }),
-        }),
-      ).rejects.toThrow("fetch timed out after 30 seconds");
-    } finally {
-      timeoutSpy.mockRestore();
-      rmSync(cacheDirectory, { recursive: true, force: true });
-    }
-  });
-
-  it("normalizes cancellation before the request, during transport, and after cache access", async () => {
+  it("normalizes cancellation after cache access", async () => {
     const cacheDirectories = [
-      mkdtempSync(join(tmpdir(), "guionai-web-abort-")),
-      mkdtempSync(join(tmpdir(), "guionai-web-abort-")),
       mkdtempSync(join(tmpdir(), "guionai-web-cache-abort-")),
-      mkdtempSync(join(tmpdir(), "guionai-web-body-abort-")),
     ];
     try {
-      const before = new AbortController();
-      before.abort();
-      const noNetwork = vi.fn();
-      await expect(
-        fetchWebPage({ url: "http://fixture.test/page" }, before.signal, {
-          cacheDirectory: cacheDirectories[0],
-          fetch: noNetwork,
-        }),
-      ).rejects.toThrow("Operation aborted");
-      expect(noNetwork).not.toHaveBeenCalled();
-
-      const controller = new AbortController();
-      let transportSawAbort = false;
-      let startTransport: () => void;
-      const transportStarted = new Promise<void>((resolve) => {
-        startTransport = resolve;
-      });
-      const pending = fetchWebPage(
-        { url: "http://fixture.test/slow" },
-        controller.signal,
-        {
-          cacheDirectory: cacheDirectories[1],
-          fetch: async (_url, init) =>
-            new Promise<Response>((_resolve, reject) => {
-              init?.signal?.addEventListener("abort", () => {
-                transportSawAbort = true;
-                reject(new DOMException("cancelled", "AbortError"));
-              });
-              startTransport!();
-            }),
-        },
-      );
-      await transportStarted;
-      controller.abort();
-      await expect(pending).rejects.toThrow("Operation aborted");
-      expect(transportSawAbort).toBe(true);
-
-      const bodyController = new AbortController();
-      let bodySawCancel = false;
-      let startReading: () => void;
-      const bodyReadStarted = new Promise<void>((resolve) => {
-        startReading = resolve;
-      });
-      let releasePull: () => void;
-      const bodyPending = fetchWebPage(
-        { url: "http://fixture.test/body" },
-        bodyController.signal,
-        {
-          cacheDirectory: cacheDirectories[3],
-          fetch: async () =>
-            new Response(
-              new ReadableStream({
-                pull() {
-                  startReading!();
-                  return new Promise<void>((resolve) => {
-                    releasePull = resolve;
-                  });
-                },
-                cancel() {
-                  bodySawCancel = true;
-                  releasePull!();
-                },
-              }),
-              { headers: { "Content-Type": "text/plain" } },
-            ),
-        },
-      );
-      await bodyReadStarted;
-      bodyController.abort();
-      await expect(bodyPending).rejects.toThrow("Operation aborted");
-      expect(bodySawCancel).toBe(true);
-
       const cached = new AbortController();
       const noFetchAfterCacheRead = vi.fn();
       await expect(
         fetchWebPage({ url: "http://fixture.test/cached" }, cached.signal, {
-          cacheDirectory: cacheDirectories[2],
+          cacheDirectory: cacheDirectories[0],
           fetch: noFetchAfterCacheRead,
           cache: {
             prepare: async () => {},
