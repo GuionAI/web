@@ -4,6 +4,8 @@ import {
   normalizeDocsToolInput,
   fetchWebPage,
   sgraphSearch,
+  formatSize,
+  truncateHead,
   type Context7Credentials,
   type DocsFetchInput,
   type DocsFetchResult,
@@ -24,7 +26,6 @@ import type { Context } from "@deepseek-ai/cordis";
 import { defineTool, type ToolDefinition } from "@deepseek-ai/dsh-tools";
 
 import { CONTEXT7_CREDENTIAL_REF } from "./contract.js";
-import { formatSize, truncateHead } from "./truncate-core.js";
 
 const DEFAULT_TREE_THRESHOLD = 5000;
 

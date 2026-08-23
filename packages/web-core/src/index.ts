@@ -19,6 +19,14 @@ export {
   type MarkdownResult,
 } from "./markdown.js";
 export {
+  DEFAULT_MAX_BYTES,
+  DEFAULT_MAX_LINES,
+  formatSize,
+  truncateHead,
+  type TruncationOptions,
+  type TruncationResult,
+} from "./truncate-core.js";
+export {
   formatSourcegraphResults,
   sgraphSearch,
   type SGraphInput,
