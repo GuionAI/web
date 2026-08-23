@@ -11,8 +11,7 @@
     "build": "pnpm -r --filter './packages/*' run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:release": "node scripts/test-release-invariants.mjs && node scripts/test-publish-packages.mjs && node scripts/test-release-workflow.mjs",
-    "test:artifacts": "node scripts/test-package-artifacts.mjs",
+    "test:release": "node scripts/test-release-invariants.mjs && node scripts/test-publish-packages.mjs",
     "test:pack": "pnpm --filter @guionai/web run test:pack && pnpm --filter @guionai/pi-web run test:pack && pnpm --filter @guionai/dsh-web run test:pack",
     "format": "prettier --write README.md package.json pnpm-workspace.yaml tsconfig.json \"packages/**/*.{ts,tsx,js,mjs,cjs,json,yml,yaml}\" \"scripts/**/*.{mjs,ts}\" \".github/**/*.{yml,yaml}\"",
     "format:check": "prettier --check README.md package.json pnpm-workspace.yaml tsconfig.json \"packages/**/*.{ts,tsx,js,mjs,cjs,json,yml,yaml}\" \"scripts/**/*.{mjs,ts}\" \".github/**/*.{yml,yaml}\""

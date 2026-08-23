@@ -108,15 +108,13 @@ pnpm typecheck
 pnpm build
 pnpm test
 pnpm test:release
-pnpm test:artifacts
 pnpm test:pack
 ```
 
 `test:release` uses disposable manifests and a fake npm executable to exercise
 version synchronization, stable/beta dist-tags, exact-version skipping, and
-fail-closed registry responses. `test:artifacts` and `test:pack` pack all three
-public packages into test-owned temporary directories and validate their
-published contracts.
+fail-closed registry responses. `test:pack` runs each public package's packed
+installation or host-loading contract in test-owned temporary directories.
 
 ## Releases
 
@@ -125,8 +123,8 @@ A `v<semver>` tag is the release source of truth for all three public packages:
 synchronizes its checkout manifests from that tag. A stable version publishes
 with npm's `latest` tag; any SemVer prerelease publishes with `beta`.
 
-The release preflight builds, tests, packs, validates artifacts, synchronizes
-versions, and checks the release plan. Its protected `npm` Environment job then
+The release preflight builds, tests, packs, synchronizes versions, and checks
+the release plan. Its protected `npm` Environment job then
 queries npm for each exact immutable package version. Existing exact versions
 are skipped; authentication, network, malformed, or ambiguous responses fail
 the release. Remaining packages publish sequentially with `npm publish --access
@@ -143,7 +141,7 @@ releases:
    version such as `0.1.0-beta.1`.
 2. With a maintainer npm account that has `@guionai` publish permission and 2FA,
    run `node scripts/sync-version.mjs 0.1.0-beta.1`, then run the build, test,
-   artifact, pack, and `node scripts/release-dry-run.mjs 0.1.0-beta.1` gates.
+   pack, and `node scripts/release-dry-run.mjs 0.1.0-beta.1` gates.
 3. Publish the three-package plan manually with `node scripts/publish-packages.mjs`.
    This bootstrap is authenticated by the maintainer; do not pass provenance
    outside the GitHub OIDC release job.

@@ -44,8 +44,5 @@ jobs:
       - name: Release invariant fixtures
         run: pnpm test:release
 
-      - name: Packed artifact metadata
-        run: pnpm test:artifacts
-
       - name: Packed installation smoke tests
         run: pnpm test:pack

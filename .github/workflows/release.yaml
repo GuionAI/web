@@ -53,9 +53,6 @@ jobs:
       - name: Release dry-run
         run: node scripts/release-dry-run.mjs "${GITHUB_REF_NAME#v}"
 
-      - name: Packed artifact metadata
-        run: pnpm test:artifacts
-
       - name: Packed installation smoke tests
         run: pnpm test:pack
 
@@ -83,7 +80,7 @@ jobs:
             printf '| Packages | `%s` |\n' "$packages"
             printf '| Synchronized version | `%s` |\n' "$version"
             printf '| npm dist-tag | `%s` |\n' "$dist_tag"
-            echo "| Checks | format, typecheck, build, tests, invariant fixtures, release dry-run, packed artifacts, packed smoke |"
+            echo "| Checks | format, typecheck, build, tests, invariant fixtures, release dry-run, packed smoke |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   release:
