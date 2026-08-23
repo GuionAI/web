@@ -403,6 +403,149 @@ describe.sequential("browserless fetch migrated from Organon", () => {
     });
   });
 
+  it("SIGKILLs a cancellation-resistant command promptly before closing its session", async () => {
+    await withFakeAgentBrowser(async (logPath) => {
+      const controller = new AbortController();
+      const pending = fetchWebPage(
+        {
+          url: "https://ignore-term.test/page",
+          render: "agent-browser",
+          waitMs: 0,
+        },
+        controller.signal,
+        { resolveHost: async () => ["93.184.216.34"] },
+      );
+      await waitForFakeCommands(logPath, 1);
+      const cancelledAt = Date.now();
+      controller.abort();
+      await expect(pending).rejects.toThrow("Operation aborted");
+      expect(Date.now() - cancelledAt).toBeGreaterThanOrEqual(150);
+      expect(Date.now() - cancelledAt).toBeLessThan(1_000);
+      expect(readFakeLog(logPath).map((entry) => command(entry.args))).toEqual([
+        "open",
+        "close",
+      ]);
+    });
+  }, 2_000);
+
+  it("rejects rendered URL credentials before DNS or subprocess launch", async () => {
+    await withFakeAgentBrowser(async (logPath) => {
+      const resolveHost = vi.fn(async () => ["93.184.216.34"]);
+      const secret = "not-for-output";
+      const failure = await fetchWebPage(
+        {
+          url: `https://user:${secret}@render.test/page`,
+          render: "agent-browser",
+          waitMs: 0,
+        },
+        undefined,
+        { resolveHost },
+      ).then(
+        () => new Error("expected rendered URL credentials to fail"),
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toContain(
+        "URL must not include a username or password",
+      );
+      expect((failure as Error).message).not.toContain(secret);
+      expect(resolveHost).not.toHaveBeenCalled();
+      expect(readFakeLog(logPath)).toEqual([]);
+    });
+  });
+
+  it("rejects canonicalized private IPv4-in-IPv6 rendered targets", async () => {
+    await withFakeAgentBrowser(async (logPath) => {
+      for (const address of ["::ffff:c0a8:101", "::c0a8:101"]) {
+        await expect(
+          fetchWebPage({
+            url: `https://[${address}]/page`,
+            render: "agent-browser",
+            waitMs: 0,
+          }),
+        ).rejects.toThrow("private or reserved");
+      }
+
+      for (const address of ["::ffff:c0a8:101", "::c0a8:101"]) {
+        const resolveHost = vi.fn(async () => [address]);
+        await expect(
+          fetchWebPage(
+            {
+              url: "https://resolved.test/page",
+              render: "agent-browser",
+              waitMs: 0,
+            },
+            undefined,
+            { resolveHost },
+          ),
+        ).rejects.toThrow("private or reserved");
+        expect(resolveHost).toHaveBeenCalledWith("resolved.test");
+      }
+      expect(readFakeLog(logPath)).toEqual([]);
+    });
+  });
+
+  it("keeps cleanup failures and timeouts diagnostic-only", async () => {
+    await withFakeAgentBrowser(async (logPath) => {
+      const diagnostics: string[] = [];
+      let workDirectory = "";
+      await expect(
+        fetchWebPage(
+          {
+            url: "https://render.test/page",
+            render: "agent-browser",
+            waitMs: 0,
+          },
+          undefined,
+          {
+            resolveHost: async () => ["93.184.216.34"],
+            onRendererDiagnostic: (message) => diagnostics.push(message),
+            removeWorkDirectory: async (path) => {
+              workDirectory = path;
+              await new Promise<void>(() => {});
+            },
+            rendererCleanupTimeoutMs: 1_000,
+          },
+        ),
+      ).resolves.toMatchObject({ content: "SPA\\_MARKER\\_RENDERED\n" });
+      expect(workDirectory).toContain("guionai-web-render-");
+      expect(diagnostics).toContain(
+        "agent-browser temporary directory cleanup timed out",
+      );
+      rmSync(workDirectory, { recursive: true, force: true });
+      let failedDirectory = "";
+      await expect(
+        fetchWebPage(
+          {
+            url: "https://blocked.test/page",
+            render: "agent-browser",
+            waitMs: 0,
+          },
+          undefined,
+          {
+            resolveHost: async () => ["93.184.216.34"],
+            onRendererDiagnostic: (message) => diagnostics.push(message),
+            removeWorkDirectory: async (path) => {
+              failedDirectory = path;
+              throw new Error("test cleanup failure");
+            },
+          },
+        ),
+      ).rejects.toMatchObject({ code: "render_domain_not_allowed" });
+      expect(diagnostics).toContain(
+        "agent-browser temporary directory cleanup failed",
+      );
+      rmSync(failedDirectory, { recursive: true, force: true });
+      expect(readFakeLog(logPath).map((entry) => command(entry.args))).toEqual([
+        "open",
+        "eval",
+        "close",
+        "open",
+        "close",
+      ]);
+    });
+  });
+
   it("rejects unsafe rendered targets and maps allowlist gaps without launching a browser", async () => {
     await expect(
       fetchWebPage({
@@ -457,6 +600,40 @@ describe.sequential("browserless fetch migrated from Organon", () => {
     });
   });
 
+  it("recognizes only whole-page JavaScript placeholders", async () => {
+    await withTempCache(async (_fetchPage, cacheDirectory) => {
+      for (const content of [
+        "<html><body><p>Loading...</p></body></html>",
+        "<html><body><p>Please enable JavaScript to continue.</p></body></html>",
+      ]) {
+        await expect(
+          fetchWebPage({ url: "https://placeholder.test/page" }, undefined, {
+            cacheDirectory,
+            fetch: async () =>
+              new Response(content, {
+                headers: { "content-type": "text/html" },
+              }),
+          }),
+        ).rejects.toMatchObject({
+          code: "javascript_rendering_may_be_required",
+        });
+      }
+      await expect(
+        fetchWebPage(
+          { url: "https://legitimate-short-page.test/" },
+          undefined,
+          {
+            cacheDirectory,
+            fetch: async () =>
+              new Response("<html><body><p>Welcome.</p></body></html>", {
+                headers: { "content-type": "text/html" },
+              }),
+          },
+        ),
+      ).resolves.toMatchObject({ content: "Welcome.\n" });
+    });
+  });
+
   it("keeps client-only SPA script output unrendered", async () => {
     const { server, url } = await startServer((_req, res) => {
       res.setHeader("Content-Type", "text/html");
@@ -498,6 +675,10 @@ appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({
   config: readFileSync(process.env.AGENT_BROWSER_CONFIG, "utf8"),
   profile: process.env.AGENT_BROWSER_PROFILE,
 }) + "\\n");
+if (command === "open" && args.includes("https://ignore-term.test/page")) {
+  process.on("SIGTERM", () => {});
+  setInterval(() => {}, 1_000);
+}
 if (command === "open" && args.includes("https://blocked.test/page")) {
   console.log(JSON.stringify({ success: false, error: { message: "domain not allowed", hostname: "missing.cdn.test" } }));
   process.exit(1);

@@ -22,7 +22,8 @@ import {
 const REQUEST_TIMEOUT_MS = 30_000;
 const RENDER_OPEN_TIMEOUT_MS = 30_000;
 const RENDER_CAPTURE_TIMEOUT_MS = 5_000;
-const RENDER_CLOSE_TIMEOUT_MS = 5_000;
+const RENDER_CLEANUP_TIMEOUT_MS = 5_000;
+const RENDER_TERMINATION_GRACE_MS = 250;
 const RENDER_IDLE_TIMEOUT = "10s";
 const MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024;
 const MAX_BROWSER_STDOUT_BYTES = 10 * 1024 * 1024;
@@ -92,6 +93,10 @@ export interface FetchOptions {
   resolveHost?: (hostname: string) => Promise<string[]>;
   /** Receives non-fatal renderer cleanup diagnostics. */
   onRendererDiagnostic?: (message: string) => void;
+  /** Test seam for bounded removal of the renderer-owned temporary directory. */
+  removeWorkDirectory?: (path: string) => Promise<void>;
+  /** Test-only override for the renderer cleanup allowance. */
+  rendererCleanupTimeoutMs?: number;
 }
 
 /** Fetches static HTML or explicit browser-rendered DOM as established Markdown navigation modes. */
@@ -230,6 +235,10 @@ async function renderPage(
   options: FetchOptions | undefined,
 ): Promise<string> {
   const target = new URL(url);
+  if (target.username || target.password)
+    throw new Error(
+      "render target URL must not include a username or password",
+    );
   await validatePublicTarget(target, callerSignal, options);
   throwIfAborted(callerSignal);
 
@@ -274,21 +283,89 @@ async function renderPage(
   } catch (error) {
     throw rendererFailure(error);
   } finally {
-    if (commandAttempted) {
-      try {
-        await runAgentBrowser(
-          [...commonArgs, "close"],
-          environment,
-          workDirectory,
-          undefined,
-          RENDER_CLOSE_TIMEOUT_MS,
-        );
-      } catch {
-        options?.onRendererDiagnostic?.("agent-browser session close failed");
-      }
-    }
-    await rm(workDirectory, { recursive: true, force: true });
+    await cleanupRenderer(
+      commandAttempted,
+      commonArgs,
+      environment,
+      workDirectory,
+      options,
+    );
   }
+}
+
+async function cleanupRenderer(
+  commandAttempted: boolean,
+  commonArgs: string[],
+  environment: NodeJS.ProcessEnv,
+  workDirectory: string,
+  options: FetchOptions | undefined,
+): Promise<void> {
+  const cleanupTimeoutMs =
+    options?.rendererCleanupTimeoutMs ?? RENDER_CLEANUP_TIMEOUT_MS;
+  const deadline = Date.now() + cleanupTimeoutMs;
+  if (commandAttempted) {
+    try {
+      await runAgentBrowser(
+        [...commonArgs, "close"],
+        environment,
+        workDirectory,
+        undefined,
+        Math.max(1, deadline - Date.now() - RENDER_TERMINATION_GRACE_MS),
+      );
+    } catch {
+      options?.onRendererDiagnostic?.("agent-browser session close failed");
+    }
+  }
+
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) {
+    options?.onRendererDiagnostic?.(
+      "agent-browser temporary directory cleanup timed out",
+    );
+    return;
+  }
+  const removeDirectory =
+    options?.removeWorkDirectory ??
+    ((directory: string) => rm(directory, { recursive: true, force: true }));
+  try {
+    await withCleanupTimeout(removeDirectory(workDirectory), remainingMs);
+  } catch (error) {
+    options?.onRendererDiagnostic?.(
+      error instanceof CleanupTimeoutError
+        ? "agent-browser temporary directory cleanup timed out"
+        : "agent-browser temporary directory cleanup failed",
+    );
+  }
+}
+
+class CleanupTimeoutError extends Error {}
+
+function withCleanupTimeout<T>(
+  work: Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new CleanupTimeoutError());
+    }, timeoutMs);
+    work.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
 }
 
 async function extractHTML(
@@ -305,7 +382,11 @@ async function extractHTML(
     });
     throwIfAborted(callerSignal);
     const content = parsed.content;
-    if (!content || content.trim() === "") {
+    if (
+      !content ||
+      content.trim() === "" ||
+      (suggestRender && isJavaScriptPlaceholder(content))
+    ) {
       if (suggestRender) {
         throw new FetchCapabilityError("javascript_rendering_may_be_required", {
           retryableWithRender: true,
@@ -430,17 +511,22 @@ function runAgentBrowser(
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      clearTimeout(forceKill);
+      if (forceKill) clearTimeout(forceKill);
       callerSignal?.removeEventListener("abort", abort);
       callback();
     };
     const stop = (reason: RendererCommandFailure) => {
-      failure ??= reason;
+      if (failure) return;
+      failure = reason;
       child.kill("SIGTERM");
+      forceKill = setTimeout(
+        () => child.kill("SIGKILL"),
+        RENDER_TERMINATION_GRACE_MS,
+      );
     };
     const abort = () => stop("aborted");
     const timeout = setTimeout(() => stop("timeout"), timeoutMs);
-    const forceKill = setTimeout(() => child.kill("SIGKILL"), timeoutMs + 250);
+    let forceKill: ReturnType<typeof setTimeout> | undefined;
     callerSignal?.addEventListener("abort", abort, { once: true });
     if (callerSignal?.aborted) abort();
 
@@ -679,6 +765,16 @@ function validateURL(rawURL: string): string {
   return rawURL;
 }
 
+function isJavaScriptPlaceholder(content: string): boolean {
+  const normalized = content.trim().replace(/\s+/g, " ").toLowerCase();
+  return (
+    normalized === "loading..." ||
+    normalized === "loading…" ||
+    normalized === "please enable javascript to continue." ||
+    normalized === "please enable javascript to continue"
+  );
+}
+
 function isPrivateAddress(address: string): boolean {
   if (isIP(address) === 4) {
     const [first, second] = address.split(".").map(Number);
@@ -697,8 +793,15 @@ function isPrivateAddress(address: string): boolean {
   }
   if (isIP(address) !== 6) return true;
   const normalized = address.toLowerCase();
-  const mappedIPv4 = normalized.match(/^::ffff:(.+)$/)?.[1];
-  if (mappedIPv4 && isIP(mappedIPv4) === 4) return isPrivateAddress(mappedIPv4);
+  const groups = ipv6Groups(normalized);
+  if (
+    groups &&
+    groups.slice(0, 5).every((group) => group === 0) &&
+    (groups[5] === 0 || groups[5] === 0xffff)
+  ) {
+    const embeddedIPv4 = `${groups[6]! >> 8}.${groups[6]! & 0xff}.${groups[7]! >> 8}.${groups[7]! & 0xff}`;
+    return isPrivateAddress(embeddedIPv4);
+  }
   return (
     normalized === "::" ||
     normalized === "::1" ||
@@ -708,6 +811,35 @@ function isPrivateAddress(address: string): boolean {
     /^fe[89ab]/.test(normalized) ||
     normalized.startsWith("ff")
   );
+}
+
+function ipv6Groups(address: string): number[] | undefined {
+  const halves = address.split("::");
+  if (halves.length > 2) return undefined;
+  const parse = (value: string): number[] | undefined => {
+    if (value === "") return [];
+    const groups: number[] = [];
+    for (const part of value.split(":")) {
+      if (isIP(part) === 4) {
+        const octets = part.split(".").map(Number);
+        groups.push((octets[0]! << 8) | octets[1]!);
+        groups.push((octets[2]! << 8) | octets[3]!);
+      } else if (/^[0-9a-f]{1,4}$/i.test(part)) {
+        groups.push(Number.parseInt(part, 16));
+      } else {
+        return undefined;
+      }
+    }
+    return groups;
+  };
+  const left = parse(halves[0]!);
+  const right = parse(halves[1] ?? "");
+  if (!left || !right) return undefined;
+  if (halves.length === 1) return left.length === 8 ? left : undefined;
+  const omitted = 8 - left.length - right.length;
+  return omitted < 1
+    ? undefined
+    : [...left, ...Array(omitted).fill(0), ...right];
 }
 
 function mediaType(contentType: string | null): string {
