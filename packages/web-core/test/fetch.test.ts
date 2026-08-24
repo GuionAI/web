@@ -19,7 +19,7 @@ import { join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { fetchWebPage } from "../src/index.js";
+import { fetchWebLinks, fetchWebPage } from "../src/index.js";
 
 type FetchPage = typeof fetchWebPage;
 
@@ -148,6 +148,47 @@ describe.sequential("browserless fetch migrated from Organon", () => {
           content: "Extracted text.\n",
         });
       });
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("lists raw page links without Defuddle and resolves relative destinations", async () => {
+    const { server, url } = await startServer((_req, res) => {
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.end(`
+        <html>
+          <head><base href="/docs/"></head>
+          <body>
+            <nav><a href="/navigation">Navigation</a></nav>
+            <article>
+              <a href="guide">Guide</a>
+              <a href="#section">Section</a>
+              <a href="javascript:alert(1)">Unsafe</a>
+              <a href="mailto:test@example.test">Email</a>
+              <a href="https://outside.test/path" aria-label="Outside"></a>
+              <a href="/extra">Extra</a>
+            </article>
+          </body>
+        </html>
+      `);
+    });
+    try {
+      await expect(
+        fetchWebLinks({ url: `${url}/page`, limit: 4 }),
+      ).resolves.toEqual({
+        url: `${url}/page`,
+        links: [
+          { text: "Navigation", url: `${url}/navigation` },
+          { text: "Guide", url: `${url}/docs/guide` },
+          { text: "Section", url: `${url}/docs/#section` },
+          { text: "Outside", url: "https://outside.test/path" },
+        ],
+        truncated: true,
+      });
+      await expect(
+        fetchWebLinks({ url: `${url}/page`, limit: 0 }),
+      ).rejects.toThrow("limit must be an integer from 1 through 100");
     } finally {
       await close(server);
     }
@@ -361,7 +402,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
           ),
         ).toBe(true);
         expect(open.cwd).not.toBe(process.cwd());
-        expect(open.home).toContain("guionai-web-render-");
+        expect(open.home).toBeUndefined();
         expect(open.config).toBe("{}\n");
         expect(open.profile).toBeUndefined();
 
@@ -379,6 +420,70 @@ describe.sequential("browserless fetch migrated from Organon", () => {
         rmSync(cacheDirectory, { recursive: true, force: true });
       }
     });
+  });
+
+  it("lists links from an explicit agent-browser rendering", async () => {
+    await withFakeAgentBrowser(
+      async (logPath) => {
+        await expect(
+          fetchWebLinks(
+            {
+              url: "https://render.test/page",
+              render: "agent-browser",
+              waitMs: 0,
+            },
+            undefined,
+            { resolveHost: async () => ["93.184.216.34"] },
+          ),
+        ).resolves.toEqual({
+          url: "https://render.test/page",
+          links: [
+            {
+              text: "Rendered destination",
+              url: "https://render.test/destination",
+            },
+          ],
+          truncated: false,
+        });
+        expect(
+          readFakeLog(logPath).map((entry) => command(entry.args)),
+        ).toEqual(["open", "eval", "close"]);
+      },
+      {
+        html: '<html><body><a href="/destination">Rendered destination</a></body></html>',
+      },
+    );
+  });
+
+  it("resolves rendered links from the page URL after navigation", async () => {
+    await withFakeAgentBrowser(
+      async () => {
+        await expect(
+          fetchWebLinks(
+            {
+              url: "https://render.test/start",
+              render: "agent-browser",
+              waitMs: 0,
+            },
+            undefined,
+            { resolveHost: async () => ["93.184.216.34"] },
+          ),
+        ).resolves.toEqual({
+          url: "https://render.test/start",
+          links: [
+            {
+              text: "Next",
+              url: "https://render.test/docs/next",
+            },
+          ],
+          truncated: false,
+        });
+      },
+      {
+        html: '<html><body><a href="next">Next</a></body></html>',
+        url: "https://render.test/docs/index.html",
+      },
+    );
   });
 
   it("cancels the post-load wait and still closes the isolated session", async () => {
@@ -655,6 +760,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
 
 async function withFakeAgentBrowser<T>(
   fn: (logPath: string) => Promise<T>,
+  options: { html?: string; url?: string } = {},
 ): Promise<T> {
   const directory = mkdtempSync(
     join(tmpdir(), "guionai-web-fake-agent-browser-"),
@@ -662,6 +768,12 @@ async function withFakeAgentBrowser<T>(
   const executable = join(directory, "agent-browser");
   const logPath = join(directory, "commands.jsonl");
   const previousPath = process.env.PATH;
+  const renderedPage = JSON.stringify({
+    html:
+      options.html ??
+      "<html><body><main><p>SPA_MARKER_RENDERED</p></main></body></html>",
+    url: options.url ?? "https://render.test/page",
+  });
   writeFileSync(
     executable,
     `#!/usr/bin/env node
@@ -684,7 +796,7 @@ if (command === "open" && args.includes("https://blocked.test/page")) {
   process.exit(1);
 }
 if (command === "eval") {
-  console.log(JSON.stringify({ success: true, data: { result: "<html><body><main><p>SPA_MARKER_RENDERED</p></main></body></html>" } }));
+  console.log(JSON.stringify({ success: true, data: { result: ${JSON.stringify(renderedPage)} } }));
 } else {
   console.log(JSON.stringify({ success: true, data: {} }));
 }

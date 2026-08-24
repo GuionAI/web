@@ -32,7 +32,7 @@ function dependencies(
 }
 
 describe("DSH direct web tools", () => {
-  it("registers direct fetch, docs, and Sourcegraph tools with current schemas and concurrent execution", () => {
+  it("registers fetch, links, docs, and Sourcegraph tools with current schemas and concurrent execution", () => {
     const definitions = createWebToolDefinitions(dependencies());
     const registered: ToolDefinition[] = [];
     registerWebTools(
@@ -45,22 +45,29 @@ describe("DSH direct web tools", () => {
     );
     expect(definitions.map((definition) => definition.name)).toEqual([
       "web_fetch",
+      "web_links",
       "web_docs",
       "web_source_search",
     ]);
     expect(registered.map((definition) => definition.name)).toEqual([
       "web_fetch",
+      "web_links",
       "web_docs",
       "web_source_search",
     ]);
     expect([
       definitions[0]!.isConcurrencySafe?.({ url: "https://example.test" }),
       definitions[1]!.isConcurrencySafe?.({
+        url: "https://example.test",
+        render: "agent-browser",
+        waitMs: 0,
+      }),
+      definitions[2]!.isConcurrencySafe?.({
         action: "resolve",
         query: "react",
       }),
-      definitions[2]!.isConcurrencySafe?.({ query: "repo:guionai" }),
-    ]).toEqual([true, true, true]);
+      definitions[3]!.isConcurrencySafe?.({ query: "repo:guionai" }),
+    ]).toEqual([true, true, true, true]);
     expect((definitions[0]!.parameters as any).additionalProperties).toBe(
       false,
     );
@@ -71,11 +78,18 @@ describe("DSH direct web tools", () => {
     expect((definitions[0]!.parameters as any).properties.waitMs.type).toBe(
       "integer",
     );
-    expect((definitions[1]!.parameters as any).properties.action.enum).toEqual([
+    expect((definitions[1]!.parameters as any).properties.limit.default).toBe(
+      100,
+    );
+    expect((definitions[1]!.parameters as any).properties.render.enum).toEqual([
+      "fetch",
+      "agent-browser",
+    ]);
+    expect((definitions[2]!.parameters as any).properties.action.enum).toEqual([
       "resolve",
       "fetch",
     ]);
-    expect(Object.keys((definitions[2]!.parameters as any).properties)).toEqual(
+    expect(Object.keys((definitions[3]!.parameters as any).properties)).toEqual(
       ["query", "count", "context", "timeout"],
     );
   });
@@ -83,12 +97,20 @@ describe("DSH direct web tools", () => {
   it("calls the bundled operations once with current direct inputs and caller cancellation", async () => {
     const calls: unknown[] = [];
     const controller = new AbortController();
-    const [fetch, docs, sgraph] = createWebToolDefinitions(
+    const [fetch, links, docs, sgraph] = createWebToolDefinitions(
       dependencies({
         operations: operations({
           fetch: async (input, abortSignal) => {
             calls.push({ kind: "fetch", input, abortSignal });
             return { url: input.url, mode: "section", content: "selected" };
+          },
+          links: async (input, abortSignal) => {
+            calls.push({ kind: "links", input, abortSignal });
+            return {
+              url: input.url,
+              links: [{ text: "destination", url: "https://example.test/to" }],
+              truncated: false,
+            };
           },
           docsResolve: async (input) => {
             calls.push({ kind: "resolve", input });
@@ -123,6 +145,20 @@ describe("DSH direct web tools", () => {
       ),
     ).resolves.toMatchObject({ mode: "section" });
     await expect(
+      call(
+        links!,
+        {
+          url: "https://example.test",
+          limit: 25,
+          render: "agent-browser",
+          waitMs: 2000,
+        },
+        controller.signal,
+      ),
+    ).resolves.toMatchObject({
+      links: [{ url: "https://example.test/to" }],
+    });
+    await expect(
       call(docs!, { action: "resolve", query: "react" }, controller.signal),
     ).resolves.toMatchObject({ query: "react" });
     await expect(
@@ -148,6 +184,16 @@ describe("DSH direct web tools", () => {
           section_id: "install",
           full: undefined,
           tree_threshold: undefined,
+          render: "agent-browser",
+          waitMs: 2000,
+        },
+        abortSignal: controller.signal,
+      },
+      {
+        kind: "links",
+        input: {
+          url: "https://example.test",
+          limit: 25,
           render: "agent-browser",
           waitMs: 2000,
         },
@@ -307,7 +353,7 @@ describe("DSH direct web tools", () => {
           },
         }),
       }),
-    )[1]!;
+    )[2]!;
     await expect(
       call(docs, { action: "fetch", library_id: "/react" }),
     ).rejects.toThrow("web docs fetch failed");
@@ -318,13 +364,37 @@ describe("DSH direct web tools", () => {
 
   it("rejects undeclared and cross-action fields before invoking operations", async () => {
     const fetch = vi.fn();
+    const links = vi.fn();
     const docsResolve = vi.fn();
-    const [fetchTool, docsTool, sgraphTool] = createWebToolDefinitions(
-      dependencies({ operations: operations({ fetch, docsResolve }) }),
-    );
+    const [fetchTool, linksTool, docsTool, sgraphTool] =
+      createWebToolDefinitions(
+        dependencies({ operations: operations({ fetch, links, docsResolve }) }),
+      );
     await expect(
       call(fetchTool!, { url: "https://example.test", extra: true }),
     ).rejects.toThrow(/does not accept field extra/);
+    await expect(
+      call(linksTool!, { url: "https://example.test", extra: true }),
+    ).rejects.toThrow(/does not accept field extra/);
+    await expect(
+      call(linksTool!, { url: "https://example.test", limit: 0 }),
+    ).rejects.toThrow("limit must be an integer from 1 through 100");
+    await expect(
+      call(linksTool!, { url: "https://example.test", limit: 101 }),
+    ).rejects.toThrow("limit must be an integer from 1 through 100");
+    await expect(
+      call(linksTool!, {
+        url: "https://example.test",
+        render: "agent-browser",
+      }),
+    ).rejects.toThrow("waitMs is required");
+    await expect(
+      call(linksTool!, {
+        url: "https://example.test",
+        render: "agent-browser",
+        waitMs: -1,
+      }),
+    ).rejects.toThrow("waitMs must be an integer from 0 through 30000");
     await expect(
       call(docsTool!, { action: "resolve", query: "x", library_id: "/wrong" }),
     ).rejects.toThrow(/does not accept library_id/);
@@ -332,6 +402,7 @@ describe("DSH direct web tools", () => {
       call(sgraphTool!, { query: "x", extra: true }),
     ).rejects.toThrow(/does not accept field extra/);
     expect(fetch).not.toHaveBeenCalled();
+    expect(links).not.toHaveBeenCalled();
     expect(docsResolve).not.toHaveBeenCalled();
   });
 });

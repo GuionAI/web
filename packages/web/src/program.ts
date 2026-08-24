@@ -5,6 +5,7 @@ import { createMcpCommand } from "./mcp.js";
 import {
   formatSearchResults,
   type DocsLibrary,
+  type LinksResult,
   type WebCredentials,
   type WebOperations,
 } from "@guionai/web-core";
@@ -24,6 +25,7 @@ export function createProgram(dependencies: ProgramDependencies): Command {
     .showHelpAfterError(false)
     .addCommand(createSearchCommand(dependencies))
     .addCommand(createFetchCommand(dependencies))
+    .addCommand(createLinksCommand(dependencies))
     .addCommand(createDocsCommand(dependencies))
     .addCommand(createSGraphCommand(dependencies))
     .addCommand(createMcpCommand(dependencies));
@@ -245,4 +247,56 @@ function createFetchCommand(dependencies: ProgramDependencies): Command {
         writeOut(result.content);
       },
     );
+}
+
+function createLinksCommand(dependencies: ProgramDependencies): Command {
+  const writeOut =
+    dependencies.writeOut ?? ((text: string) => process.stdout.write(text));
+  return new Command("links")
+    .description("List HTTP(S) links from a web page")
+    .argument("<url>", "HTTP or HTTPS URL")
+    .option("--limit <count>", "Maximum links to return (1-100)", Number)
+    .option(
+      "--render <backend>",
+      "Rendering backend: fetch (default) or agent-browser",
+    )
+    .option(
+      "--wait <milliseconds>",
+      "Required post-load wait for --render agent-browser (0-30000)",
+      Number,
+    )
+    .option("--json", "Output the structured result as JSON")
+    .action(
+      async (
+        url: string,
+        options: {
+          limit?: number;
+          render?: "fetch" | "agent-browser";
+          wait?: number;
+          json?: boolean;
+        },
+      ) => {
+        const result = await dependencies.operations.links({
+          url,
+          limit: options.limit,
+          ...(options.render !== undefined ? { render: options.render } : {}),
+          ...(options.wait !== undefined ? { waitMs: options.wait } : {}),
+        });
+        if (options.json) {
+          writeOut(JSON.stringify(result) + "\n");
+          return;
+        }
+        writeOut(formatLinks(result));
+      },
+    );
+}
+
+function formatLinks(result: LinksResult): string {
+  if (result.links.length === 0) return "No HTTP(S) links found.\n";
+  let output = `Found ${result.links.length} link${result.links.length === 1 ? "" : "s"}${result.truncated ? " (truncated)" : ""}:\n\n`;
+  for (const [index, link] of result.links.entries()) {
+    output += `${index + 1}. ${link.text || "(no text)"}\n`;
+    output += `   URL: ${link.url}\n\n`;
+  }
+  return output;
 }

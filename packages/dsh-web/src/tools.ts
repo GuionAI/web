@@ -1,13 +1,17 @@
 import {
   createWebOperations,
+  DEFAULT_LINK_LIMIT,
   normalizeDocsToolInput,
   formatSize,
+  MAX_LINK_LIMIT,
   truncateHead,
   type Context7Credentials,
   type DocsFetchResult,
   type DocsResolveResult,
   type DocsToolInput,
   type FetchResult,
+  type LinksInput,
+  type LinksResult,
   type SGraphResult,
   type WebOperations,
 } from "@guionai/web-core";
@@ -49,6 +53,29 @@ const fetchParameters = {
     type: "integer",
     default: DEFAULT_TREE_THRESHOLD,
     description: "Automatic tree threshold; defaults to 5000",
+  },
+  render: {
+    type: "string",
+    enum: ["fetch", "agent-browser"],
+    description: "Page-fetch backend; defaults to direct fetch",
+  },
+  waitMs: {
+    type: "integer",
+    description:
+      "Required post-load wait for agent-browser rendering (0-30000)",
+  },
+} as const;
+
+const linksParameters = {
+  url: {
+    type: "string",
+    required: true,
+    description: "HTTP or HTTPS URL to inspect",
+  },
+  limit: {
+    type: "integer",
+    default: DEFAULT_LINK_LIMIT,
+    description: `Maximum links to return (1-${MAX_LINK_LIMIT})`,
   },
   render: {
     type: "string",
@@ -126,6 +153,38 @@ const fetchOutput = {
       text: boundedToolText(
         value.content,
         "Use web_fetch with tree or section_id to navigate the document.",
+      ),
+    },
+  ],
+};
+
+const linksOutput = {
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      url: { type: "string", required: true },
+      links: {
+        type: "array",
+        required: true,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            text: { type: "string", required: true },
+            url: { type: "string", required: true },
+          },
+        },
+      },
+      truncated: { type: "boolean", required: true },
+    },
+  } as const,
+  render: (_args: unknown, value: LinksResult) => [
+    {
+      type: "text" as const,
+      text: boundedToolText(
+        formatLinks(value),
+        "Use web_fetch to read a selected destination.",
       ),
     },
   ],
@@ -234,6 +293,49 @@ function requireString(input: unknown, field: string): string {
   return input[field];
 }
 
+function normalizeLinks(input: unknown): LinksInput {
+  if (!isRecord(input)) throw new Error("web_links input must be an object");
+  rejectUnknownFields(input, Object.keys(linksParameters), "web_links");
+  const url = requireString(input, "url");
+  const limit = input.limit;
+  if (
+    limit !== undefined &&
+    (typeof limit !== "number" ||
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > MAX_LINK_LIMIT)
+  )
+    throw new Error(
+      `limit must be an integer from 1 through ${MAX_LINK_LIMIT}`,
+    );
+
+  const render = input.render;
+  const waitMs = input.waitMs;
+  if (render !== undefined && render !== "fetch" && render !== "agent-browser")
+    throw new Error('render must be "fetch" or "agent-browser"');
+  if (render !== "agent-browser") {
+    if (waitMs !== undefined)
+      throw new Error("waitMs is only valid with render agent-browser");
+  } else {
+    if (waitMs === undefined)
+      throw new Error("waitMs is required with render agent-browser");
+    if (
+      typeof waitMs !== "number" ||
+      !Number.isInteger(waitMs) ||
+      waitMs < 0 ||
+      waitMs > 30_000
+    )
+      throw new Error("waitMs must be an integer from 0 through 30000");
+  }
+
+  return {
+    url,
+    ...(limit !== undefined ? { limit } : {}),
+    ...(render !== undefined ? { render } : {}),
+    ...(waitMs !== undefined ? { waitMs } : {}),
+  };
+}
+
 function normalizeDocs(input: unknown): DocsToolInput {
   if (!isRecord(input)) throw new Error("web_docs input must be an object");
   return normalizeDocsToolInput(input);
@@ -270,6 +372,15 @@ function formatDocsResolve(result: DocsResolveResult): string {
   return `Found ${result.libraries.length} libraries:\n${result.libraries.map((library) => `- ${library.id}: ${library.title}`).join("\n")}`;
 }
 
+function formatLinks(result: LinksResult): string {
+  if (result.links.length === 0) return "No HTTP(S) links found.";
+  const lines = result.links.map(
+    (link, index) =>
+      `${index + 1}. ${link.text || "(no text)"}\n   URL: ${link.url}`,
+  );
+  return `Found ${result.links.length} link${result.links.length === 1 ? "" : "s"}${result.truncated ? " (truncated)" : ""}:\n\n${lines.join("\n\n")}`;
+}
+
 function webFetchTool(
   dependencies: WebToolDependencies,
   operations: WebOperations,
@@ -296,6 +407,25 @@ function webFetchTool(
           },
           exec.signal,
         );
+      },
+    }),
+  );
+}
+
+function webLinksTool(
+  dependencies: WebToolDependencies,
+  operations: WebOperations,
+): ToolDefinition {
+  return strictDefinition(
+    defineTool({
+      name: "web_links",
+      description:
+        "List HTTP(S) links from a page. Use direct fetch for static pages, or explicit agent-browser rendering with waitMs for client-rendered pages.",
+      parameters: linksParameters,
+      output: linksOutput,
+      isConcurrencySafe: () => true,
+      async execute(args, exec) {
+        return operations.links(normalizeLinks(args), exec.signal);
       },
     }),
   );
@@ -369,10 +499,11 @@ function webSgraphTool(
 
 export function createWebToolDefinitions(
   dependencies: WebToolDependencies,
-): readonly [ToolDefinition, ToolDefinition, ToolDefinition] {
+): readonly [ToolDefinition, ToolDefinition, ToolDefinition, ToolDefinition] {
   const operations = dependencies.operations ?? createWebOperations();
   return [
     webFetchTool(dependencies, operations),
+    webLinksTool(dependencies, operations),
     webDocsTool(dependencies, operations),
     webSgraphTool(dependencies, operations),
   ];

@@ -8,7 +8,9 @@ import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { Command } from "commander";
 
 import {
+  DEFAULT_LINK_LIMIT,
   FetchCapabilityError,
+  MAX_LINK_LIMIT,
   RENDER_REPORT_URL,
   type FetchErrorDetails,
   type WebCredentials,
@@ -24,6 +26,12 @@ type FetchToolInput = {
   section_id?: string;
   full?: boolean;
   tree_threshold?: number;
+  render?: "fetch" | "agent-browser";
+  waitMs?: number;
+};
+type LinksToolInput = {
+  url: string;
+  limit?: number;
   render?: "fetch" | "agent-browser";
   waitMs?: number;
 };
@@ -70,6 +78,44 @@ const fetchInputSchema = schema<FetchToolInput>({
       type: "integer",
       description: "automatic tree threshold; defaults to 5000",
       default: DEFAULT_FETCH_TREE_THRESHOLD,
+    },
+    render: {
+      type: "string",
+      enum: ["fetch", "agent-browser"],
+      default: "fetch",
+      description: "optional page-fetch backend; direct fetch is the default",
+    },
+    waitMs: {
+      type: "integer",
+      minimum: 0,
+      maximum: 30_000,
+      description:
+        "required post-load wait for agent-browser rendering (0-30000)",
+    },
+  },
+  required: ["url"],
+  oneOf: [
+    {
+      properties: { render: { enum: ["fetch"] } },
+      not: { required: ["waitMs"] },
+    },
+    {
+      properties: { render: { const: "agent-browser" } },
+      required: ["render", "waitMs"],
+    },
+  ],
+});
+const linksInputSchema = schema<LinksToolInput>({
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    url: { type: "string", description: "HTTP or HTTPS URL to inspect" },
+    limit: {
+      type: "integer",
+      minimum: 1,
+      maximum: MAX_LINK_LIMIT,
+      default: DEFAULT_LINK_LIMIT,
+      description: "maximum links to return",
     },
     render: {
       type: "string",
@@ -172,6 +218,25 @@ const fetchOutputSchema = schema({
   },
   required: ["url", "mode", "content"],
 });
+const linksOutputSchema = schema({
+  type: "object",
+  properties: {
+    url: { type: "string" },
+    links: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          text: { type: "string" },
+          url: { type: "string" },
+        },
+        required: ["text", "url"],
+      },
+    },
+    truncated: { type: "boolean" },
+  },
+  required: ["url", "links", "truncated"],
+});
 const docsResolveOutputSchema = schema({
   type: "object",
   properties: {
@@ -215,7 +280,7 @@ const sgraphOutputSchema = schema({
   required: ["content"],
 });
 
-/** Creates the five-tool MCP server used by the stdio command and adapter tests. */
+/** Creates the six-tool MCP server used by the stdio command and adapter tests. */
 export function createMcpServer(dependencies: McpDependencies): McpServer {
   const server = new McpServer({ name: "guionai-web", version: "0.1.0" });
 
@@ -236,6 +301,30 @@ export function createMcpServer(dependencies: McpDependencies): McpServer {
             credentials: dependencies.credentials(),
             signal: context.mcpReq.signal,
           }),
+        dependencies.credentials(),
+      ),
+  );
+
+  server.registerTool(
+    "links",
+    toolConfig(
+      "List page links",
+      "List HTTP or HTTPS links from a static page or explicit agent-browser rendering.",
+      linksInputSchema,
+      linksOutputSchema,
+    ),
+    async ({ url, limit, render, waitMs }, context) =>
+      runTool(
+        () =>
+          dependencies.operations.links(
+            {
+              url,
+              ...(limit !== undefined ? { limit } : {}),
+              ...(render !== undefined ? { render } : {}),
+              ...(waitMs !== undefined ? { waitMs } : {}),
+            },
+            context.mcpReq.signal,
+          ),
         dependencies.credentials(),
       ),
   );

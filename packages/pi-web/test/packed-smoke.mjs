@@ -110,9 +110,9 @@ try {
   extension.default({ registerTool: (tool) => registered.push(tool) });
   if (
     registered.map((tool) => tool.name).join(",") !==
-    "web_search,web_fetch,web_docs,web_source_search"
+    "web_search,web_fetch,web_links,web_docs,web_source_search"
   ) {
-    throw new Error("packed extension did not register exactly four web tools");
+    throw new Error("packed extension did not register exactly five web tools");
   }
 
   const fakeBin = join(root, "fake-bin");
@@ -129,7 +129,7 @@ if (command === "open" && args.some((value) => value.includes("/blocked"))) {
   console.log(JSON.stringify({ success: false, error: { message: "domain not allowed", hostname: "missing.cdn.test" } }));
   process.exit(1);
 } else if (command === "eval") {
-  console.log(JSON.stringify({ success: true, data: { result: "<html><body><article><h1>Rendered fixture</h1><p>JavaScript output from fake agent-browser.</p></article></body></html>" } }));
+  console.log(JSON.stringify({ success: true, data: { result: JSON.stringify({ html: "<html><body><article><h1>Rendered fixture</h1><p>JavaScript output from fake agent-browser.</p></article></body></html>", url: "https://93.184.216.34/rendered" }) } }));
 } else {
   console.log(JSON.stringify({ success: true, data: {} }));
 }
@@ -152,6 +152,11 @@ if (command === "open" && args.some((value) => value.includes("/blocked"))) {
     if (target === "https://93.184.216.34/direct")
       return new Response(
         "<html><body><article><h1>Direct fixture</h1><p>Browserless output.</p></article></body></html>",
+        { headers: { "Content-Type": "text/html" } },
+      );
+    if (target === "https://93.184.216.34/links")
+      return new Response(
+        '<html><body><nav><a href="/destination">Packed link</a></nav></body></html>',
         { headers: { "Content-Type": "text/html" } },
       );
     if (target !== "https://api.exa.ai/search")
@@ -198,6 +203,15 @@ if (command === "open" && args.some((value) => value.includes("/blocked"))) {
       if (error instanceof Error && error.message.includes("unexpectedly"))
         throw error;
     }
+
+    const linksTool = registered.find((tool) => tool.name === "web_links");
+    if (!linksTool)
+      throw new Error("packed extension did not register web_links");
+    const links = await linksTool.execute("test", {
+      url: "https://93.184.216.34/links",
+    });
+    if (links.details.links?.[0]?.url !== "https://93.184.216.34/destination")
+      throw new Error("packed extension did not list browserless links");
 
     const rendered = await fetchTool.execute("test", {
       url: "https://93.184.216.34/rendered",

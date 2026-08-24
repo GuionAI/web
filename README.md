@@ -1,8 +1,8 @@
 # Guion Web
 
 Guion Web is a Node.js web research toolkit. It provides Exa or Brave search,
-Context7 library documentation lookup, Sourcegraph public code search, and two
-page-fetch backends through a CLI, stdio MCP server, Pi extension, and DeepSeek
+Context7 library documentation lookup, Sourcegraph public code search, page-link
+discovery, and two page-fetch backends through a CLI, stdio MCP server, Pi extension, and DeepSeek
 Harness (DSH) integration: direct HTML-to-Markdown extraction and explicit
 `agent-browser` rendering for client-rendered pages on supported hosts.
 
@@ -44,6 +44,7 @@ document on stdout, which is useful for automation.
 web search --provider exa -- "Node AbortSignal"
 web fetch https://example.com/article --tree
 web fetch https://example.com/article --section introduction
+web links https://example.com/article --limit 50
 web docs resolve react
 web docs fetch /facebook/react --topic hooks --tokens 2000
 web sgraph --count 10 -- "repo:^github\\.com/nodejs/node$ AbortSignal"
@@ -51,7 +52,8 @@ web sgraph --count 10 -- "repo:^github\\.com/nodejs/node$ AbortSignal"
 
 Use `--` before a search or Sourcegraph query that begins with a hyphen. `fetch`
 supports `--full`, `--tree`, and `--section`; long extracted documents default to
-a heading tree so a later request can retrieve a stable section ID.
+a heading tree so a later request can retrieve a stable section ID. `links` lists
+up to 100 unique HTTP(S) anchors from the original page DOM.
 
 ## MCP
 
@@ -63,10 +65,10 @@ web mcp
 web mcp --provider brave
 ```
 
-The server exposes five read-only tools: `search`, `fetch`, `docs_resolve`,
+The server exposes six read-only tools: `search`, `fetch`, `links`, `docs_resolve`,
 `docs_fetch`, and `source_search`. Its stdout is reserved for MCP protocol
 messages; diagnostics go to stderr. For a client-rendered page, explicitly call
-`fetch` with `render: "agent-browser"` and an integer `waitMs`; this optional
+`fetch` or `links` with `render: "agent-browser"` and an integer `waitMs`; this optional
 retry requires a host-installed executable and never happens automatically.
 
 ## Pi
@@ -77,11 +79,13 @@ Install the independently bundled Pi extension:
 pi install npm:@guionai/pi-web
 ```
 
-It registers `web_search`, `web_fetch`, `web_docs`, and `web_source_search` and calls
+It registers `web_search`, `web_fetch`, `web_links`, `web_docs`, and `web_source_search` and calls
 the bundled core in-process. Pi and TypeBox are peer dependencies supplied by
 the host; no CLI executable or MCP configuration is required. `web_fetch` uses
 direct fetch by default and can explicitly use `render: "agent-browser"` with
 an integer `waitMs` when its host provides that optional executable.
+`web_links` uses the same explicit rendering contract and lists HTTP(S) anchors
+from the original page DOM.
 
 ## DSH
 
@@ -93,11 +97,13 @@ dsh plugin --profile web add @guionai/dsh-web
 
 The included profile patch routes stock PTC web search through the selected Exa
 or Brave provider. Its settings UI stores provider selection and manages
-namespaced write-only credentials. Fetch, documentation, and Sourcegraph tools
+namespaced write-only credentials. Fetch, link discovery, documentation, and Sourcegraph tools
 also run in-process. The host DSH packages and React are peers supplied by DSH.
 `web_fetch` uses direct fetch by default and can explicitly use
 `render: "agent-browser"` with an integer `waitMs` on a host that supplies the
 optional executable.
+`web_links` uses the same explicit rendering contract and lists HTTP(S) anchors
+from the original page DOM.
 
 ## Page-fetch backends
 
@@ -114,11 +120,16 @@ web fetch https://example.com/app --render=agent-browser --wait=2000
 web fetch https://example.com/app --render=agent-browser --wait=10000
 ```
 
+`web links` uses the same direct or explicit browser-rendered source, but parses
+the original DOM rather than Defuddle output so navigation and other links outside
+the readable article remain discoverable. It returns only HTTP(S) `a[href]`
+destinations, deduplicated and capped at 100 by default.
+
 `--wait` is mandatory with `--render=agent-browser`, including `--wait=0`, and
 accepts only an integer from 0 through 30,000 milliseconds. Direct `fetch`
-requests must not provide `--wait`. The same `render: "agent-browser"` and required
-`waitMs` fields are available on the MCP `fetch`, Pi `web_fetch`, and DSH
-`web_fetch` tools. A direct-fetch failure may return the structured
+or `links` requests must not provide `--wait`. The same `render: "agent-browser"` and required
+`waitMs` fields are available on the MCP `fetch`/`links`, Pi `web_fetch`/`web_links`, and DSH
+`web_fetch`/`web_links` tools. A direct-fetch failure may return the structured
 `javascript_rendering_may_be_required` hint with the 2,000 ms suggestion; the
 agent decides whether to retry with a longer wait or abandon the page.
 

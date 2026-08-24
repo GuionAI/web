@@ -18,7 +18,7 @@ settings expose only configured/source/writable metadata.
 
 The published package is a dual host/browser bundle. Its host and client
 artifacts, profile patch, and exact DSH `0.1.0-rc.8` peer contract are included
-in the npm package. Search, direct page fetch, optional agent-browser rendering,
+in the npm package. Search, direct page fetch, page-link discovery, optional agent-browser rendering,
 Context7 documentation, and Sourcegraph all run in-process through the bundled
 Guion Web core. `web_fetch` has two page-fetch backends: direct fetch (the
 default) and explicit `render: "agent-browser"` with required `waitMs` (an
@@ -31,6 +31,11 @@ browser runtime is managed outside this package; the compatible executable must
 be directly runnable from `PATH` without a shell. The renderer is supported on
 macOS and Linux, is not an npm dependency, and never reuses persistent browser
 state or credentials.
+
+`web_links` lists up to 100 unique HTTP(S) anchors from the original page DOM,
+so it includes navigation and other links that readable-content extraction drops.
+It uses the same direct default and explicit `render: "agent-browser"` / required
+`waitMs` contract as `web_fetch`.
 
 Rendered requests are bounded and constrained to the requested hostname,
 `*.<requested-hostname>` (the target and its subdomains), and this fixed common
