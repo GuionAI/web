@@ -2,8 +2,11 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   createWebOperations,
+  DEFAULT_LINK_LIMIT,
+  MAX_LINK_LIMIT,
   normalizeDocsToolInput,
   type DocsToolInput,
+  type LinksResult,
   type WebCredentials,
   type WebOperations,
   type SearchResponse,
@@ -81,6 +84,46 @@ export const webFetchSchema = Type.Union([
   ),
 ]);
 
+const linksProperties = {
+  url: Type.String({ description: "HTTP or HTTPS URL to inspect" }),
+  limit: Type.Optional(
+    Type.Integer({
+      description: `Maximum links to return (1-${MAX_LINK_LIMIT})`,
+      minimum: 1,
+      maximum: MAX_LINK_LIMIT,
+      default: DEFAULT_LINK_LIMIT,
+    }),
+  ),
+};
+
+export const webLinksSchema = Type.Union([
+  Type.Object(
+    {
+      ...linksProperties,
+      render: Type.Optional(
+        StringEnum(["fetch"] as const, {
+          description: "Use direct HTTP fetching (the default)",
+        }),
+      ),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      ...linksProperties,
+      render: StringEnum(["agent-browser"] as const, {
+        description: "Render the page through the host-installed agent-browser",
+      }),
+      waitMs: Type.Integer({
+        description: "Additional post-load wait in milliseconds",
+        minimum: 0,
+        maximum: 30_000,
+      }),
+    },
+    { additionalProperties: false },
+  ),
+]);
+
 export const webDocsSchema = Type.Object(
   {
     action: StringEnum(["resolve", "fetch"] as const, {
@@ -133,6 +176,7 @@ export const webSgraphSchema = Type.Object(
 
 export type WebSearchInput = Static<typeof webSearchSchema>;
 export type WebFetchInput = Static<typeof webFetchSchema>;
+export type WebLinksInput = Static<typeof webLinksSchema>;
 export type WebDocsInput = Static<typeof webDocsSchema>;
 export type WebSgraphInput = Static<typeof webSgraphSchema>;
 
@@ -152,6 +196,11 @@ const FETCH_PROMPT_GUIDELINES = [
   "Use web_fetch to read a web page; large pages are truncated with a continuation notice, so follow up with tree or section_id to navigate.",
   'web_fetch has two backends: omit render or use render: "fetch" for direct HTML-to-Markdown (the default for static, SSR, and pre-rendered pages).',
   'For a client-rendered or SPA page, or after javascript_rendering_may_be_required, retry explicitly with render: "agent-browser" and waitMs: 2000 only when the host has agent-browser installed. Increase waitMs explicitly or abandon an incomplete page; there is no automatic fallback.',
+  "Never send waitMs with direct fetch. agent-browser is a host capability, not a package dependency.",
+];
+const LINKS_PROMPT_GUIDELINES = [
+  "Use web_links to discover HTTP(S) destinations from a page, including navigation and links outside the readable article body.",
+  'Use direct fetch by default. For a client-rendered or SPA page, explicitly use render: "agent-browser" with waitMs; there is no automatic fallback.',
   "Never send waitMs with direct fetch. agent-browser is a host capability, not a package dependency.",
 ];
 const DOCS_PROMPT_GUIDELINES = [
@@ -240,6 +289,46 @@ function normalizeFetch(input: unknown): WebFetchInput {
     return { ...navigation, render, waitMs: waitMs as number };
   if (render === "fetch") return { ...navigation, render };
   return navigation;
+}
+
+function normalizeLinks(input: unknown): WebLinksInput {
+  if (!isRecord(input)) throw new Error("web_links input must be an object");
+  const url = requireString(input, "url");
+  const render = input.render;
+  const waitMs = input.waitMs;
+  const limit = input.limit;
+  if (render !== undefined && render !== "fetch" && render !== "agent-browser")
+    throw new Error('render must be "fetch" or "agent-browser"');
+  if (render !== "agent-browser") {
+    if (waitMs !== undefined)
+      throw new Error("waitMs is only valid with render agent-browser");
+  } else {
+    if (waitMs === undefined)
+      throw new Error("waitMs is required with render agent-browser");
+    if (
+      typeof waitMs !== "number" ||
+      !Number.isInteger(waitMs) ||
+      waitMs < 0 ||
+      waitMs > 30_000
+    )
+      throw new Error("waitMs must be an integer from 0 through 30000");
+  }
+  if (
+    limit !== undefined &&
+    (typeof limit !== "number" ||
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > MAX_LINK_LIMIT)
+  )
+    throw new Error(
+      `limit must be an integer from 1 through ${MAX_LINK_LIMIT}`,
+    );
+  const typed = input as unknown as WebLinksInput;
+  const result = { url, limit: typed.limit };
+  if (render === "agent-browser")
+    return { ...result, render, waitMs: waitMs as number };
+  if (render === "fetch") return { ...result, render };
+  return result;
 }
 
 function mergeSearchResults(responses: SearchResponse[]): SearchResponse {
@@ -333,6 +422,25 @@ export function webFetchTool(dependencies: WebToolDependencies = {}) {
       const data = await operations.fetch(normalizeFetch(params), signal);
       return modelTextResult(data, data.content, {
         hint: "Use web_fetch with tree or section_id to navigate the document.",
+      });
+    },
+  });
+}
+
+export function webLinksTool(dependencies: WebToolDependencies = {}) {
+  const operations = dependencies.operations ?? createWebOperations();
+  return makeTool({
+    name: "web_links",
+    label: "Web links",
+    description:
+      "List HTTP(S) links from a web page, with direct fetch or explicit agent-browser rendering for client-rendered pages.",
+    promptSnippet: "List links from a web page with web_links",
+    promptGuidelines: LINKS_PROMPT_GUIDELINES,
+    parameters: webLinksSchema,
+    execute: async (params, signal) => {
+      const data = await operations.links(normalizeLinks(params), signal);
+      return modelTextResult(data, formatLinks(data), {
+        hint: "Use web_fetch to read a selected destination.",
       });
     },
   });
@@ -435,6 +543,15 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "web search failed";
 }
 
+function formatLinks(result: LinksResult): string {
+  if (result.links.length === 0) return "No HTTP(S) links found.";
+  const lines = result.links.map(
+    (link, index) =>
+      `${index + 1}. ${link.text || "(no text)"}\n   URL: ${link.url}`,
+  );
+  return `Found ${result.links.length} link${result.links.length === 1 ? "" : "s"}${result.truncated ? " (truncated)" : ""}:\n\n${lines.join("\n\n")}`;
+}
+
 export function registerWebTools(
   pi: Pick<ExtensionAPI, "registerTool">,
   dependencies: WebToolDependencies = {},
@@ -445,6 +562,7 @@ export function registerWebTools(
   };
   pi.registerTool(webSearchTool(shared));
   pi.registerTool(webFetchTool(shared));
+  pi.registerTool(webLinksTool(shared));
   pi.registerTool(webDocsTool(shared));
   pi.registerTool(webSgraphTool(shared));
 }

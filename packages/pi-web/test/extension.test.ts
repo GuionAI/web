@@ -10,6 +10,8 @@ import {
   webDocsTool,
   webFetchSchema,
   webFetchTool,
+  webLinksSchema,
+  webLinksTool,
   webSearchSchema,
   webSearchTool,
   webSgraphSchema,
@@ -23,6 +25,7 @@ function operations(overrides: Partial<WebOperations>): WebOperations {
   return {
     search: unused,
     fetch: unused,
+    links: unused,
     docsResolve: unused,
     docsFetch: unused,
     sgraphSearch: unused,
@@ -173,6 +176,53 @@ describe("pi-web extension", () => {
       }),
     ).rejects.toThrow("waitMs is only valid");
     expect(fetch).toHaveBeenCalledTimes(1);
+
+    expect(Value.Check(webLinksSchema, { url: "https://fixture.test" })).toBe(
+      true,
+    );
+    expect(
+      Value.Check(webLinksSchema, {
+        url: "https://fixture.test",
+        render: "agent-browser",
+        waitMs: 0,
+        limit: 25,
+      }),
+    ).toBe(true);
+    expect(
+      Value.Check(webLinksSchema, {
+        url: "https://fixture.test",
+        render: "agent-browser",
+      }),
+    ).toBe(false);
+    expect(
+      Value.Check(webLinksSchema, {
+        url: "https://fixture.test",
+        limit: 101,
+      }),
+    ).toBe(false);
+
+    const links = vi.fn(async (input: { url: string }) => ({
+      url: input.url,
+      links: [{ text: "Rendered link", url: "https://fixture.test/link" }],
+      truncated: false,
+    }));
+    const linksTool = webLinksTool({ operations: operations({ links }) });
+    const linksResult = await call(linksTool, {
+      url: "https://fixture.test",
+      limit: 25,
+      render: "agent-browser",
+      waitMs: 1250,
+    });
+    expect(links).toHaveBeenCalledWith(
+      {
+        url: "https://fixture.test",
+        limit: 25,
+        render: "agent-browser",
+        waitMs: 1250,
+      },
+      undefined,
+    );
+    expect(linksResult.content[0]?.text).toContain("Rendered link");
   });
 
   it("preserves structured fetch failures for Pi callers", async () => {
@@ -325,6 +375,14 @@ describe("pi-web extension", () => {
         webFetchTool({
           operations: operations({
             fetch: (_input, signal) => abortable(signal),
+          }),
+        }),
+        { url: "https://fixture.test" },
+      ],
+      [
+        webLinksTool({
+          operations: operations({
+            links: (_input, signal) => abortable(signal),
           }),
         }),
         { url: "https://fixture.test" },

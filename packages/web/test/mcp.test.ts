@@ -31,6 +31,11 @@ function webService(): WebOperations {
       mode: "tree" as const,
       content: "# Page",
     })),
+    links: vi.fn(async (input) => ({
+      url: input.url,
+      links: [{ text: "MCP link", url: "https://example.test/link" }],
+      truncated: false,
+    })),
     docsResolve: vi.fn(async () => ({
       query: "effect",
       libraries: [
@@ -204,7 +209,7 @@ describe("web stdio MCP adapter", () => {
     }
   });
 
-  it("lists exactly five typed read-only, idempotent, open-world tools", async () => {
+  it("lists exactly six typed read-only, idempotent, open-world tools", async () => {
     const { client } = await connect();
     const { tools } = await client.listTools();
 
@@ -212,6 +217,7 @@ describe("web stdio MCP adapter", () => {
       "docs_fetch",
       "docs_resolve",
       "fetch",
+      "links",
       "search",
       "source_search",
     ]);
@@ -231,6 +237,10 @@ describe("web stdio MCP adapter", () => {
       string,
       unknown
     >;
+    const linksProperties = byName.links!.inputSchema.properties! as Record<
+      string,
+      unknown
+    >;
     const docsFetchProperties = byName.docs_fetch!.inputSchema
       .properties! as Record<string, unknown>;
     const sgraphProperties = byName.source_search!.inputSchema
@@ -246,6 +256,15 @@ describe("web stdio MCP adapter", () => {
       maximum: 30000,
     });
     expect(fetchProperties.timeout).toBeUndefined();
+    expect(linksProperties.limit).toMatchObject({
+      default: 100,
+      minimum: 1,
+      maximum: 100,
+    });
+    expect(linksProperties.render).toMatchObject({
+      enum: ["fetch", "agent-browser"],
+      default: "fetch",
+    });
     expect(docsFetchProperties.tokens).toMatchObject({ default: 0 });
     expect(sgraphProperties).toMatchObject({
       count: { default: 10 },
@@ -270,6 +289,15 @@ describe("web stdio MCP adapter", () => {
         waitMs: 125,
       },
     });
+    const links = await client.callTool({
+      name: "links",
+      arguments: {
+        url: "https://example.test/page",
+        limit: 25,
+        render: "agent-browser",
+        waitMs: 125,
+      },
+    });
     const resolve = await client.callTool({
       name: "docs_resolve",
       arguments: { query: "effect" },
@@ -289,6 +317,9 @@ describe("web stdio MCP adapter", () => {
 
     expect(search.structuredContent).toMatchObject({ provider: "Brave" });
     expect(fetch.structuredContent).toMatchObject({ mode: "tree" });
+    expect(links.structuredContent).toMatchObject({
+      links: [{ url: "https://example.test/link" }],
+    });
     expect(resolve.structuredContent).toMatchObject({ query: "effect" });
     expect(docs.structuredContent).toMatchObject({ content: "Effect docs" });
     expect(sgraph.structuredContent).toMatchObject({
@@ -311,6 +342,15 @@ describe("web stdio MCP adapter", () => {
         full: false,
         section_id: undefined,
         tree_threshold: 5000,
+        render: "agent-browser",
+        waitMs: 125,
+      },
+      expect.any(AbortSignal),
+    );
+    expect(operations.links).toHaveBeenCalledWith(
+      {
+        url: "https://example.test/page",
+        limit: 25,
         render: "agent-browser",
         waitMs: 125,
       },

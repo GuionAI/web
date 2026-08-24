@@ -7,7 +7,14 @@ import {
   type DocsResolveInput,
   type DocsResolveResult,
 } from "./docs.js";
-import { fetchWebPage, type FetchInput, type FetchResult } from "./fetch.js";
+import {
+  fetchWebLinks,
+  fetchWebPage,
+  type FetchInput,
+  type FetchResult,
+  type LinksInput,
+  type LinksResult,
+} from "./fetch.js";
 import { sgraphSearch, type SGraphInput, type SGraphResult } from "./sgraph.js";
 import {
   boundedRequest,
@@ -19,14 +26,20 @@ import {
 
 export {
   fetchWebPage,
+  fetchWebLinks,
+  DEFAULT_LINK_LIMIT,
   FetchCapabilityError,
   RENDER_CDN_ALLOWLIST,
   RENDER_REPORT_URL,
+  MAX_LINK_LIMIT,
   type FetchCache,
   type FetchErrorDetails,
   type FetchInput,
   type FetchOptions,
   type FetchResult,
+  type LinksInput,
+  type LinksResult,
+  type PageLink,
 } from "./fetch.js";
 export {
   renderMarkdown,
@@ -101,6 +114,7 @@ export type SearchInput = {
 export type WebOperations = {
   search(input: SearchInput): Promise<SearchResponse>;
   fetch(input: FetchInput, signal?: AbortSignal): Promise<FetchResult>;
+  links(input: LinksInput, signal?: AbortSignal): Promise<LinksResult>;
   docsResolve(input: DocsResolveInput): Promise<DocsResolveResult>;
   docsFetch(input: DocsFetchInput): Promise<DocsFetchResult>;
   sgraphSearch(input: SGraphInput): Promise<SGraphResult>;
@@ -111,6 +125,7 @@ export function createWebOperations(): WebOperations {
   return {
     search,
     fetch: fetchWebPage,
+    links: fetchWebLinks,
     docsResolve,
     docsFetch,
     sgraphSearch,

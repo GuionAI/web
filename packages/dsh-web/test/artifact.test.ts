@@ -92,7 +92,7 @@ if (command === "open" && args.some((value) => value.includes("/blocked"))) {
   process.exit(1);
 }
 if (command === "eval")
-  console.log(JSON.stringify({ success: true, data: { result: "<html><body><article><p>Packed DSH rendered fixture.</p></article></body></html>" } }));
+  console.log(JSON.stringify({ success: true, data: { result: JSON.stringify({ html: "<html><body><article><p>Packed DSH rendered fixture.</p></article></body></html>", url: "https://93.184.216.34/rendered" }) } }));
 else console.log(JSON.stringify({ success: true, data: {} }));
 `,
   );
@@ -195,6 +195,11 @@ describe("DSH rc.8 packed package contract", () => {
           "<html><body><article><p>Packed DSH browserless fixture.</p></article></body></html>",
           { headers: { "content-type": "text/html" } },
         );
+      if (String(url) === "https://93.184.216.34/links")
+        return new Response(
+          '<html><body><nav><a href="/destination">Packed link</a></nav></body></html>',
+          { headers: { "content-type": "text/html" } },
+        );
       expect(String(url)).toBe("https://api.exa.ai/search");
       expect(
         (init.headers as Headers).get?.("x-api-key") ??
@@ -236,6 +241,11 @@ describe("DSH rc.8 packed package contract", () => {
       );
       if (!fetchTool)
         throw new Error("packed DSH artifact did not register web_fetch");
+      const linksTool = tools.find(
+        (definition) => definition.name === "web_links",
+      );
+      if (!linksTool)
+        throw new Error("packed DSH artifact did not register web_links");
       process.env.PATH = `${browser.bin}:${originalPath ?? ""}`;
       const direct = await fetchTool.execute(
         { url: "https://93.184.216.34/direct", full: true },
@@ -243,6 +253,16 @@ describe("DSH rc.8 packed package contract", () => {
       );
       expect(direct.content).toBe("Packed DSH browserless fixture.\n");
       expect(() => readFileSync(browser.log, "utf8")).toThrow();
+      const links = await linksTool.execute(
+        { url: "https://93.184.216.34/links" },
+        { signal: new AbortController().signal },
+      );
+      expect(links.links).toEqual([
+        {
+          text: "Packed link",
+          url: "https://93.184.216.34/destination",
+        },
+      ]);
       const rendered = await fetchTool.execute(
         {
           url: "https://93.184.216.34/rendered",

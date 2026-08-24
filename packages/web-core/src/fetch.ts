@@ -30,6 +30,8 @@ const MAX_BROWSER_STDOUT_BYTES = 10 * 1024 * 1024;
 const MAX_BROWSER_STDERR_BYTES = 64 * 1024;
 const MAX_BINARY_SCAN_BYTES = 8192;
 const WEB_FETCH_AGENT = "guionai-web/1.0";
+export const DEFAULT_LINK_LIMIT = 100;
+export const MAX_LINK_LIMIT = 100;
 export const RENDER_REPORT_URL = "https://github.com/guionai/web/issues/new";
 export const RENDER_CDN_ALLOWLIST = [
   "cdn.jsdelivr.net",
@@ -55,6 +57,24 @@ export type FetchResult = {
   url: string;
   mode: "full" | "tree" | "section";
   content: string;
+};
+
+export type LinksInput = {
+  url: string;
+  limit?: number;
+  render?: "fetch" | "agent-browser";
+  waitMs?: number;
+};
+
+export type PageLink = {
+  text: string;
+  url: string;
+};
+
+export type LinksResult = {
+  url: string;
+  links: PageLink[];
+  truncated: boolean;
 };
 
 export type FetchErrorDetails = {
@@ -122,7 +142,26 @@ export async function fetchWebPage(
   return { url, mode: rendered.mode, content: rendered.content };
 }
 
-function validateRenderInput(input: FetchInput): "fetch" | "agent-browser" {
+/** Lists HTTP(S) links from the original or browser-rendered page DOM. */
+export async function fetchWebLinks(
+  input: LinksInput,
+  callerSignal?: AbortSignal,
+  options?: FetchOptions,
+): Promise<LinksResult> {
+  const url = validateURL(input.url);
+  const render = validateRenderInput(input);
+  const limit = validateLinkLimit(input.limit);
+  const source =
+    render === "agent-browser"
+      ? await renderPageHTML(url, input.waitMs!, callerSignal, options)
+      : await fetchPageHTML(url, callerSignal, options);
+  throwIfAborted(callerSignal);
+  return listPageLinks(source.html, source.url, url, limit);
+}
+
+function validateRenderInput(
+  input: Pick<FetchInput, "render" | "waitMs">,
+): "fetch" | "agent-browser" {
   const render = input.render ?? "fetch";
   if (render !== "fetch" && render !== "agent-browser")
     throw new Error('render must be "fetch" or "agent-browser"');
@@ -140,6 +179,15 @@ function validateRenderInput(input: FetchInput): "fetch" | "agent-browser" {
   )
     throw new Error("waitMs must be an integer from 0 through 30000");
   return render;
+}
+
+function validateLinkLimit(limit: number | undefined): number {
+  if (limit === undefined) return DEFAULT_LINK_LIMIT;
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LINK_LIMIT)
+    throw new Error(
+      `limit must be an integer from 1 through ${MAX_LINK_LIMIT}`,
+    );
+  return limit;
 }
 
 async function fetchCached(
@@ -169,6 +217,57 @@ async function fetchLocal(
   callerSignal?: AbortSignal,
   options?: FetchOptions,
 ): Promise<string> {
+  try {
+    const response = await downloadPage(url, callerSignal, options);
+    if (response.contentType !== "" && response.contentType !== "text/html")
+      return truncateContent(new TextDecoder().decode(response.body));
+    return extractHTML(
+      new TextDecoder().decode(response.body),
+      url,
+      callerSignal,
+      true,
+    );
+  } catch (error) {
+    if (
+      isOperationAborted(error) ||
+      isRequestTimeout(error) ||
+      error instanceof FetchCapabilityError ||
+      (error instanceof Error &&
+        (error.message.startsWith("binary content at ") ||
+          error.message.startsWith(`fetch ${url}:`)))
+    )
+      throw error;
+    throw new Error(`fetch ${url}: ${errorMessage(error)}`);
+  }
+}
+
+type DownloadedPage = {
+  body: Uint8Array;
+  contentType: string;
+  url: string;
+};
+
+type PageHTML = {
+  html: string;
+  url: string;
+};
+
+async function fetchPageHTML(
+  url: string,
+  callerSignal: AbortSignal | undefined,
+  options: FetchOptions | undefined,
+): Promise<PageHTML> {
+  const response = await downloadPage(url, callerSignal, options);
+  if (response.contentType !== "" && response.contentType !== "text/html")
+    throw new Error(`links ${url}: page is not HTML`);
+  return { html: new TextDecoder().decode(response.body), url: response.url };
+}
+
+async function downloadPage(
+  url: string,
+  callerSignal: AbortSignal | undefined,
+  options: FetchOptions | undefined,
+): Promise<DownloadedPage> {
   throwIfAborted(callerSignal);
   const fetcher = options?.fetch ?? globalThis.fetch;
   try {
@@ -200,16 +299,7 @@ async function fetchLocal(
             response.headers.get("content-type") ?? "",
           );
         }
-
-        if (contentType !== "" && contentType !== "text/html") {
-          return truncateContent(new TextDecoder().decode(body));
-        }
-        return extractHTML(
-          new TextDecoder().decode(body),
-          url,
-          callerSignal,
-          true,
-        );
+        return { body, contentType, url: response.url || url };
       },
     );
   } catch (error) {
@@ -228,12 +318,11 @@ async function fetchLocal(
   }
 }
 
-async function renderPage(
+async function validateRenderTarget(
   url: string,
-  waitMs: number,
   callerSignal: AbortSignal | undefined,
   options: FetchOptions | undefined,
-): Promise<string> {
+): Promise<URL> {
   const target = new URL(url);
   if (target.username || target.password)
     throw new Error(
@@ -241,7 +330,39 @@ async function renderPage(
     );
   await validatePublicTarget(target, callerSignal, options);
   throwIfAborted(callerSignal);
+  return target;
+}
 
+async function renderPage(
+  url: string,
+  waitMs: number,
+  callerSignal: AbortSignal | undefined,
+  options: FetchOptions | undefined,
+): Promise<string> {
+  const target = await validateRenderTarget(url, callerSignal, options);
+  try {
+    const page = await renderPageHTML(
+      url,
+      waitMs,
+      callerSignal,
+      options,
+      target,
+    );
+    return await extractHTML(page.html, url, callerSignal, false);
+  } catch (error) {
+    throw rendererFailure(error);
+  }
+}
+
+async function renderPageHTML(
+  url: string,
+  waitMs: number,
+  callerSignal: AbortSignal | undefined,
+  options: FetchOptions | undefined,
+  target?: URL,
+): Promise<PageHTML> {
+  const renderTarget =
+    target ?? (await validateRenderTarget(url, callerSignal, options));
   const workDirectory = await mkdtemp(join(tmpdir(), "guionai-web-render-"));
   const configPath = join(workDirectory, "agent-browser.json");
   const session = randomUUID();
@@ -253,7 +374,7 @@ async function renderPage(
     "--config",
     configPath,
     "--allowed-domains",
-    renderAllowlist(target.hostname).join(","),
+    renderAllowlist(renderTarget.hostname).join(","),
     "--idle-timeout",
     RENDER_IDLE_TIMEOUT,
   ];
@@ -272,14 +393,17 @@ async function renderPage(
     assertCommandSuccess(opened.stdout);
     await waitForRender(waitMs, callerSignal);
     const capture = await runAgentBrowser(
-      [...commonArgs, "eval", "document.documentElement.outerHTML"],
+      [
+        ...commonArgs,
+        "eval",
+        "JSON.stringify({html: document.documentElement.outerHTML, url: document.location.href})",
+      ],
       environment,
       workDirectory,
       callerSignal,
       RENDER_CAPTURE_TIMEOUT_MS,
     );
-    const html = parseCapturedHTML(capture.stdout);
-    return await extractHTML(html, url, callerSignal, false);
+    return parseCapturedPage(capture.stdout, url);
   } catch (error) {
     throw rendererFailure(error);
   } finally {
@@ -291,6 +415,68 @@ async function renderPage(
       options,
     );
   }
+}
+
+function listPageLinks(
+  html: string,
+  sourceURL: string,
+  resultURL: string,
+  limit: number,
+): LinksResult {
+  const { document } = parseHTML(html);
+  const baseURL = resolveDocumentBaseURL(document, sourceURL);
+  const links: PageLink[] = [];
+  const seen = new Set<string>();
+  let truncated = false;
+
+  for (const anchor of document.querySelectorAll("a[href]")) {
+    const url = resolvePageLink(anchor.getAttribute("href"), baseURL);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    if (links.length >= limit) {
+      truncated = true;
+      continue;
+    }
+    links.push({ text: pageLinkText(anchor), url });
+  }
+  return { url: resultURL, links, truncated };
+}
+
+function resolveDocumentBaseURL(document: Document, sourceURL: string): string {
+  const href = document.querySelector("base[href]")?.getAttribute("href");
+  if (!href) return sourceURL;
+  try {
+    return new URL(href, sourceURL).href;
+  } catch {
+    return sourceURL;
+  }
+}
+
+function resolvePageLink(
+  href: string | null,
+  baseURL: string,
+): string | undefined {
+  if (!href || href.trim() === "") return undefined;
+  try {
+    const url = new URL(href, baseURL);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.href
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function pageLinkText(anchor: Element): string {
+  const text = (anchor.textContent ?? "").replace(/\s+/g, " ").trim();
+  if (text) return text;
+  return (
+    anchor.getAttribute("aria-label") ??
+    anchor.getAttribute("title") ??
+    ""
+  )
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 async function cleanupRenderer(
@@ -445,9 +631,11 @@ function rendererEnvironment(
   workDirectory: string,
   configPath: string,
 ): NodeJS.ProcessEnv {
+  // Omit HOME rather than replacing it: agent-browser falls back to the host
+  // account to locate its installed Chrome runtime. A unique session without a
+  // profile or restore input still gives each render a fresh browser state.
   const environment: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
-    HOME: workDirectory,
     TMPDIR: workDirectory,
     TMP: workDirectory,
     TEMP: workDirectory,
@@ -591,7 +779,7 @@ function runAgentBrowser(
   });
 }
 
-function parseCapturedHTML(stdout: string): string {
+function parseCapturedPage(stdout: string, fallbackURL: string): PageHTML {
   const record = parseSuccessEnvelope(stdout);
   const data = record.data;
   if (
@@ -603,7 +791,30 @@ function parseCapturedHTML(stdout: string): string {
   ) {
     throw new FetchCapabilityError("render_capture_failed");
   }
-  return (data as Record<string, unknown>).result as string;
+  try {
+    const page = JSON.parse(
+      (data as Record<string, unknown>).result as string,
+    ) as unknown;
+    if (!page || typeof page !== "object" || Array.isArray(page))
+      throw new Error("invalid rendered page");
+    const { html, url } = page as Record<string, unknown>;
+    if (typeof html !== "string" || typeof url !== "string")
+      throw new Error("invalid rendered page");
+    return { html, url: renderedPageURL(url, fallbackURL) };
+  } catch {
+    throw new FetchCapabilityError("render_capture_failed");
+  }
+}
+
+function renderedPageURL(url: string, fallbackURL: string): string {
+  try {
+    const value = new URL(url);
+    return value.protocol === "http:" || value.protocol === "https:"
+      ? value.href
+      : fallbackURL;
+  } catch {
+    return fallbackURL;
+  }
 }
 
 function assertCommandSuccess(stdout: string): void {

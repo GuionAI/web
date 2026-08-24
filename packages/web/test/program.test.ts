@@ -24,6 +24,11 @@ function setup() {
       mode: "full" as const,
       content: "# Fixture page\n",
     })),
+    links: vi.fn(async (input: { url: string }) => ({
+      url: input.url,
+      links: [{ text: "Fixture link", url: "https://example.test/link" }],
+      truncated: false,
+    })),
     docsResolve: vi.fn(),
     docsFetch: vi.fn(),
     sgraphSearch: vi.fn(async () => ({
@@ -243,6 +248,40 @@ describe("web search Commander adapter", () => {
     expect(output().stdout.endsWith("\n")).toBe(true);
   });
 
+  it("forwards link discovery options and supports concise and JSON output", async () => {
+    const { program, operations, output } = setup();
+    await program.parseAsync(
+      [
+        "links",
+        "https://example.test/page",
+        "--limit",
+        "25",
+        "--render=agent-browser",
+        "--wait=0",
+      ],
+      { from: "user" },
+    );
+
+    expect(operations.links).toHaveBeenCalledWith({
+      url: "https://example.test/page",
+      limit: 25,
+      render: "agent-browser",
+      waitMs: 0,
+    });
+    expect(output()).toEqual({
+      stdout:
+        "Found 1 link:\n\n1. Fixture link\n   URL: https://example.test/link\n\n",
+      stderr: "",
+    });
+
+    await program.parseAsync(["links", "https://example.test/page", "--json"], {
+      from: "user",
+    });
+    expect(JSON.parse(output().stdout.split("\n").at(-2)!)).toEqual(
+      await operations.links.mock.results[1]!.value,
+    );
+  });
+
   it("formats the browser retry guidance without partial stdout", async () => {
     const operations = {
       search: vi.fn(),
@@ -252,6 +291,7 @@ describe("web search Commander adapter", () => {
           suggestedArguments: { render: "agent-browser", waitMs: 2000 },
         });
       }),
+      links: vi.fn(),
       docsResolve: vi.fn(),
       docsFetch: vi.fn(),
       sgraphSearch: vi.fn(),
@@ -287,6 +327,7 @@ describe("web search Commander adapter", () => {
         );
       }),
       fetch: vi.fn(),
+      links: vi.fn(),
       docsResolve: vi.fn(),
       docsFetch: vi.fn(),
       sgraphSearch: vi.fn(),

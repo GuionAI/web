@@ -47,14 +47,16 @@ async function pnpm(args, cwd) {
 }
 
 const server = createServer((request, response) => {
-  if (request.url !== "/page") {
+  if (request.url !== "/page" && request.url !== "/links") {
     response.statusCode = 404;
     response.end();
     return;
   }
   response.setHeader("content-type", "text/html; charset=utf-8");
   response.end(
-    "<html><body><article><p>Packed fetch fixture.</p></article></body></html>",
+    request.url === "/links"
+      ? '<html><body><nav><a href="/destination">Packed link</a></nav></body></html>'
+      : "<html><body><article><p>Packed fetch fixture.</p></article></body></html>",
   );
 });
 
@@ -128,7 +130,7 @@ if (command === "open" && args.some((value) => value.includes("/blocked"))) {
   process.exit(1);
 }
 if (command === "eval")
-  console.log(JSON.stringify({ success: true, data: { result: "<html><body><article><p>Packed rendered fixture.</p></article></body></html>" } }));
+  console.log(JSON.stringify({ success: true, data: { result: JSON.stringify({ html: "<html><body><article><p>Packed rendered fixture.</p></article></body></html>", url: "https://93.184.216.34/rendered" }) } }));
 else console.log(JSON.stringify({ success: true, data: {} }));
 `,
   );
@@ -162,6 +164,7 @@ else console.log(JSON.stringify({ success: true, data: {} }));
         "docs_fetch",
         "docs_resolve",
         "fetch",
+        "links",
         "search",
         "source_search",
       ])
@@ -181,6 +184,18 @@ else console.log(JSON.stringify({ success: true, data: {} }));
       throw new Error("packed MCP stdio could not fetch the local fixture");
     }
 
+    const mcpLinks = await client.callTool({
+      name: "links",
+      arguments: { url: `http://127.0.0.1:${port}/links` },
+    });
+    if (
+      mcpLinks.isError ||
+      mcpLinks.structuredContent?.links?.[0]?.url !==
+        `http://127.0.0.1:${port}/destination`
+    ) {
+      throw new Error("packed MCP stdio could not list local links");
+    }
+
     const result = await execFileAsync(
       binary,
       ["fetch", `http://127.0.0.1:${port}/page`, "--full", "--json"],
@@ -192,6 +207,18 @@ else console.log(JSON.stringify({ success: true, data: {} }));
       fetched.content !== "Packed fetch fixture.\n"
     ) {
       throw new Error("installed web CLI could not fetch the local fixture");
+    }
+
+    const linkResult = await execFileAsync(
+      binary,
+      ["links", `http://127.0.0.1:${port}/links`, "--json"],
+      { cwd: root },
+    );
+    if (
+      JSON.parse(linkResult.stdout).links?.[0]?.url !==
+      `http://127.0.0.1:${port}/destination`
+    ) {
+      throw new Error("installed web CLI could not list local links");
     }
   } finally {
     await client.close();
