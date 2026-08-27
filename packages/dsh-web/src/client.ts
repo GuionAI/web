@@ -12,6 +12,8 @@ import type {} from "@deepseek-ai/dsh-api-remotes/client";
 import type {} from "@deepseek-ai/dsh-client-ui-settings/client";
 import type {} from "@deepseek-ai/dsh-client-ui-settings-plugins/client";
 import type {} from "@deepseek-ai/dsh-client-ui-slots";
+import type { ToolCallViewProps } from "@deepseek-ai/dsh-client-ui-tool/client";
+import cssText from "./client.css";
 
 import {
   BRAVE_CREDENTIAL_REF,
@@ -181,21 +183,32 @@ function SettingsCard({
 
   return createElement(
     "section",
-    { "aria-labelledby": "guionai-web-settings-title" },
-    createElement("h2", { id: "guionai-web-settings-title" }, "Guion Web"),
+    {
+      className: "guionai-web__settings",
+      "aria-labelledby": "guionai-web-settings-title",
+    },
+    createElement(
+      "h2",
+      {
+        id: "guionai-web-settings-title",
+        className: "guionai-web__title",
+      },
+      "Guion Web",
+    ),
     createElement(
       "p",
-      null,
+      { className: "guionai-web__copy" },
       "Choose the search provider explicitly. Both providers require an API key.",
     ),
     createElement(
       "label",
-      { htmlFor: "guionai-web-provider" },
+      { htmlFor: "guionai-web-provider", className: "guionai-web__label" },
       "Search provider",
       createElement(
         "select",
         {
           id: "guionai-web-provider",
+          className: "guionai-web__select",
           value: provider,
           onChange: (event: { target: { value: string } }) => {
             if (isSearchProvider(event.target.value))
@@ -217,16 +230,20 @@ function SettingsCard({
       const current = status[ref] ?? { configured: false, writable: false };
       return createElement(
         "fieldset",
-        { key: ref },
-        createElement("legend", null, label),
+        { key: ref, className: "guionai-web__credential" },
+        createElement("legend", { className: "guionai-web__legend" }, label),
         createElement(
           "label",
-          { htmlFor: `guionai-web-${ref}` },
+          {
+            htmlFor: `guionai-web-${ref}`,
+            className: "guionai-web__label",
+          },
           "Write a new key",
           createElement("input", {
             id: `guionai-web-${ref}`,
             type: "password",
             autoComplete: "new-password",
+            className: "guionai-web__input",
             value: drafts[ref] ?? "",
             disabled: !current.writable,
             onChange: (event: { target: { value: string } }) =>
@@ -235,34 +252,47 @@ function SettingsCard({
         ),
         createElement(
           "p",
-          { role: "status" },
+          { role: "status", className: "guionai-web__status" },
           `Status: ${current.configured ? "configured" : "not configured"}; source: ${current.source ?? "none"}; writable: ${current.writable ? "yes" : "no"}.`,
         ),
         createElement(
-          "button",
-          {
-            type: "button",
-            disabled: !current.writable || (drafts[ref] ?? "").trim() === "",
-            onClick: () => void saveCredential(ref),
-          },
-          "Save key",
-        ),
-        createElement(
-          "button",
-          {
-            type: "button",
-            disabled: !current.writable || !current.configured,
-            onClick: () => void clearCredential(ref),
-          },
-          "Remove key",
+          "div",
+          { className: "guionai-web__actions" },
+          createElement(
+            "button",
+            {
+              type: "button",
+              className: "guionai-web__button",
+              disabled: !current.writable || (drafts[ref] ?? "").trim() === "",
+              onClick: () => void saveCredential(ref),
+            },
+            "Save key",
+          ),
+          createElement(
+            "button",
+            {
+              type: "button",
+              className: "guionai-web__button",
+              disabled: !current.writable || !current.configured,
+              onClick: () => void clearCredential(ref),
+            },
+            "Remove key",
+          ),
         ),
       );
     }),
-    error ? createElement("p", { role: "alert" }, error) : null,
+    error
+      ? createElement(
+          "p",
+          { role: "alert", className: "guionai-web__feedback" },
+          error,
+        )
+      : null,
   );
 }
 
 export function apply(ctx: ClientContext): void {
+  ctx.effect(() => installStyles(cssText), "guionai-web: styles");
   const connection = ctx.get("connection") as ConnectionHandle;
   const remote = ctx.get("remote") as RemoteApi;
   const scope = ctx.settingsScope.bind<ClientSettings>({
@@ -285,4 +315,252 @@ export function apply(ctx: ClientContext): void {
         })) as never,
     ),
   );
+  ctx.slots.inject("tool.call.toolview", function* () {
+    for (const key of ["web_fetch", "web_links", "web_docs"]) {
+      yield ctx.slots.register(
+        {
+          name: "tool.call.toolview",
+          key,
+          inject: () => ({}),
+        } as never,
+        ((props: ToolCallViewProps) =>
+          createElement(WebResearchToolCard, props)) as never,
+      );
+    }
+  });
+}
+
+function installStyles(css: string): () => void {
+  const style = document.createElement("style");
+  style.dataset.dshPlugin = "guionai-web";
+  style.textContent = css;
+  document.head.append(style);
+  return () => style.remove();
+}
+
+type ResearchToolName = "web_fetch" | "web_links" | "web_docs";
+
+function WebResearchToolCard({
+  toolName,
+  block,
+}: ToolCallViewProps): ReturnType<typeof createElement> {
+  const name = toolName as ResearchToolName;
+  const args = toolArguments(block);
+  const output = toolOutput(block);
+  const running = !isToolResult(block);
+  const error = isToolResult(block) && block.isError;
+  const title =
+    name === "web_fetch"
+      ? "Fetch page"
+      : name === "web_links"
+        ? "Find links"
+        : args.action === "resolve"
+          ? "Find documentation"
+          : "Fetch documentation";
+  const summary = toolSummary(name, args);
+
+  return createElement(
+    "section",
+    {
+      className: "guionai-web__tool-card",
+      "aria-label": title,
+      "data-state": running ? "running" : error ? "error" : "success",
+    },
+    createElement(
+      "div",
+      { className: "guionai-web__tool-heading" },
+      createElement("span", {
+        className: "guionai-web__state-dot",
+        "aria-hidden": true,
+      }),
+      createElement("strong", { className: "guionai-web__tool-title" }, title),
+      createElement(
+        "span",
+        { className: "guionai-web__tool-state", role: "status" },
+        running ? "Working…" : error ? "Failed" : "Complete",
+      ),
+    ),
+    summary
+      ? createElement("p", { className: "guionai-web__tool-summary" }, summary)
+      : null,
+    running
+      ? null
+      : error
+        ? createElement(
+            "p",
+            { className: "guionai-web__tool-error", role: "alert" },
+            block.error
+              ? `${block.error.name}: ${block.error.code}`
+              : "The request failed.",
+          )
+        : toolBody(name, args, output),
+    !running && output
+      ? createElement(
+          "details",
+          { className: "guionai-web__raw-output" },
+          createElement("summary", null, "Show raw output"),
+          createElement("pre", null, output),
+        )
+      : null,
+  );
+}
+
+function toolBody(
+  name: ResearchToolName,
+  args: Record<string, unknown>,
+  output: string,
+): ReturnType<typeof createElement> | null {
+  if (name === "web_links") {
+    const links = linksFromOutput(output);
+    const count = /^Found (\d+) links?/.exec(output)?.[1];
+    return createElement(
+      "div",
+      { className: "guionai-web__tool-body" },
+      createElement(
+        "p",
+        { className: "guionai-web__result-count" },
+        count ? `${count} links found` : "Link scan complete",
+      ),
+      links.length > 0
+        ? createElement(
+            "ul",
+            { className: "guionai-web__link-list" },
+            ...links.slice(0, 5).map((link) =>
+              createElement(
+                "li",
+                { key: link.url },
+                createElement(
+                  "a",
+                  {
+                    href: link.url,
+                    target: "_blank",
+                    rel: "noreferrer",
+                    title: link.url,
+                  },
+                  link.text,
+                ),
+              ),
+            ),
+          )
+        : null,
+    );
+  }
+  if (name === "web_docs" && args.action === "resolve") {
+    const libraries = librariesFromOutput(output);
+    return createElement(
+      "div",
+      { className: "guionai-web__tool-body" },
+      createElement(
+        "p",
+        { className: "guionai-web__result-count" },
+        libraries.length > 0
+          ? `${libraries.length} library matches`
+          : "No libraries found",
+      ),
+      libraries.length > 0
+        ? createElement(
+            "ul",
+            { className: "guionai-web__library-list" },
+            ...libraries
+              .slice(0, 5)
+              .map((library) =>
+                createElement(
+                  "li",
+                  { key: library.id },
+                  createElement("code", null, library.id),
+                  createElement("span", null, library.title),
+                ),
+              ),
+          )
+        : null,
+    );
+  }
+  const url = typeof args.url === "string" ? args.url : undefined;
+  return createElement(
+    "div",
+    { className: "guionai-web__tool-body" },
+    url
+      ? createElement(
+          "a",
+          {
+            className: "guionai-web__source-link",
+            href: url,
+            target: "_blank",
+            rel: "noreferrer",
+          },
+          "Open source",
+        )
+      : null,
+    createElement("p", { className: "guionai-web__excerpt" }, excerpt(output)),
+  );
+}
+
+function toolArguments(
+  block: ToolCallViewProps["block"],
+): Record<string, unknown> {
+  const argsRaw = isToolResult(block) ? block.call?.argsRaw : block.argsRaw;
+  if (!argsRaw) return {};
+  try {
+    const value: unknown = JSON.parse(argsRaw);
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function toolOutput(block: ToolCallViewProps["block"]): string {
+  if (!isToolResult(block)) return "";
+  return block.content
+    .map((content) =>
+      content.type === "text" ? content.text : JSON.stringify(content),
+    )
+    .join("\n");
+}
+
+function toolSummary(
+  name: ResearchToolName,
+  args: Record<string, unknown>,
+): string {
+  if (name === "web_docs") {
+    const identifier = args.action === "resolve" ? args.query : args.library_id;
+    return typeof identifier === "string"
+      ? identifier
+      : "Documentation request";
+  }
+  if (typeof args.url !== "string")
+    return name === "web_links" ? "Page links" : "Web page";
+  try {
+    const url = new URL(args.url);
+    return `${url.hostname}${url.pathname === "/" ? "" : url.pathname}`;
+  } catch {
+    return args.url;
+  }
+}
+
+function excerpt(output: string): string {
+  const compact = output.replace(/\s+/g, " ").trim();
+  return compact.length <= 360 ? compact : `${compact.slice(0, 357)}…`;
+}
+
+function linksFromOutput(output: string): Array<{ text: string; url: string }> {
+  return [...output.matchAll(/^\d+\. (.+)\n\s*URL: (https?:\/\/\S+)$/gm)].map(
+    ([, text, url]) => ({ text: text || "(no text)", url: url! }),
+  );
+}
+
+function librariesFromOutput(
+  output: string,
+): Array<{ id: string; title: string }> {
+  return [...output.matchAll(/^- (.+?): (.+)$/gm)].map(([, id, title]) => ({
+    id: id!,
+    title: title!,
+  }));
+}
+
+function isToolResult(
+  block: ToolCallViewProps["block"],
+): block is Extract<ToolCallViewProps["block"], { kind: "tool-result" }> {
+  return "kind" in block && block.kind === "tool-result";
 }
