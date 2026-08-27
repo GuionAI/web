@@ -7,6 +7,7 @@ import {
   SETTINGS_NAMESPACE,
 } from "../src/contract.js";
 import {
+  apply,
   decodeSettings,
   describeCredentialStatus,
   persistProviderSelection,
@@ -49,6 +50,39 @@ function fakeApi(overrides: Record<string, unknown> = {}) {
 }
 
 describe("DSH settings client credential surface", () => {
+  it("registers dedicated views for fetch, links, and docs without replacing search views", () => {
+    const registrations: Array<{ key: string }> = [];
+    const ctx = {
+      effect: () => undefined,
+      get: () => ({ api: {} }),
+      settingsScope: { bind: () => ({}) },
+      slots: {
+        inject: (_name: string, callback: () => unknown) => {
+          const value = callback();
+          if (
+            value !== null &&
+            typeof value === "object" &&
+            Symbol.iterator in value
+          )
+            for (const _registration of value as Iterable<unknown>) {
+              // Exhaust the generator so every keyed registration is observed.
+            }
+        },
+        register: (spec: { key: string }) => {
+          registrations.push(spec);
+          return spec;
+        },
+      },
+    };
+    apply(ctx as any);
+    expect(registrations.map((registration) => registration.key)).toEqual([
+      SETTINGS_NAMESPACE,
+      "web_fetch",
+      "web_links",
+      "web_docs",
+    ]);
+  });
+
   it("persists only the selected provider and drops unknown/secret settings fields", async () => {
     const calls: Array<{ field: string; value: unknown }> = [];
     await persistProviderSelection(

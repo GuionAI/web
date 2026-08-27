@@ -147,6 +147,7 @@ describe("DSH rc.8 packed package contract", () => {
           "@deepseek-ai/dsh-client-connection",
           "@deepseek-ai/dsh-client-locale",
           "@deepseek-ai/dsh-client-runtime",
+          "@deepseek-ai/dsh-client-ui-tool",
           "@deepseek-ai/dsh-client-ui-settings",
           "@deepseek-ai/dsh-client-ui-settings-plugins",
         ],
