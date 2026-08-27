@@ -263,8 +263,7 @@ function SettingsCard({
             {
               type: "button",
               className: "guionai-web__button",
-              disabled:
-                !current.writable || (drafts[ref] ?? "").trim() === "",
+              disabled: !current.writable || (drafts[ref] ?? "").trim() === "",
               onClick: () => void saveCredential(ref),
             },
             "Save key",
@@ -370,7 +369,10 @@ function WebResearchToolCard({
     createElement(
       "div",
       { className: "guionai-web__tool-heading" },
-      createElement("span", { className: "guionai-web__state-dot", "aria-hidden": true }),
+      createElement("span", {
+        className: "guionai-web__state-dot",
+        "aria-hidden": true,
+      }),
       createElement("strong", { className: "guionai-web__tool-title" }, title),
       createElement(
         "span",
@@ -387,7 +389,9 @@ function WebResearchToolCard({
         ? createElement(
             "p",
             { className: "guionai-web__tool-error", role: "alert" },
-            block.error ? `${block.error.name}: ${block.error.code}` : "The request failed.",
+            block.error
+              ? `${block.error.name}: ${block.error.code}`
+              : "The request failed.",
           )
         : toolBody(name, args, output),
     !running && output
@@ -449,20 +453,24 @@ function toolBody(
       createElement(
         "p",
         { className: "guionai-web__result-count" },
-        libraries.length > 0 ? `${libraries.length} library matches` : "No libraries found",
+        libraries.length > 0
+          ? `${libraries.length} library matches`
+          : "No libraries found",
       ),
       libraries.length > 0
         ? createElement(
             "ul",
             { className: "guionai-web__library-list" },
-            ...libraries.slice(0, 5).map((library) =>
-              createElement(
-                "li",
-                { key: library.id },
-                createElement("code", null, library.id),
-                createElement("span", null, library.title),
+            ...libraries
+              .slice(0, 5)
+              .map((library) =>
+                createElement(
+                  "li",
+                  { key: library.id },
+                  createElement("code", null, library.id),
+                  createElement("span", null, library.title),
+                ),
               ),
-            ),
           )
         : null,
     );
@@ -487,7 +495,9 @@ function toolBody(
   );
 }
 
-function toolArguments(block: ToolCallViewProps["block"]): Record<string, unknown> {
+function toolArguments(
+  block: ToolCallViewProps["block"],
+): Record<string, unknown> {
   const argsRaw = isToolResult(block) ? block.call?.argsRaw : block.argsRaw;
   if (!argsRaw) return {};
   try {
@@ -503,16 +513,24 @@ function toolArguments(block: ToolCallViewProps["block"]): Record<string, unknow
 function toolOutput(block: ToolCallViewProps["block"]): string {
   if (!isToolResult(block)) return "";
   return block.content
-    .map((content) => (content.type === "text" ? content.text : JSON.stringify(content)))
+    .map((content) =>
+      content.type === "text" ? content.text : JSON.stringify(content),
+    )
     .join("\n");
 }
 
-function toolSummary(name: ResearchToolName, args: Record<string, unknown>): string {
+function toolSummary(
+  name: ResearchToolName,
+  args: Record<string, unknown>,
+): string {
   if (name === "web_docs") {
     const identifier = args.action === "resolve" ? args.query : args.library_id;
-    return typeof identifier === "string" ? identifier : "Documentation request";
+    return typeof identifier === "string"
+      ? identifier
+      : "Documentation request";
   }
-  if (typeof args.url !== "string") return name === "web_links" ? "Page links" : "Web page";
+  if (typeof args.url !== "string")
+    return name === "web_links" ? "Page links" : "Web page";
   try {
     const url = new URL(args.url);
     return `${url.hostname}${url.pathname === "/" ? "" : url.pathname}`;
@@ -532,7 +550,9 @@ function linksFromOutput(output: string): Array<{ text: string; url: string }> {
   );
 }
 
-function librariesFromOutput(output: string): Array<{ id: string; title: string }> {
+function librariesFromOutput(
+  output: string,
+): Array<{ id: string; title: string }> {
   return [...output.matchAll(/^- (.+?): (.+)$/gm)].map(([, id, title]) => ({
     id: id!,
     title: title!,
