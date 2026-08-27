@@ -321,6 +321,7 @@ export function apply(ctx: ClientContext): void {
         {
           name: "tool.call.toolview",
           key,
+          ...(key === "web_fetch" ? { priority: -1 } : {}),
           inject: () => ({}),
         } as never,
         ((props: ToolCallViewProps) =>
@@ -358,6 +359,7 @@ function WebResearchToolCard({
           ? "Find documentation"
           : "Fetch documentation";
   const summary = toolSummary(name, args);
+  const details = name === "web_fetch" ? fetchDetails(args) : [];
 
   return createElement(
     "section",
@@ -382,6 +384,20 @@ function WebResearchToolCard({
     ),
     summary
       ? createElement("p", { className: "guionai-web__tool-summary" }, summary)
+      : null,
+    details.length > 0
+      ? createElement(
+          "dl",
+          { className: "guionai-web__tool-details" },
+          ...details.map((detail) =>
+            createElement(
+              "div",
+              { key: detail.label },
+              createElement("dt", null, detail.label),
+              createElement("dd", null, detail.value),
+            ),
+          ),
+        )
       : null,
     running
       ? null
@@ -537,6 +553,37 @@ function toolSummary(
   } catch {
     return args.url;
   }
+}
+
+export function fetchDetails(
+  args: Record<string, unknown>,
+): Array<{ label: string; value: string }> {
+  const browserRendered = args.render === "agent-browser";
+  const details = [
+    {
+      label: "Backend",
+      value: browserRendered ? "Browser rendered" : "Direct fetch",
+    },
+  ];
+  if (browserRendered && typeof args.waitMs === "number") {
+    details.push({ label: "Wait", value: formatWait(args.waitMs) });
+  }
+  details.push({ label: "Result", value: fetchResultMode(args) });
+  return details;
+}
+
+function formatWait(waitMs: number): string {
+  return waitMs >= 1_000 && waitMs % 1_000 === 0
+    ? `${waitMs / 1_000} s`
+    : `${waitMs} ms`;
+}
+
+function fetchResultMode(args: Record<string, unknown>): string {
+  if (typeof args.section_id === "string" && args.section_id !== "")
+    return `Section: ${args.section_id}`;
+  if (args.tree === true) return "Heading tree";
+  if (args.full === true) return "Full document";
+  return "Adaptive document";
 }
 
 function excerpt(output: string): string {
