@@ -7,8 +7,10 @@ import {
   SETTINGS_NAMESPACE,
 } from "../src/contract.js";
 import {
+  apply,
   decodeSettings,
   describeCredentialStatus,
+  fetchDetails,
   persistProviderSelection,
   removeCredential,
   writeCredential,
@@ -49,6 +51,75 @@ function fakeApi(overrides: Record<string, unknown> = {}) {
 }
 
 describe("DSH settings client credential surface", () => {
+  it("labels the fetch backend, wait, and retrieval mode from its request", () => {
+    expect(
+      fetchDetails({
+        render: "agent-browser",
+        waitMs: 2_000,
+        section_id: "installation",
+      }),
+    ).toEqual([
+      { label: "Backend", value: "Browser rendered" },
+      { label: "Wait", value: "2 s" },
+      { label: "Result", value: "Section: installation" },
+    ]);
+    expect(fetchDetails({ tree: true })).toEqual([
+      { label: "Backend", value: "Direct fetch" },
+      { label: "Result", value: "Heading tree" },
+    ]);
+    expect(fetchDetails({ full: true })).toEqual([
+      { label: "Backend", value: "Direct fetch" },
+      { label: "Result", value: "Full document" },
+    ]);
+  });
+
+  it("shadows the host fetch view and registers dedicated views for links and docs", () => {
+    const registrations: Array<{ key: string; priority?: number }> = [
+      { key: "web_fetch", priority: 0 },
+    ];
+    const ctx = {
+      effect: () => undefined,
+      get: () => ({ api: {} }),
+      settingsScope: { bind: () => ({}) },
+      slots: {
+        inject: (_name: string, callback: () => unknown) => {
+          const value = callback();
+          if (
+            value !== null &&
+            typeof value === "object" &&
+            Symbol.iterator in value
+          )
+            for (const _registration of value as Iterable<unknown>) {
+              // Exhaust the generator so every keyed registration is observed.
+            }
+        },
+        register: (spec: { key: string; priority?: number }) => {
+          if (
+            registrations.some(
+              (registration) =>
+                registration.key === spec.key &&
+                (registration.priority ?? 0) === (spec.priority ?? 0),
+            )
+          ) {
+            throw new Error(`duplicate keyed slot entry: ${spec.key}`);
+          }
+          registrations.push(spec);
+          return spec;
+        },
+      },
+    };
+    apply(ctx as any);
+    expect(
+      registrations.map(({ key, priority }) => ({ key, priority })),
+    ).toEqual([
+      { key: "web_fetch", priority: 0 },
+      { key: SETTINGS_NAMESPACE },
+      { key: "web_fetch", priority: -1 },
+      { key: "web_links" },
+      { key: "web_docs" },
+    ]);
+  });
+
   it("persists only the selected provider and drops unknown/secret settings fields", async () => {
     const calls: Array<{ field: string; value: unknown }> = [];
     await persistProviderSelection(
