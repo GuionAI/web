@@ -443,6 +443,13 @@ function SettingsCard({
     draftProvider !== undefined ||
     removals.length > 0 ||
     Object.values(drafts).some((value) => value.trim() !== "");
+  const credentialStatusReady = CREDENTIAL_REFS.every(
+    (ref) => status[ref] !== undefined,
+  );
+  const readOnly =
+    !snapshot.writable ||
+    (credentialStatusReady &&
+      CREDENTIAL_REFS.every((ref) => status[ref]?.writable !== true));
   const discard = () => {
     if (saving) return;
     setDraftProvider(undefined);
@@ -471,6 +478,8 @@ function SettingsCard({
       setSaving(false);
     }
   };
+
+  if (snapshot.status !== "ready") return null;
 
   return createElement(
     "li",
@@ -508,6 +517,13 @@ function SettingsCard({
       ? createElement(
           "div",
           { className: styles.body, id: `${cardId}-body` },
+          readOnly
+            ? createElement(
+                "p",
+                { className: styles.readOnly, role: "status" },
+                "Some settings are read-only in this deployment.",
+              )
+            : null,
           createElement(
             "div",
             { className: styles.field },
