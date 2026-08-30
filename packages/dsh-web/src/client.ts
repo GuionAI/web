@@ -1,4 +1,5 @@
-import { createElement, useEffect, useState } from "react";
+import { createElement, useEffect, useId, useState } from "react";
+import { IconChevronDownOutline14 } from "@deepseek-ai/dsh-client-ui-primitives";
 import type {
   ConnectionHandle,
   IApiClient,
@@ -23,6 +24,7 @@ import {
   type GuionSettings,
   type SearchProviderName,
 } from "./contract.js";
+import styles from "./settings.module.dshcss";
 
 export const inject = [
   "connection",
@@ -116,8 +118,13 @@ function SettingsCard({
   const [snapshot, setSnapshot] = useState(scope.getSnapshot());
   const [status, setStatus] = useState<Record<string, CredentialStatus>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [draftProvider, setDraftProvider] = useState<SearchProviderName>();
+  const [removals, setRemovals] = useState<readonly string[]>([]);
   const [credentialRevision, setCredentialRevision] = useState(0);
   const [error, setError] = useState<string>();
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const cardId = useId();
 
   useEffect(
     () => scope.subscribe(() => setSnapshot(scope.getSnapshot())),
@@ -149,116 +156,217 @@ function SettingsCard({
   const provider = isSearchProvider(snapshot.value?.provider)
     ? snapshot.value.provider
     : "exa";
-  const saveProvider = async (next: SearchProviderName) => {
+  const selectedProvider = draftProvider ?? provider;
+  const dirty =
+    draftProvider !== undefined ||
+    removals.length > 0 ||
+    Object.values(drafts).some((value) => value.trim() !== "");
+  const discard = () => {
+    if (saving) return;
+    setDraftProvider(undefined);
+    setDrafts({});
+    setRemovals([]);
     setError(undefined);
-    try {
-      await persistProviderSelection(scope, next);
-    } catch {
-      setError("Provider selection could not be saved.");
-    }
   };
-  const saveCredential = async (ref: string) => {
+  const save = async () => {
+    if (!dirty || saving) return;
     setError(undefined);
+    setSaving(true);
     try {
-      const wrote = await writeCredential(api, ref, drafts[ref] ?? "");
-      if (wrote) {
-        setDrafts((current) => ({ ...current, [ref]: "" }));
-        setCredentialRevision((revision) => revision + 1);
+      if (draftProvider !== undefined)
+        await persistProviderSelection(scope, draftProvider);
+      for (const ref of CREDENTIAL_REFS) {
+        if (removals.includes(ref)) await removeCredential(api, ref);
+        else await writeCredential(api, ref, drafts[ref] ?? "");
       }
-    } catch {
-      setError("Credential could not be saved.");
-    }
-  };
-  const clearCredential = async (ref: string) => {
-    setError(undefined);
-    try {
-      await removeCredential(api, ref);
+      setDraftProvider(undefined);
+      setDrafts({});
+      setRemovals([]);
       setCredentialRevision((revision) => revision + 1);
     } catch {
-      setError("Credential could not be removed.");
+      setError("These settings could not be saved.");
+    } finally {
+      setSaving(false);
     }
   };
 
   return createElement(
-    "section",
-    { "aria-labelledby": "guionai-web-settings-title" },
-    createElement("h2", { id: "guionai-web-settings-title" }, "Guion Web"),
+    "li",
+    {
+      className: `${styles.card} ${open ? styles.open : ""}`,
+      "data-settings-card": SETTINGS_NAMESPACE,
+    },
     createElement(
-      "p",
-      null,
-      "Choose the search provider explicitly. Both providers require an API key.",
-    ),
-    createElement(
-      "label",
-      { htmlFor: "guionai-web-provider" },
-      "Search provider",
+      "button",
+      {
+        type: "button",
+        className: styles.header,
+        "aria-expanded": open,
+        "aria-controls": `${cardId}-body`,
+        onClick: () => setOpen((value) => !value),
+      },
       createElement(
-        "select",
-        {
-          id: "guionai-web-provider",
-          value: provider,
-          onChange: (event: { target: { value: string } }) => {
-            if (isSearchProvider(event.target.value))
-              void saveProvider(event.target.value);
-          },
-        },
-        ...PROVIDERS.map((value) =>
-          createElement("option", { key: value, value }, value),
+        "span",
+        { className: styles.headText },
+        createElement("span", { className: styles.name }, "Guion Web"),
+        createElement(
+          "span",
+          { className: styles.description },
+          "Search provider and API credentials.",
         ),
       ),
+      dirty
+        ? createElement("span", { className: styles.pending }, "Unsaved")
+        : null,
+      createElement(IconChevronDownOutline14, {
+        className: `${styles.chevron} ${open ? styles.chevronOpen : ""}`,
+      }),
     ),
-    ...CREDENTIAL_REFS.map((ref) => {
-      const label =
-        ref === EXA_CREDENTIAL_REF
-          ? "Exa API key"
-          : ref === BRAVE_CREDENTIAL_REF
-            ? "Brave API key"
-            : "Context7 API key";
-      const current = status[ref] ?? { configured: false, writable: false };
-      return createElement(
-        "fieldset",
-        { key: ref },
-        createElement("legend", null, label),
-        createElement(
-          "label",
-          { htmlFor: `guionai-web-${ref}` },
-          "Write a new key",
-          createElement("input", {
-            id: `guionai-web-${ref}`,
-            type: "password",
-            autoComplete: "new-password",
-            value: drafts[ref] ?? "",
-            disabled: !current.writable,
-            onChange: (event: { target: { value: string } }) =>
-              setDrafts((draft) => ({ ...draft, [ref]: event.target.value })),
+    open
+      ? createElement(
+          "div",
+          { className: styles.body, id: `${cardId}-body` },
+          createElement(
+            "div",
+            { className: styles.field },
+            createElement(
+              "label",
+              { className: styles.label, htmlFor: `${cardId}-provider` },
+              "Search provider",
+            ),
+            createElement(
+              "select",
+              {
+                className: styles.control,
+                id: `${cardId}-provider`,
+                value: selectedProvider,
+                disabled: saving || !snapshot.writable,
+                onChange: (event: { target: { value: string } }) => {
+                  if (!isSearchProvider(event.target.value)) return;
+                  setDraftProvider(
+                    event.target.value === provider
+                      ? undefined
+                      : event.target.value,
+                  );
+                  setError(undefined);
+                },
+              },
+              ...PROVIDERS.map((value) =>
+                createElement("option", { key: value, value }, value),
+              ),
+            ),
+          ),
+          ...CREDENTIAL_REFS.map((ref) => {
+            const label =
+              ref === EXA_CREDENTIAL_REF
+                ? "Exa API key"
+                : ref === BRAVE_CREDENTIAL_REF
+                  ? "Brave API key"
+                  : "Context7 API key";
+            const current = status[ref] ?? {
+              configured: false,
+              writable: false,
+            };
+            const removing = removals.includes(ref);
+            return createElement(
+              "div",
+              { className: styles.field, key: ref },
+              createElement(
+                "div",
+                { className: styles.fieldHead },
+                createElement(
+                  "label",
+                  { className: styles.label, htmlFor: `${cardId}-${ref}` },
+                  label,
+                ),
+                createElement(
+                  "span",
+                  {
+                    className:
+                      current.configured && !removing
+                        ? styles.badge
+                        : styles.badgeMuted,
+                  },
+                  removing
+                    ? "Will remove"
+                    : current.configured
+                      ? "Configured"
+                      : "Not configured",
+                ),
+              ),
+              createElement("input", {
+                className: styles.control,
+                id: `${cardId}-${ref}`,
+                type: "password",
+                autoComplete: "new-password",
+                placeholder: current.configured
+                  ? "Enter a replacement key"
+                  : "Enter API key",
+                value: drafts[ref] ?? "",
+                disabled: saving || !current.writable || removing,
+                onChange: (event: { target: { value: string } }) => {
+                  setDrafts((draft) => ({
+                    ...draft,
+                    [ref]: event.target.value,
+                  }));
+                  setError(undefined);
+                },
+              }),
+              current.writable && current.configured
+                ? createElement(
+                    "button",
+                    {
+                      className: styles.remove,
+                      type: "button",
+                      disabled: saving,
+                      onClick: () => {
+                        setRemovals((values) =>
+                          values.includes(ref)
+                            ? values.filter((value) => value !== ref)
+                            : [...values, ref],
+                        );
+                        setDrafts((values) => ({ ...values, [ref]: "" }));
+                        setError(undefined);
+                      },
+                    },
+                    removing ? "Keep configured key" : "Remove configured key",
+                  )
+                : null,
+            );
           }),
-        ),
-        createElement(
-          "p",
-          { role: "status" },
-          `Status: ${current.configured ? "configured" : "not configured"}; source: ${current.source ?? "none"}; writable: ${current.writable ? "yes" : "no"}.`,
-        ),
-        createElement(
-          "button",
-          {
-            type: "button",
-            disabled: !current.writable || (drafts[ref] ?? "").trim() === "",
-            onClick: () => void saveCredential(ref),
-          },
-          "Save key",
-        ),
-        createElement(
-          "button",
-          {
-            type: "button",
-            disabled: !current.writable || !current.configured,
-            onClick: () => void clearCredential(ref),
-          },
-          "Remove key",
-        ),
-      );
-    }),
-    error ? createElement("p", { role: "alert" }, error) : null,
+          createElement(
+            "div",
+            { className: styles.footer },
+            error
+              ? createElement(
+                  "p",
+                  { className: styles.error, role: "alert" },
+                  error,
+                )
+              : null,
+            createElement(
+              "button",
+              {
+                className: styles.discard,
+                type: "button",
+                disabled: !dirty || saving,
+                onClick: discard,
+              },
+              "Discard",
+            ),
+            createElement(
+              "button",
+              {
+                className: styles.save,
+                type: "button",
+                disabled: !dirty || saving,
+                onClick: () => void save(),
+              },
+              saving ? "Saving…" : "Save",
+            ),
+          ),
+        )
+      : null,
   );
 }
 

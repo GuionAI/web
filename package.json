@@ -20,6 +20,8 @@
     "@modelcontextprotocol/client": "2.0.0",
     "@types/markdown-it": "14.1.2",
     "@types/node": "24.0.0",
+    "esbuild": "0.25.12",
+    "lightningcss": "^1.33.0",
     "prettier": "3.6.2",
     "tsup": "8.5.0",
     "typescript": "5.8.3",
