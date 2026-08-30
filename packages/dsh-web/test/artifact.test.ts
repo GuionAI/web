@@ -129,7 +129,7 @@ function manifest(): any {
   return JSON.parse(readFileSync(join(artifactRoot, "package.json"), "utf8"));
 }
 
-describe("DSH rc.8 packed package contract", () => {
+describe("DSH 0.1.1 packed package contract", () => {
   it("contains valid host ESM, browser client, declarations, patch, and peer-only metadata", async () => {
     const packed = manifest();
     const host = await import(
@@ -147,6 +147,7 @@ describe("DSH rc.8 packed package contract", () => {
           "@deepseek-ai/dsh-client-connection",
           "@deepseek-ai/dsh-client-locale",
           "@deepseek-ai/dsh-client-runtime",
+          "@deepseek-ai/dsh-client-ui-primitives",
           "@deepseek-ai/dsh-client-ui-tool",
           "@deepseek-ai/dsh-client-ui-settings",
           "@deepseek-ai/dsh-client-ui-settings-plugins",
@@ -337,10 +338,14 @@ describe("DSH rc.8 packed package contract", () => {
       expect(registrations).toHaveLength(1);
       expect(registrations[0].id).toBe("@guionai/dsh-web");
       const loaded = registrations[0].factory((specifier: string) => {
+        if (specifier === "@deepseek-ai/dsh-client-ui-primitives") {
+          return { IconChevronDownOutline14: () => ({}) };
+        }
         expect(specifier).toBe("react");
         return {
           createElement: () => ({}),
           useEffect: () => undefined,
+          useId: () => "fixture",
           useState: <T>(value: T) => [value, () => undefined] as const,
         };
       });

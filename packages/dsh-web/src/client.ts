@@ -1,4 +1,5 @@
-import { createElement, useEffect, useState } from "react";
+import { createElement, useEffect, useId, useState } from "react";
+import { IconChevronDownOutline14 } from "@deepseek-ai/dsh-client-ui-primitives";
 import type {
   ConnectionHandle,
   IApiClient,
@@ -25,6 +26,7 @@ import {
   type GuionSettings,
   type SearchProviderName,
 } from "./contract.js";
+import styles from "./settings.module.dshcss";
 
 export const inject = [
   "connection",
@@ -45,292 +47,6 @@ export interface CredentialStatus {
   source?: string;
   writable: boolean;
 }
-
-type ClientSettings = Partial<GuionSettings>;
-export type GuionSettingsScope = SettingsScope<ClientSettings>;
-export type GuionSettingsScopeSpec = SettingsScopeSpec<ClientSettings>;
-
-export function decodeSettings(value: unknown): ClientSettings | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const provider = (value as { provider?: unknown }).provider;
-  return isSearchProvider(provider) ? { provider } : {};
-}
-
-export async function persistProviderSelection(
-  scope: Pick<SettingsScope<ClientSettings>, "set">,
-  provider: SearchProviderName,
-): Promise<void> {
-  await scope.set("provider", provider);
-}
-
-export async function describeCredentialStatus(
-  api: CredentialApi,
-  refs: readonly string[],
-): Promise<Record<string, CredentialStatus>> {
-  const response = await api.credentials.describe({ refs: [...refs] });
-  if (!response.result.ok) throw new Error("credential status unavailable");
-  const views = response.result.value.credentials;
-  return Object.fromEntries(
-    refs.map((ref) => {
-      const view = views[ref];
-      return [
-        ref,
-        {
-          configured: view?.configured === true,
-          ...(typeof view?.source === "string" && view.source.length > 0
-            ? { source: view.source }
-            : {}),
-          writable: view?.writable === true,
-        },
-      ];
-    }),
-  );
-}
-
-export async function writeCredential(
-  api: CredentialApi,
-  ref: string,
-  draft: string,
-): Promise<boolean> {
-  if (draft.trim() === "") return false;
-  const response = await api.credentials.set({ ref, value: draft });
-  if (!response.result.ok) throw new Error("credential write rejected");
-  return true;
-}
-
-export async function removeCredential(
-  api: CredentialApi,
-  ref: string,
-): Promise<void> {
-  const response = await api.credentials.unset({ ref });
-  if (!response.result.ok) throw new Error("credential removal rejected");
-}
-
-function SettingsCard({
-  scope,
-  api,
-  remote,
-}: {
-  scope: GuionSettingsScope;
-  api: CredentialApi;
-  remote: RemoteApi;
-}) {
-  const [snapshot, setSnapshot] = useState(scope.getSnapshot());
-  const [status, setStatus] = useState<Record<string, CredentialStatus>>({});
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [credentialRevision, setCredentialRevision] = useState(0);
-  const [error, setError] = useState<string>();
-
-  useEffect(
-    () => scope.subscribe(() => setSnapshot(scope.getSnapshot())),
-    [scope],
-  );
-  useEffect(
-    () =>
-      remote.$on("credentials/updated", (ref) => {
-        if ((CREDENTIAL_REFS as readonly string[]).includes(ref)) {
-          setCredentialRevision((revision) => revision + 1);
-        }
-      }),
-    [remote],
-  );
-  useEffect(() => {
-    let active = true;
-    void describeCredentialStatus(api, CREDENTIAL_REFS)
-      .then((next) => {
-        if (active) setStatus(next);
-      })
-      .catch(() => {
-        if (active) setError("Credential status is unavailable.");
-      });
-    return () => {
-      active = false;
-    };
-  }, [api, credentialRevision]);
-
-  const provider = isSearchProvider(snapshot.value?.provider)
-    ? snapshot.value.provider
-    : "exa";
-  const saveProvider = async (next: SearchProviderName) => {
-    setError(undefined);
-    try {
-      await persistProviderSelection(scope, next);
-    } catch {
-      setError("Provider selection could not be saved.");
-    }
-  };
-  const saveCredential = async (ref: string) => {
-    setError(undefined);
-    try {
-      const wrote = await writeCredential(api, ref, drafts[ref] ?? "");
-      if (wrote) {
-        setDrafts((current) => ({ ...current, [ref]: "" }));
-        setCredentialRevision((revision) => revision + 1);
-      }
-    } catch {
-      setError("Credential could not be saved.");
-    }
-  };
-  const clearCredential = async (ref: string) => {
-    setError(undefined);
-    try {
-      await removeCredential(api, ref);
-      setCredentialRevision((revision) => revision + 1);
-    } catch {
-      setError("Credential could not be removed.");
-    }
-  };
-
-  return createElement(
-    "section",
-    {
-      className: "guionai-web__settings",
-      "aria-labelledby": "guionai-web-settings-title",
-    },
-    createElement(
-      "h2",
-      {
-        id: "guionai-web-settings-title",
-        className: "guionai-web__title",
-      },
-      "Guion Web",
-    ),
-    createElement(
-      "p",
-      { className: "guionai-web__copy" },
-      "Choose the search provider explicitly. Both providers require an API key.",
-    ),
-    createElement(
-      "label",
-      { htmlFor: "guionai-web-provider", className: "guionai-web__label" },
-      "Search provider",
-      createElement(
-        "select",
-        {
-          id: "guionai-web-provider",
-          className: "guionai-web__select",
-          value: provider,
-          onChange: (event: { target: { value: string } }) => {
-            if (isSearchProvider(event.target.value))
-              void saveProvider(event.target.value);
-          },
-        },
-        ...PROVIDERS.map((value) =>
-          createElement("option", { key: value, value }, value),
-        ),
-      ),
-    ),
-    ...CREDENTIAL_REFS.map((ref) => {
-      const label =
-        ref === EXA_CREDENTIAL_REF
-          ? "Exa API key"
-          : ref === BRAVE_CREDENTIAL_REF
-            ? "Brave API key"
-            : "Context7 API key";
-      const current = status[ref] ?? { configured: false, writable: false };
-      return createElement(
-        "fieldset",
-        { key: ref, className: "guionai-web__credential" },
-        createElement("legend", { className: "guionai-web__legend" }, label),
-        createElement(
-          "label",
-          {
-            htmlFor: `guionai-web-${ref}`,
-            className: "guionai-web__label",
-          },
-          "Write a new key",
-          createElement("input", {
-            id: `guionai-web-${ref}`,
-            type: "password",
-            autoComplete: "new-password",
-            className: "guionai-web__input",
-            value: drafts[ref] ?? "",
-            disabled: !current.writable,
-            onChange: (event: { target: { value: string } }) =>
-              setDrafts((draft) => ({ ...draft, [ref]: event.target.value })),
-          }),
-        ),
-        createElement(
-          "p",
-          { role: "status", className: "guionai-web__status" },
-          `Status: ${current.configured ? "configured" : "not configured"}; source: ${current.source ?? "none"}; writable: ${current.writable ? "yes" : "no"}.`,
-        ),
-        createElement(
-          "div",
-          { className: "guionai-web__actions" },
-          createElement(
-            "button",
-            {
-              type: "button",
-              className: "guionai-web__button",
-              disabled: !current.writable || (drafts[ref] ?? "").trim() === "",
-              onClick: () => void saveCredential(ref),
-            },
-            "Save key",
-          ),
-          createElement(
-            "button",
-            {
-              type: "button",
-              className: "guionai-web__button",
-              disabled: !current.writable || !current.configured,
-              onClick: () => void clearCredential(ref),
-            },
-            "Remove key",
-          ),
-        ),
-      );
-    }),
-    error
-      ? createElement(
-          "p",
-          { role: "alert", className: "guionai-web__feedback" },
-          error,
-        )
-      : null,
-  );
-}
-
-export function apply(ctx: ClientContext): void {
-  ctx.effect(() => installStyles(cssText), "guionai-web: styles");
-  const connection = ctx.get("connection") as ConnectionHandle;
-  const remote = ctx.get("remote") as RemoteApi;
-  const scope = ctx.settingsScope.bind<ClientSettings>({
-    namespace: SETTINGS_NAMESPACE,
-    decode: decodeSettings,
-  });
-
-  ctx.slots.inject("settings.plugin.item", () =>
-    ctx.slots.register(
-      {
-        name: "settings.plugin.item",
-        key: SETTINGS_NAMESPACE,
-        inject: () => ({}),
-      } as never,
-      (() =>
-        createElement(SettingsCard, {
-          scope,
-          api: connection.api,
-          remote,
-        })) as never,
-    ),
-  );
-  ctx.slots.inject("tool.call.toolview", function* () {
-    for (const key of ["web_fetch", "web_links", "web_docs"]) {
-      yield ctx.slots.register(
-        {
-          name: "tool.call.toolview",
-          key,
-          ...(key === "web_fetch" ? { priority: -1 } : {}),
-          inject: () => ({}),
-        } as never,
-        ((props: ToolCallViewProps) =>
-          createElement(WebResearchToolCard, props)) as never,
-      );
-    }
-  });
-}
-
 function installStyles(css: string): () => void {
   const style = document.createElement("style");
   style.dataset.dshPlugin = "guionai-web";
@@ -610,4 +326,384 @@ function isToolResult(
   block: ToolCallViewProps["block"],
 ): block is Extract<ToolCallViewProps["block"], { kind: "tool-result" }> {
   return "kind" in block && block.kind === "tool-result";
+}
+
+type ClientSettings = Partial<GuionSettings>;
+export type GuionSettingsScope = SettingsScope<ClientSettings>;
+export type GuionSettingsScopeSpec = SettingsScopeSpec<ClientSettings>;
+
+export function decodeSettings(value: unknown): ClientSettings | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const provider = (value as { provider?: unknown }).provider;
+  return isSearchProvider(provider) ? { provider } : {};
+}
+
+export async function persistProviderSelection(
+  scope: Pick<SettingsScope<ClientSettings>, "set">,
+  provider: SearchProviderName,
+): Promise<void> {
+  await scope.set("provider", provider);
+}
+
+export async function describeCredentialStatus(
+  api: CredentialApi,
+  refs: readonly string[],
+): Promise<Record<string, CredentialStatus>> {
+  const response = await api.credentials.describe({ refs: [...refs] });
+  if (!response.result.ok) throw new Error("credential status unavailable");
+  const views = response.result.value.credentials;
+  return Object.fromEntries(
+    refs.map((ref) => {
+      const view = views[ref];
+      return [
+        ref,
+        {
+          configured: view?.configured === true,
+          ...(typeof view?.source === "string" && view.source.length > 0
+            ? { source: view.source }
+            : {}),
+          writable: view?.writable === true,
+        },
+      ];
+    }),
+  );
+}
+
+export async function writeCredential(
+  api: CredentialApi,
+  ref: string,
+  draft: string,
+): Promise<boolean> {
+  if (draft.trim() === "") return false;
+  const response = await api.credentials.set({ ref, value: draft });
+  if (!response.result.ok) throw new Error("credential write rejected");
+  return true;
+}
+
+export async function removeCredential(
+  api: CredentialApi,
+  ref: string,
+): Promise<void> {
+  const response = await api.credentials.unset({ ref });
+  if (!response.result.ok) throw new Error("credential removal rejected");
+}
+
+function SettingsCard({
+  scope,
+  api,
+  remote,
+}: {
+  scope: GuionSettingsScope;
+  api: CredentialApi;
+  remote: RemoteApi;
+}) {
+  const [snapshot, setSnapshot] = useState(scope.getSnapshot());
+  const [status, setStatus] = useState<Record<string, CredentialStatus>>({});
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [draftProvider, setDraftProvider] = useState<SearchProviderName>();
+  const [removals, setRemovals] = useState<readonly string[]>([]);
+  const [credentialRevision, setCredentialRevision] = useState(0);
+  const [error, setError] = useState<string>();
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const cardId = useId();
+
+  useEffect(
+    () => scope.subscribe(() => setSnapshot(scope.getSnapshot())),
+    [scope],
+  );
+  useEffect(
+    () =>
+      remote.$on("credentials/updated", (ref) => {
+        if ((CREDENTIAL_REFS as readonly string[]).includes(ref)) {
+          setCredentialRevision((revision) => revision + 1);
+        }
+      }),
+    [remote],
+  );
+  useEffect(() => {
+    let active = true;
+    void describeCredentialStatus(api, CREDENTIAL_REFS)
+      .then((next) => {
+        if (active) setStatus(next);
+      })
+      .catch(() => {
+        if (active) setError("Credential status is unavailable.");
+      });
+    return () => {
+      active = false;
+    };
+  }, [api, credentialRevision]);
+
+  const provider = isSearchProvider(snapshot.value?.provider)
+    ? snapshot.value.provider
+    : "exa";
+  const selectedProvider = draftProvider ?? provider;
+  const dirty =
+    draftProvider !== undefined ||
+    removals.length > 0 ||
+    Object.values(drafts).some((value) => value.trim() !== "");
+  const credentialStatusReady = CREDENTIAL_REFS.every(
+    (ref) => status[ref] !== undefined,
+  );
+  const readOnly =
+    !snapshot.writable ||
+    (credentialStatusReady &&
+      CREDENTIAL_REFS.every((ref) => status[ref]?.writable !== true));
+  const discard = () => {
+    if (saving) return;
+    setDraftProvider(undefined);
+    setDrafts({});
+    setRemovals([]);
+    setError(undefined);
+  };
+  const save = async () => {
+    if (!dirty || saving) return;
+    setError(undefined);
+    setSaving(true);
+    try {
+      if (draftProvider !== undefined)
+        await persistProviderSelection(scope, draftProvider);
+      for (const ref of CREDENTIAL_REFS) {
+        if (removals.includes(ref)) await removeCredential(api, ref);
+        else await writeCredential(api, ref, drafts[ref] ?? "");
+      }
+      setDraftProvider(undefined);
+      setDrafts({});
+      setRemovals([]);
+      setCredentialRevision((revision) => revision + 1);
+    } catch {
+      setError("These settings could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (snapshot.status !== "ready") return null;
+
+  return createElement(
+    "li",
+    {
+      className: `${styles.card} ${open ? styles.open : ""}`,
+      "data-settings-card": SETTINGS_NAMESPACE,
+    },
+    createElement(
+      "button",
+      {
+        type: "button",
+        className: styles.header,
+        "aria-expanded": open,
+        "aria-controls": `${cardId}-body`,
+        onClick: () => setOpen((value) => !value),
+      },
+      createElement(
+        "span",
+        { className: styles.headText },
+        createElement("span", { className: styles.name }, "Guion Web"),
+        createElement(
+          "span",
+          { className: styles.description },
+          "Search provider and API credentials.",
+        ),
+      ),
+      dirty
+        ? createElement("span", { className: styles.pending }, "Unsaved")
+        : null,
+      createElement(IconChevronDownOutline14, {
+        className: `${styles.chevron} ${open ? styles.chevronOpen : ""}`,
+      }),
+    ),
+    open
+      ? createElement(
+          "div",
+          { className: styles.body, id: `${cardId}-body` },
+          readOnly
+            ? createElement(
+                "p",
+                { className: styles.readOnly, role: "status" },
+                "Some settings are read-only in this deployment.",
+              )
+            : null,
+          createElement(
+            "div",
+            { className: styles.field },
+            createElement(
+              "label",
+              { className: styles.label, htmlFor: `${cardId}-provider` },
+              "Search provider",
+            ),
+            createElement(
+              "select",
+              {
+                className: styles.control,
+                id: `${cardId}-provider`,
+                value: selectedProvider,
+                disabled: saving || !snapshot.writable,
+                onChange: (event: { target: { value: string } }) => {
+                  if (!isSearchProvider(event.target.value)) return;
+                  setDraftProvider(
+                    event.target.value === provider
+                      ? undefined
+                      : event.target.value,
+                  );
+                  setError(undefined);
+                },
+              },
+              ...PROVIDERS.map((value) =>
+                createElement("option", { key: value, value }, value),
+              ),
+            ),
+          ),
+          ...CREDENTIAL_REFS.map((ref) => {
+            const label =
+              ref === EXA_CREDENTIAL_REF
+                ? "Exa API key"
+                : ref === BRAVE_CREDENTIAL_REF
+                  ? "Brave API key"
+                  : "Context7 API key";
+            const current = status[ref] ?? {
+              configured: false,
+              writable: false,
+            };
+            const removing = removals.includes(ref);
+            return createElement(
+              "div",
+              { className: styles.field, key: ref },
+              createElement(
+                "div",
+                { className: styles.fieldHead },
+                createElement(
+                  "label",
+                  { className: styles.label, htmlFor: `${cardId}-${ref}` },
+                  label,
+                ),
+                createElement(
+                  "span",
+                  {
+                    className:
+                      current.configured && !removing
+                        ? styles.badge
+                        : styles.badgeMuted,
+                  },
+                  removing
+                    ? "Will remove"
+                    : current.configured
+                      ? "Configured"
+                      : "Not configured",
+                ),
+              ),
+              createElement("input", {
+                className: styles.control,
+                id: `${cardId}-${ref}`,
+                type: "password",
+                autoComplete: "new-password",
+                placeholder: current.configured
+                  ? "Enter a replacement key"
+                  : "Enter API key",
+                value: drafts[ref] ?? "",
+                disabled: saving || !current.writable || removing,
+                onChange: (event: { target: { value: string } }) => {
+                  setDrafts((draft) => ({
+                    ...draft,
+                    [ref]: event.target.value,
+                  }));
+                  setError(undefined);
+                },
+              }),
+              current.writable && current.configured
+                ? createElement(
+                    "button",
+                    {
+                      className: styles.remove,
+                      type: "button",
+                      disabled: saving,
+                      onClick: () => {
+                        setRemovals((values) =>
+                          values.includes(ref)
+                            ? values.filter((value) => value !== ref)
+                            : [...values, ref],
+                        );
+                        setDrafts((values) => ({ ...values, [ref]: "" }));
+                        setError(undefined);
+                      },
+                    },
+                    removing ? "Keep configured key" : "Remove configured key",
+                  )
+                : null,
+            );
+          }),
+          createElement(
+            "div",
+            { className: styles.footer },
+            error
+              ? createElement(
+                  "p",
+                  { className: styles.error, role: "alert" },
+                  error,
+                )
+              : null,
+            createElement(
+              "button",
+              {
+                className: styles.discard,
+                type: "button",
+                disabled: !dirty || saving,
+                onClick: discard,
+              },
+              "Discard",
+            ),
+            createElement(
+              "button",
+              {
+                className: styles.save,
+                type: "button",
+                disabled: !dirty || saving,
+                onClick: () => void save(),
+              },
+              saving ? "Saving…" : "Save",
+            ),
+          ),
+        )
+      : null,
+  );
+}
+
+export function apply(ctx: ClientContext): void {
+  ctx.effect(() => installStyles(cssText), "guionai-web: styles");
+  const connection = ctx.get("connection") as ConnectionHandle;
+  const remote = ctx.get("remote") as RemoteApi;
+  const scope = ctx.settingsScope.bind<ClientSettings>({
+    namespace: SETTINGS_NAMESPACE,
+    decode: decodeSettings,
+  });
+
+  ctx.slots.inject("settings.plugin.item", () =>
+    ctx.slots.register(
+      {
+        name: "settings.plugin.item",
+        key: SETTINGS_NAMESPACE,
+        inject: () => ({}),
+      } as never,
+      (() =>
+        createElement(SettingsCard, {
+          scope,
+          api: connection.api,
+          remote,
+        })) as never,
+    ),
+  );
+  ctx.slots.inject("tool.call.toolview", function* () {
+    for (const key of ["web_fetch", "web_links", "web_docs"]) {
+      yield ctx.slots.register(
+        {
+          name: "tool.call.toolview",
+          key,
+          ...(key === "web_fetch" ? { priority: -1 } : {}),
+          inject: () => ({}),
+        } as never,
+        ((props: ToolCallViewProps) =>
+          createElement(WebResearchToolCard, props)) as never,
+      );
+    }
+  });
 }

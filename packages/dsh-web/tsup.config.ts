@@ -1,4 +1,6 @@
 import { defineConfig } from "tsup";
+import type { Plugin as EsbuildPlugin } from "esbuild";
+import { compileCssModule } from "./scripts/css-modules.js";
 
 const dshExternals = [
   "@deepseek-ai/cordis",
@@ -6,6 +8,7 @@ const dshExternals = [
   "@deepseek-ai/dsh-client-connection",
   "@deepseek-ai/dsh-client-locale",
   "@deepseek-ai/dsh-client-runtime",
+  "@deepseek-ai/dsh-client-ui-primitives",
   "@deepseek-ai/dsh-client-ui-settings",
   "@deepseek-ai/dsh-client-ui-settings-plugins",
   "@deepseek-ai/dsh-client-ui-slots",
@@ -16,6 +19,27 @@ const dshExternals = [
   "@deepseek-ai/dsh-web",
   "@deepseek-ai/schemastery",
 ];
+
+function cssModulesPlugin(): EsbuildPlugin {
+  return {
+    name: "guion-dsh-css-modules",
+    setup(build) {
+      build.onLoad({ filter: /\.module\.dshcss$/ }, async (args) => {
+        const { css, classes } = await compileCssModule(args.path);
+        const styleId = "@guionai/dsh-web/settings.module.css";
+        return {
+          loader: "js",
+          contents: [
+            `const css=${JSON.stringify(css)};`,
+            `const styleId=${JSON.stringify(styleId)};`,
+            "if(typeof document!=='undefined'&&!document.querySelector(`style[data-plugin-css=\"${styleId}\"]`)){const tag=document.createElement('style');tag.dataset.pluginCss=styleId;tag.textContent=css;document.head.appendChild(tag)}",
+            `export default ${JSON.stringify(classes)};`,
+          ].join("\n"),
+        };
+      });
+    },
+  };
+}
 
 export default defineConfig([
   {
@@ -40,6 +64,7 @@ export default defineConfig([
     dts: true,
     sourcemap: false,
     clean: false,
+    esbuildPlugins: [cssModulesPlugin()],
     external: ["react", ...dshExternals],
     outExtension: () => ({ js: ".js" }),
     banner: {
