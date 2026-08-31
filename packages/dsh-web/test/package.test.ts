@@ -11,7 +11,7 @@ function withOperations(overrides: Partial<WebOperations>): WebOperations {
 }
 
 describe("DSH Web package composition", () => {
-  it("works at the supported rc.8 WebRuntime provider seam for concurrent PTC queries", async () => {
+  it("works at the supported alpha.3 WebRuntime provider seam for concurrent PTC queries", async () => {
     const calls: string[] = [];
     const root = new Context();
     await root.plugin(WebRuntime, { searchProvider: SEARCH_PROVIDER_ID });

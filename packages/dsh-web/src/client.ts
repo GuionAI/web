@@ -1,17 +1,13 @@
 import { createElement, useEffect, useId, useState } from "react";
 import { IconChevronDownOutline14 } from "@deepseek-ai/dsh-client-ui-primitives";
+import type { Context as ClientContext } from "@deepseek-ai/cordis";
 import type {
-  ConnectionHandle,
-  IApiClient,
-} from "@deepseek-ai/dsh-client-connection/client";
-import type {
-  ClientContext,
   SettingsScope,
   SettingsScopeSpec,
-} from "@deepseek-ai/dsh-client-runtime/client";
+} from "@deepseek-ai/dsh-client-ui-settings/client";
 import type {} from "@deepseek-ai/dsh-api-remotes/client";
-import type {} from "@deepseek-ai/dsh-client-ui-settings/client";
 import type {} from "@deepseek-ai/dsh-client-ui-settings-plugins/client";
+import type {} from "@deepseek-ai/dsh-client-ui-renderer/client";
 import type {} from "@deepseek-ai/dsh-client-ui-slots";
 import type { ToolCallViewProps } from "@deepseek-ai/dsh-client-ui-tool/client";
 import cssText from "./client.css";
@@ -29,16 +25,26 @@ import {
 import styles from "./settings.module.dshcss";
 
 export const inject = [
-  "connection",
   "remote",
+  "remote.credentials",
   "settingsScope",
   "slots",
 ] as const;
 
-type CredentialApi = Pick<IApiClient, "credentials">;
+type RemoteResult<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly error: unknown };
+type CredentialApi = {
+  describe(
+    refs: string[],
+  ): Promise<RemoteResult<Record<string, CredentialStatus>>>;
+  set(ref: string, value: string): Promise<RemoteResult<void>>;
+  unset(ref: string): Promise<RemoteResult<void>>;
+};
 type RemoteApi = {
+  credentials: CredentialApi;
   $on(
-    event: "credentials/updated",
+    event: "credentials/reference-updated",
     listener: (ref: string) => void,
   ): () => void;
 };
@@ -245,8 +251,15 @@ function toolArguments(
 function toolOutput(block: ToolCallViewProps["block"]): string {
   if (!isToolResult(block)) return "";
   return block.content
-    .map((content) =>
-      content.type === "text" ? content.text : JSON.stringify(content),
+    .map((content: unknown) =>
+      typeof content === "object" &&
+      content !== null &&
+      "type" in content &&
+      content.type === "text" &&
+      "text" in content &&
+      typeof content.text === "string"
+        ? content.text
+        : JSON.stringify(content),
     )
     .join("\n");
 }
@@ -349,9 +362,9 @@ export async function describeCredentialStatus(
   api: CredentialApi,
   refs: readonly string[],
 ): Promise<Record<string, CredentialStatus>> {
-  const response = await api.credentials.describe({ refs: [...refs] });
-  if (!response.result.ok) throw new Error("credential status unavailable");
-  const views = response.result.value.credentials;
+  const response = await api.describe([...refs]);
+  if (!response.ok) throw new Error("credential status unavailable");
+  const views = response.value;
   return Object.fromEntries(
     refs.map((ref) => {
       const view = views[ref];
@@ -375,8 +388,8 @@ export async function writeCredential(
   draft: string,
 ): Promise<boolean> {
   if (draft.trim() === "") return false;
-  const response = await api.credentials.set({ ref, value: draft });
-  if (!response.result.ok) throw new Error("credential write rejected");
+  const response = await api.set(ref, draft);
+  if (!response.ok) throw new Error("credential write rejected");
   return true;
 }
 
@@ -384,8 +397,8 @@ export async function removeCredential(
   api: CredentialApi,
   ref: string,
 ): Promise<void> {
-  const response = await api.credentials.unset({ ref });
-  if (!response.result.ok) throw new Error("credential removal rejected");
+  const response = await api.unset(ref);
+  if (!response.ok) throw new Error("credential removal rejected");
 }
 
 function SettingsCard({
@@ -414,7 +427,7 @@ function SettingsCard({
   );
   useEffect(
     () =>
-      remote.$on("credentials/updated", (ref) => {
+      remote.$on("credentials/reference-updated", (ref) => {
         if ((CREDENTIAL_REFS as readonly string[]).includes(ref)) {
           setCredentialRevision((revision) => revision + 1);
         }
@@ -670,8 +683,7 @@ function SettingsCard({
 
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => installStyles(cssText), "guionai-web: styles");
-  const connection = ctx.get("connection") as ConnectionHandle;
-  const remote = ctx.get("remote") as RemoteApi;
+  const remote = ctx.remote as RemoteApi;
   const scope = ctx.settingsScope.bind<ClientSettings>({
     namespace: SETTINGS_NAMESPACE,
     decode: decodeSettings,
@@ -687,7 +699,7 @@ export function apply(ctx: ClientContext): void {
       (() =>
         createElement(SettingsCard, {
           scope,
-          api: connection.api,
+          api: remote.credentials,
           remote,
         })) as never,
     ),

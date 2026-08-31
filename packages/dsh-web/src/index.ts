@@ -1,6 +1,6 @@
 import { createWebOperations } from "@guionai/web-core";
 import type { Context } from "@deepseek-ai/cordis";
-import { settingsNamespace } from "@deepseek-ai/dsh-settings";
+import type {} from "@deepseek-ai/dsh-settings";
 import z from "@deepseek-ai/schemastery";
 
 import {
@@ -19,14 +19,10 @@ export const SettingsSchema = z.object({
 });
 
 export function apply(ctx: Context): void {
-  const settings = ctx.settings.register(
-    settingsNamespace(SETTINGS_NAMESPACE),
-    SettingsSchema,
-    {
-      base: { provider: "exa" },
-      applies: "live",
-    },
-  );
+  const settings = ctx.settings.register(SETTINGS_NAMESPACE, SettingsSchema, {
+    base: { provider: "exa" },
+    applies: "live",
+  });
   const operations = createWebOperations();
   ctx.web.registerSearchProvider(
     createGuionSearchProvider({
