@@ -21,30 +21,28 @@ function fakeApi(overrides: Record<string, unknown> = {}) {
   return {
     calls,
     credentials: {
-      describe: async ({ refs }: { refs: string[] }) => ({
-        result: {
-          ok: true,
-          value: {
-            credentials: Object.fromEntries(
-              refs.map((ref) => [
-                ref,
-                {
-                  configured: ref === EXA_CREDENTIAL_REF,
-                  source: "file",
-                  writable: true,
-                },
-              ]),
-            ),
-          },
-        },
+      describe: async (refs: string[]) => ({
+        ok: true,
+        value: Object.fromEntries(
+          refs.map((ref) => [
+            ref,
+            {
+              configured: ref === EXA_CREDENTIAL_REF,
+              source: "file",
+              writable: true,
+            },
+          ]),
+        ),
       }),
-      set: async (payload: unknown) => {
+      set: async (ref: string, value: string) => {
+        const payload = { ref, value };
         calls.push({ method: "set", payload });
-        return overrides.set ?? { result: { ok: true, value: {} } };
+        return overrides.set ?? { ok: true, value: undefined };
       },
-      unset: async (payload: unknown) => {
+      unset: async (ref: string) => {
+        const payload = { ref };
         calls.push({ method: "unset", payload });
-        return overrides.unset ?? { result: { ok: true, value: {} } };
+        return overrides.unset ?? { ok: true, value: undefined };
       },
     },
   } as any;
@@ -79,7 +77,7 @@ describe("DSH settings client credential surface", () => {
     ];
     const ctx = {
       effect: () => undefined,
-      get: () => ({ api: {} }),
+      remote: { credentials: {}, $on: () => () => undefined },
       settingsScope: { bind: () => ({}) },
       slots: {
         inject: (_name: string, callback: () => unknown) => {
@@ -137,8 +135,8 @@ describe("DSH settings client credential surface", () => {
   });
 
   it("returns only credential metadata and keeps refs package-namespaced", async () => {
-    const api = fakeApi();
-    const status = await describeCredentialStatus(api, [
+    const fixture = fakeApi();
+    const status = await describeCredentialStatus(fixture.credentials, [
       EXA_CREDENTIAL_REF,
       BRAVE_CREDENTIAL_REF,
       CONTEXT7_CREDENTIAL_REF,
@@ -164,34 +162,41 @@ describe("DSH settings client credential surface", () => {
   });
 
   it("writes and removes secrets through credentials only, with blank drafts as no-ops", async () => {
-    const api = fakeApi();
-    expect(await writeCredential(api, EXA_CREDENTIAL_REF, "")).toBe(false);
-    expect(api.calls).toEqual([]);
-    expect(await writeCredential(api, EXA_CREDENTIAL_REF, "secret-value")).toBe(
-      true,
-    );
-    await removeCredential(api, EXA_CREDENTIAL_REF);
-    expect(api.calls).toEqual([
+    const fixture = fakeApi();
+    expect(
+      await writeCredential(fixture.credentials, EXA_CREDENTIAL_REF, ""),
+    ).toBe(false);
+    expect(fixture.calls).toEqual([]);
+    expect(
+      await writeCredential(
+        fixture.credentials,
+        EXA_CREDENTIAL_REF,
+        "secret-value",
+      ),
+    ).toBe(true);
+    await removeCredential(fixture.credentials, EXA_CREDENTIAL_REF);
+    expect(fixture.calls).toEqual([
       {
         method: "set",
         payload: { ref: EXA_CREDENTIAL_REF, value: "secret-value" },
       },
       { method: "unset", payload: { ref: EXA_CREDENTIAL_REF } },
     ]);
-    expect(JSON.stringify(api.calls)).toContain("secret-value");
+    expect(JSON.stringify(fixture.calls)).toContain("secret-value");
   });
 
   it("maps rejected credential writes to safe UI errors", async () => {
-    const api = fakeApi({
+    const fixture = fakeApi({
       set: {
-        result: { ok: false, error: { message: "secret-value rejected" } },
+        ok: false,
+        error: { message: "secret-value rejected" },
       },
     });
     await expect(
-      writeCredential(api, EXA_CREDENTIAL_REF, "secret-value"),
+      writeCredential(fixture.credentials, EXA_CREDENTIAL_REF, "secret-value"),
     ).rejects.toThrow("credential write rejected");
     await expect(
-      writeCredential(api, EXA_CREDENTIAL_REF, "secret-value"),
+      writeCredential(fixture.credentials, EXA_CREDENTIAL_REF, "secret-value"),
     ).rejects.not.toThrow("secret-value");
   });
 });

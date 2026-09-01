@@ -28,6 +28,7 @@ const CDN_ALLOWLIST = [
 const REPORT_URL = "https://github.com/guionai/web/issues/new";
 let artifactRoot = "";
 let artifactTemp = "";
+let artifactContents = "";
 
 beforeAll(() => {
   execFileSync("pnpm", ["run", "build"], { cwd: packageRoot, stdio: "ignore" });
@@ -48,6 +49,7 @@ beforeAll(() => {
     ["-tzf", join(artifactTemp, tarballs[0]!)],
     { encoding: "utf8" },
   );
+  artifactContents = tarContents;
   if (
     /agent-browser|chrom(e|ium)|playwright|puppeteer|node_modules\/@.*\/(linux|darwin|win32)/i.test(
       tarContents,
@@ -102,8 +104,7 @@ else console.log(JSON.stringify({ success: true, data: {} }));
 
 function writeHostFakes(): void {
   const dependencies = {
-    "dsh-settings":
-      "export function settingsNamespace(namespace) { return namespace; }\n",
+    "dsh-settings": "export {};\n",
     schemastery:
       "const z = { object: () => ({}), union: () => ({ default: () => ({}) }) }; export default z;\n",
     "dsh-credentials": "export function credentialRef(ref) { return ref; }\n",
@@ -129,7 +130,7 @@ function manifest(): any {
   return JSON.parse(readFileSync(join(artifactRoot, "package.json"), "utf8"));
 }
 
-describe("DSH 0.1.1 packed package contract", () => {
+describe("DSH 0.1.2-alpha.3 packed package contract", () => {
   it("contains valid host ESM, browser client, declarations, patch, and peer-only metadata", async () => {
     const packed = manifest();
     const host = await import(
@@ -146,7 +147,7 @@ describe("DSH 0.1.1 packed package contract", () => {
           "@deepseek-ai/dsh-api-remotes",
           "@deepseek-ai/dsh-client-connection",
           "@deepseek-ai/dsh-client-locale",
-          "@deepseek-ai/dsh-client-runtime",
+          "@deepseek-ai/dsh-client-ui-renderer",
           "@deepseek-ai/dsh-client-ui-primitives",
           "@deepseek-ai/dsh-client-ui-tool",
           "@deepseek-ai/dsh-client-ui-settings",
@@ -168,6 +169,20 @@ describe("DSH 0.1.1 packed package contract", () => {
     );
     expect(packed.dependencies).toBeUndefined();
     expect(packed.optionalDependencies).toBeUndefined();
+    expect(packed.peerDependencies["@deepseek-ai/cordis"]).toBe("4.0.2");
+    expect(packed.peerDependencies["@deepseek-ai/dsh-client-runtime"]).toBe(
+      undefined,
+    );
+    for (const [name, version] of Object.entries(packed.peerDependencies)) {
+      if (
+        name.startsWith("@deepseek-ai/") &&
+        name !== "@deepseek-ai/cordis" &&
+        name !== "@deepseek-ai/schemastery"
+      )
+        expect(version, `${name} peer`).toBe("0.1.2-alpha.3");
+    }
+    expect(artifactContents).not.toContain("dsh-client-runtime");
+    expect(artifactContents).not.toContain("0.1.1-rc.2");
     expect(
       Object.keys(packed.peerDependencies).some((name) =>
         /agent-browser|chrom(e|ium)|playwright|puppeteer/i.test(name),
@@ -350,8 +365,8 @@ describe("DSH 0.1.1 packed package contract", () => {
         };
       });
       expect(loaded.inject).toEqual([
-        "connection",
         "remote",
+        "remote.credentials",
         "settingsScope",
         "slots",
       ]);

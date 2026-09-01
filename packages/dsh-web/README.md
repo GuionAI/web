@@ -1,6 +1,6 @@
 # @guionai/dsh-web
 
-DeepSeek Harness rc.8 Web bundle and browser settings client for Guion Web.
+DeepSeek Harness 0.1.2-alpha.3 Web bundle and browser settings client for Guion Web.
 
 Install it into the existing Web profile:
 
@@ -17,7 +17,7 @@ namespace. Exa and Brave API keys use namespaced write-only DSH credentials;
 settings expose only configured/source/writable metadata.
 
 The published package is a dual host/browser bundle. Its host and client
-artifacts, profile patch, and exact DSH `0.1.0-rc.8` peer contract are included
+artifacts, profile patch, and exact DSH `0.1.2-alpha.3` peer contract are included
 in the npm package. Search, direct page fetch, page-link discovery, optional agent-browser rendering,
 Context7 documentation, and Sourcegraph all run in-process through the bundled
 Guion Web core. `web_fetch` has two page-fetch backends: direct fetch (the

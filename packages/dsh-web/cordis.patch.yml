@@ -1,4 +1,4 @@
-# rc.8 stock Web has one configured search provider and no fetch provider.
+# Alpha.3 stock Web has one configured search provider and no fetch provider.
 # Replace only that complete service config; the PTC preset remains untouched.
 - id: web
   name: "@deepseek-ai/dsh-web"
