@@ -583,4 +583,27 @@ describe("DSH direct web tools", () => {
       call(definitions[2]!, { ticker: "SECRET", type: "equity" }),
     ).rejects.not.toThrow("remote secret");
   });
+
+  it("preserves existing direct-tool blank handling while Kepos rejects it", async () => {
+    const fetch = vi.fn(async (input: any) => ({
+      url: input.url,
+      mode: "full" as const,
+      content: "fixture",
+    }));
+    const [fetchTool] = createWebToolDefinitions(
+      dependencies({ operations: operations({ fetch }) }),
+    );
+    await expect(call(fetchTool!, { url: " " })).resolves.toMatchObject({
+      url: " ",
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      expect.objectContaining({ url: " " }),
+      expect.any(AbortSignal),
+    );
+
+    const [weatherTool] = createKeposToolDefinitions(dependencies());
+    await expect(call(weatherTool!, { location: " " })).rejects.toThrow(
+      "location must be a non-blank string",
+    );
+  });
 });

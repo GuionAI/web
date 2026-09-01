@@ -356,9 +356,9 @@ function requireString(input: unknown, field: string): string {
   if (
     !isRecord(input) ||
     typeof input[field] !== "string" ||
-    input[field].trim().length === 0
+    input[field].length === 0
   )
-    throw new Error(`${field} must be a non-blank string`);
+    throw new Error(`${field} must be a non-empty string`);
   return input[field];
 }
 
@@ -594,6 +594,16 @@ function optionalString(value: unknown, field: string): string | undefined {
   return value;
 }
 
+function requireKeposString(input: unknown, field: string): string {
+  if (
+    !isRecord(input) ||
+    typeof input[field] !== "string" ||
+    input[field].trim().length === 0
+  )
+    throw new Error(`${field} must be a non-blank string`);
+  return input[field];
+}
+
 function positiveInteger(value: unknown, field: string): number | undefined {
   if (value === undefined) return undefined;
   if (!Number.isSafeInteger(value) || (value as number) <= 0)
@@ -618,7 +628,7 @@ function normalizeWeather(input: unknown): {
 } {
   if (!isRecord(input)) throw new Error("web_weather input must be an object");
   rejectUnknownFields(input, Object.keys(weatherParameters), "web_weather");
-  const location = requireString(input, "location");
+  const location = requireKeposString(input, "location");
   const start = normalizeDate(input.start, "start");
   const duration = positiveInteger(input.duration, "duration");
   return {
@@ -686,7 +696,7 @@ function normalizeFinance(input: unknown): {
 } {
   if (!isRecord(input)) throw new Error("web_finance input must be an object");
   rejectUnknownFields(input, Object.keys(financeParameters), "web_finance");
-  const ticker = requireString(input, "ticker");
+  const ticker = requireKeposString(input, "ticker");
   const type = enumValue(input.type, "type", [
     "equity",
     "fund",
@@ -700,7 +710,7 @@ function normalizeFinance(input: unknown): {
 function normalizeTime(input: unknown): { utc_offset: string } {
   if (!isRecord(input)) throw new Error("web_time input must be an object");
   rejectUnknownFields(input, Object.keys(timeParameters), "web_time");
-  const utcOffset = requireString(input, "utc_offset");
+  const utcOffset = requireKeposString(input, "utc_offset");
   if (!/^[+-](?:[01]\d|2[0-3]):[0-5]\d$/.test(utcOffset))
     throw new Error("utc_offset must use +HH:MM or -HH:MM format");
   return { utc_offset: utcOffset };
