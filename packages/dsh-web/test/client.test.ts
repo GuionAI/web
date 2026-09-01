@@ -11,6 +11,7 @@ import {
   decodeSettings,
   describeCredentialStatus,
   fetchDetails,
+  persistKeposBridgeEndpoint,
   persistProviderSelection,
   removeCredential,
   writeCredential,
@@ -75,10 +76,21 @@ describe("DSH settings client credential surface", () => {
     const registrations: Array<{ key: string; priority?: number }> = [
       { key: "web_fetch", priority: 0 },
     ];
+    const fixture = fakeApi();
     const ctx = {
-      effect: () => undefined,
-      remote: { credentials: {}, $on: () => () => undefined },
-      settingsScope: { bind: () => ({}) },
+      effect: (_execute: () => () => void) => () => undefined,
+      remote: { credentials: fixture.credentials, $on: () => () => undefined },
+      settingsScope: {
+        bind: () => ({
+          getSnapshot: () => ({
+            status: "ready",
+            writable: true,
+            value: { provider: "exa" },
+          }),
+          subscribe: () => () => undefined,
+          set: async () => undefined,
+        }),
+      },
       slots: {
         inject: (_name: string, callback: () => unknown) => {
           const value = callback();
@@ -102,7 +114,7 @@ describe("DSH settings client credential surface", () => {
             throw new Error(`duplicate keyed slot entry: ${spec.key}`);
           }
           registrations.push(spec);
-          return spec;
+          return () => undefined;
         },
       },
     };
@@ -132,6 +144,42 @@ describe("DSH settings client credential surface", () => {
     });
     expect(decodeSettings({ apiKey: "secret-value" })).toEqual({});
     expect(SETTINGS_NAMESPACE).toBe("guionai-web");
+  });
+
+  it("decodes and persists only validated non-secret bridge routes", async () => {
+    expect(
+      decodeSettings({
+        provider: "kepos-bridge",
+        keposBridgeEndpoint: "https://bridge.example.test/codex/web-search",
+      }),
+    ).toEqual({
+      provider: "kepos-bridge",
+      keposBridgeEndpoint: "https://bridge.example.test/codex/web-search",
+    });
+    expect(
+      decodeSettings({
+        provider: "kepos-bridge",
+        keposBridgeEndpoint: "https://user:secret@bridge.example.test/route",
+      }),
+    ).toEqual({ provider: "kepos-bridge" });
+
+    const calls: Array<{ field: string; value: unknown }> = [];
+    await persistKeposBridgeEndpoint(
+      { set: async (field, value) => void calls.push({ field, value }) },
+      "https://bridge.example.test/codex/web-search",
+    );
+    expect(calls).toEqual([
+      {
+        field: "keposBridgeEndpoint",
+        value: "https://bridge.example.test/codex/web-search",
+      },
+    ]);
+    await expect(
+      persistKeposBridgeEndpoint(
+        { set: async () => undefined },
+        "https://bridge.example.test/route?secret=true",
+      ),
+    ).rejects.toThrow("endpoint is invalid");
   });
 
   it("returns only credential metadata and keeps refs package-namespaced", async () => {

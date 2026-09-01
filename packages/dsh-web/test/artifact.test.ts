@@ -106,7 +106,7 @@ function writeHostFakes(): void {
   const dependencies = {
     "dsh-settings": "export {};\n",
     schemastery:
-      "const z = { object: () => ({}), union: () => ({ default: () => ({}) }) }; export default z;\n",
+      "const string = () => { const schema = { pattern: () => schema, default: () => schema }; return schema; }; const z = { object: () => ({}), string, union: () => ({ default: () => ({}) }) }; export default z;\n",
     "dsh-credentials": "export function credentialRef(ref) { return ref; }\n",
     "dsh-tools":
       "export function defineTool(definition) { return definition; }\n",
@@ -183,6 +183,18 @@ describe("DSH 0.1.2-alpha.3 packed package contract", () => {
     }
     expect(artifactContents).not.toContain("dsh-client-runtime");
     expect(artifactContents).not.toContain("0.1.1-rc.2");
+    const packedHostSource = readFileSync(
+      join(artifactRoot, "dist", "index.js"),
+      "utf8",
+    );
+    const packedClientSource = readFileSync(
+      join(artifactRoot, "dist", "client.js"),
+      "utf8",
+    );
+    expect(packedHostSource).toContain("kepos-bridge");
+    expect(packedHostSource).toContain("web_weather");
+    expect(packedHostSource).toContain("keposBridgeEndpoint");
+    expect(packedClientSource).toContain("Kepos Bridge endpoint");
     expect(
       Object.keys(packed.peerDependencies).some((name) =>
         /agent-browser|chrom(e|ium)|playwright|puppeteer/i.test(name),
@@ -234,16 +246,32 @@ describe("DSH 0.1.2-alpha.3 packed package contract", () => {
     };
     try {
       host.apply({
-        settings: { register: () => ({ get: () => ({ provider: "exa" }) }) },
+        settings: {
+          register: () => ({
+            get: () => ({
+              provider: "exa",
+              keposBridgeEndpoint:
+                "http://codex-bridge.localhost:17480/codex/web-search",
+            }),
+            watch: () => () => undefined,
+          }),
+        },
         credentials: {
           resolve: async () => ({ value: "fixture-key", source: "test" }),
         },
         web: {
           registerSearchProvider: (value: unknown) => {
             provider = value;
+            return () => undefined;
           },
         },
-        tools: { register: (definition: unknown) => tools.push(definition) },
+        tools: {
+          register: (definition: unknown) => {
+            tools.push(definition);
+            return () => undefined;
+          },
+        },
+        effect: (execute: () => () => void) => execute(),
       });
       await expect(
         provider.search({ query: "packed fixture" }),

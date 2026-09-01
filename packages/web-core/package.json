@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Private shared web research core bundled into Guion host packages.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./kepos-bridge": "./src/kepos-bridge.ts"
   },
   "scripts": {
     "build": "tsup",

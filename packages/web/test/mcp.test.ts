@@ -54,6 +54,7 @@ function webService(): WebOperations {
       content: "Effect docs",
     })),
     sgraphSearch: vi.fn(async () => ({ content: "# Sourcegraph results" })),
+    keposBridge: vi.fn(async () => ({ output: "unused" })),
   };
 }
 

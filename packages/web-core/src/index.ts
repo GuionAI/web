@@ -17,11 +17,26 @@ import {
 } from "./fetch.js";
 import { sgraphSearch, type SGraphInput, type SGraphResult } from "./sgraph.js";
 import {
+  callKeposBridge,
+  DEFAULT_KEPOS_BRIDGE_ENDPOINT,
+  type KeposBridgeInput,
+  type KeposBridgeResponse,
+} from "./kepos-bridge.js";
+import {
   boundedRequest,
   isOperationAborted,
   isRequestTimeout,
   readResponseText,
   throwIfAborted,
+} from "./request.js";
+
+export {
+  OperationAbortedError,
+  RequestTimeoutError,
+  ResponseBodyLimitError,
+  isOperationAborted,
+  isRequestTimeout,
+  isResponseBodyLimit,
 } from "./request.js";
 
 export {
@@ -73,14 +88,26 @@ export {
   type DocsResolveInput,
   type DocsResolveResult,
 } from "./docs.js";
+export {
+  callKeposBridge,
+  DEFAULT_KEPOS_BRIDGE_ENDPOINT,
+  KEPOS_BRIDGE_TIMEOUT_MS,
+  KEPOS_BRIDGE_MAX_REQUEST_BYTES,
+  KEPOS_BRIDGE_MAX_RESPONSE_BYTES,
+  isValidKeposBridgeEndpoint,
+  validateKeposBridgeEndpoint,
+  type KeposBridgeCommands,
+  type KeposBridgeInput,
+  type KeposBridgeResponse,
+} from "./kepos-bridge.js";
 
 const EXA_BASE_URL = "https://api.exa.ai";
 const BRAVE_BASE_URL = "https://api.search.brave.com/res/v1";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_RESULTS = 10;
 
-export type SearchProvider = "exa" | "brave";
-export type ProviderLabel = "Exa" | "Brave";
+export type SearchProvider = "exa" | "brave" | "kepos-bridge";
+export type ProviderLabel = "Exa" | "Brave" | "Kepos Bridge";
 
 export type SearchCredentials = {
   exaApiKey?: string;
@@ -105,6 +132,9 @@ export type SearchInput = {
   query: string;
   provider?: string;
   credentials: SearchCredentials;
+  maxResults?: number;
+  /** Complete route used by the Kepos Bridge provider. */
+  keposBridgeEndpoint?: string;
   signal?: AbortSignal;
   fetch?: typeof globalThis.fetch;
   endpoints?: Partial<Record<SearchProvider, string>>;
@@ -113,6 +143,7 @@ export type SearchInput = {
 
 export type WebOperations = {
   search(input: SearchInput): Promise<SearchResponse>;
+  keposBridge(input: KeposBridgeInput): Promise<KeposBridgeResponse>;
   fetch(input: FetchInput, signal?: AbortSignal): Promise<FetchResult>;
   links(input: LinksInput, signal?: AbortSignal): Promise<LinksResult>;
   docsResolve(input: DocsResolveInput): Promise<DocsResolveResult>;
@@ -124,6 +155,7 @@ export type WebOperations = {
 export function createWebOperations(): WebOperations {
   return {
     search,
+    keposBridge: callKeposBridge,
     fetch: fetchWebPage,
     links: fetchWebLinks,
     docsResolve,
@@ -144,7 +176,9 @@ export async function search(input: SearchInput): Promise<SearchResponse> {
   try {
     const result = await (provider === "exa"
       ? searchExa(input)
-      : searchBrave(input));
+      : provider === "brave"
+        ? searchBrave(input)
+        : searchKeposBridge(input));
     throwIfAborted(input.signal);
     return result;
   } catch (error) {
@@ -152,7 +186,7 @@ export async function search(input: SearchInput): Promise<SearchResponse> {
     const message =
       error instanceof Error ? error.message : "search request failed";
     throw new Error(
-      `search failed with ${provider === "exa" ? "Exa" : "Brave"} provider: ${message}`,
+      `search failed with ${providerLabel(provider)} provider: ${message}`,
     );
   }
 }
@@ -164,7 +198,8 @@ export function selectProvider(
   if (
     explicitProvider !== undefined &&
     explicitProvider !== "exa" &&
-    explicitProvider !== "brave"
+    explicitProvider !== "brave" &&
+    explicitProvider !== "kepos-bridge"
   ) {
     throw new Error(
       `unsupported search provider ${JSON.stringify(explicitProvider)}`,
@@ -190,6 +225,7 @@ export function selectProvider(
     }
     return "brave";
   }
+  if (explicitProvider === "kepos-bridge") return "kepos-bridge";
 
   if (credentials.exaApiKey === "") {
     throw new Error(
@@ -204,6 +240,14 @@ export function selectProvider(
   }
   if (credentials.braveApiKey !== undefined) return "brave";
   throw new Error("web search requires EXA_API_KEY or BRAVE_API_KEY");
+}
+
+function providerLabel(provider: SearchProvider): ProviderLabel {
+  return provider === "exa"
+    ? "Exa"
+    : provider === "brave"
+      ? "Brave"
+      : "Kepos Bridge";
 }
 
 export function formatSearchResults(results: SearchResult[]): string {
@@ -296,6 +340,58 @@ async function searchBrave(input: SearchInput): Promise<SearchResponse> {
       };
     }),
   };
+}
+
+async function searchKeposBridge(input: SearchInput): Promise<SearchResponse> {
+  const endpoint =
+    input.keposBridgeEndpoint ??
+    input.endpoints?.["kepos-bridge"] ??
+    DEFAULT_KEPOS_BRIDGE_ENDPOINT;
+  const response = await callKeposBridge({
+    endpoint,
+    commands: { search_query: [{ q: input.query }] },
+    signal: input.signal,
+    fetch: input.fetch,
+    timeoutMs: input.timeoutMs ?? undefined,
+  });
+  const usable = (response.results ?? []).filter(isUsableTextResult);
+  if (usable.length === 0)
+    throw new Error("Kepos Bridge search returned no usable text results");
+  const limited =
+    input.maxResults === undefined
+      ? usable
+      : usable.slice(0, normalizeMaxResults(input.maxResults));
+  return {
+    provider: "Kepos Bridge",
+    results: limited.map((result, index) => ({
+      title: typeof result.title === "string" ? result.title : "",
+      link: result.url,
+      snippet: typeof result.snippet === "string" ? result.snippet : "",
+      position: index + 1,
+    })),
+  };
+}
+
+function isUsableTextResult(
+  value: unknown,
+): value is { url: string; title?: unknown; snippet?: unknown } {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return false;
+  const result = value as { type?: unknown; url?: unknown };
+  if (result.type !== "text_result" || typeof result.url !== "string")
+    return false;
+  if (result.url.length === 0) return false;
+  try {
+    const url = new URL(result.url);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function normalizeMaxResults(value: number): number {
+  if (!Number.isFinite(value) || value < 0) return 0;
+  return Math.floor(value);
 }
 
 async function providerRequest(

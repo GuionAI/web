@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createWebOperations, type WebOperations } from "@guionai/web-core";
 
 import {
@@ -17,6 +17,7 @@ describe("Guion DSH search provider", () => {
     let received: unknown;
     const provider = createGuionSearchProvider({
       getProvider: () => "brave",
+      getKeposBridgeEndpoint: () => "http://fixture.test/route",
       credentials: {
         resolve: async (ref) => {
           expect(ref).toBe(BRAVE_CREDENTIAL_REF);
@@ -69,6 +70,7 @@ describe("Guion DSH search provider", () => {
     const secret = "exa-secret-never-in-error";
     const provider = createGuionSearchProvider({
       getProvider: () => "exa",
+      getKeposBridgeEndpoint: () => "http://fixture.test/route",
       credentials: {
         resolve: async (ref) => {
           expect(ref).toBe(EXA_CREDENTIAL_REF);
@@ -93,6 +95,7 @@ describe("Guion DSH search provider", () => {
   it("rejects malformed core output before returning a DSH result", async () => {
     const provider = createGuionSearchProvider({
       getProvider: () => "exa",
+      getKeposBridgeEndpoint: () => "http://fixture.test/route",
       credentials: {
         resolve: async () => ({ value: "secret", source: "file" }),
       },
@@ -106,5 +109,57 @@ describe("Guion DSH search provider", () => {
     await expect(provider.search({ query: "invalid" })).rejects.toThrow(
       /link must be a non-empty string/,
     );
+  });
+
+  it("routes Kepos search without resolving credentials and reads the endpoint per call", async () => {
+    let endpoint = "http://fixture.test/one";
+    const resolve = vi.fn(async () => {
+      throw new Error("must not resolve a third-party credential");
+    });
+    const calls: unknown[] = [];
+    const provider = createGuionSearchProvider({
+      getProvider: () => "kepos-bridge",
+      getKeposBridgeEndpoint: () => endpoint,
+      credentials: { resolve },
+      operations: withOperations({
+        search: async (input) => {
+          calls.push(input);
+          return {
+            provider: "Kepos Bridge",
+            results: [
+              {
+                title: "Bridge",
+                link: "https://example.test",
+                snippet: "result",
+                position: 1,
+              },
+            ],
+          };
+        },
+      }),
+    });
+
+    await provider.search({ query: "first", maxResults: 4 });
+    endpoint = "https://fixture.test/two";
+    await provider.search({ query: "second", maxResults: 2 });
+    expect(resolve).not.toHaveBeenCalled();
+    expect(calls).toEqual([
+      {
+        query: "first",
+        provider: "kepos-bridge",
+        credentials: {},
+        signal: undefined,
+        maxResults: 4,
+        keposBridgeEndpoint: "http://fixture.test/one",
+      },
+      {
+        query: "second",
+        provider: "kepos-bridge",
+        credentials: {},
+        signal: undefined,
+        maxResults: 2,
+        keposBridgeEndpoint: "https://fixture.test/two",
+      },
+    ]);
   });
 });

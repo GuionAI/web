@@ -1,8 +1,20 @@
 export const SETTINGS_NAMESPACE = "guionai-web" as const;
 export const SEARCH_PROVIDER_ID = "guionai-web-search" as const;
 
-export const PROVIDERS = ["exa", "brave"] as const;
+export {
+  DEFAULT_KEPOS_BRIDGE_ENDPOINT,
+  isValidKeposBridgeEndpoint,
+  validateKeposBridgeEndpoint,
+} from "@guionai/web-core/kepos-bridge";
+
+export const PROVIDERS = ["exa", "brave", "kepos-bridge"] as const;
 export type SearchProviderName = (typeof PROVIDERS)[number];
+
+export const PROVIDER_LABELS: Record<SearchProviderName, string> = {
+  exa: "Exa",
+  brave: "Brave",
+  "kepos-bridge": "Kepos Bridge",
+};
 
 /** DSH-owned references; these names never identify a value in settings. */
 export const EXA_CREDENTIAL_REF = "GUIONAI_DSH_WEB_EXA_API_KEY" as const;
@@ -17,6 +29,7 @@ export const CREDENTIAL_REFS = [
 
 export interface GuionSettings {
   provider: SearchProviderName;
+  keposBridgeEndpoint: string;
 }
 
 export function isSearchProvider(value: unknown): value is SearchProviderName {

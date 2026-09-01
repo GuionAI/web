@@ -17,6 +17,9 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
+      "@guionai/web-core/kepos-bridge": fileURLToPath(
+        new URL("./packages/web-core/src/kepos-bridge.ts", import.meta.url),
+      ),
       "@guionai/web-core": fileURLToPath(
         new URL("./packages/web-core/src/index.ts", import.meta.url),
       ),

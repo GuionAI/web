@@ -20,21 +20,27 @@ import {
 
 export interface SearchProviderDependencies {
   getProvider: () => SearchProviderName;
+  /** Reads the complete bridge route from the live settings scope. */
+  getKeposBridgeEndpoint: () => string;
   credentials: {
     resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined>;
   };
   operations?: WebOperations;
 }
 
-function credentialFor(provider: SearchProviderName): {
-  ref: CredentialRef;
-  field: keyof SearchCredentials;
-} {
+function credentialFor(provider: SearchProviderName):
+  | {
+      ref: CredentialRef;
+      field: keyof SearchCredentials;
+    }
+  | undefined {
   switch (provider) {
     case "exa":
       return { ref: credentialRef(EXA_CREDENTIAL_REF), field: "exaApiKey" };
     case "brave":
       return { ref: credentialRef(BRAVE_CREDENTIAL_REF), field: "braveApiKey" };
+    case "kepos-bridge":
+      return undefined;
   }
 }
 
@@ -93,22 +99,35 @@ export function createGuionSearchProvider(
       const provider = dependencies.getProvider();
       const credential = credentialFor(provider);
       let resolved: ResolvedCredential | undefined;
-      try {
-        resolved = await dependencies.credentials.resolve(credential.ref);
-      } catch {
-        throw new Error(`${provider} credential resolution failed`);
+      if (credential !== undefined) {
+        try {
+          resolved = await dependencies.credentials.resolve(credential.ref);
+        } catch {
+          throw new Error(`${provider} credential resolution failed`);
+        }
       }
 
       const credentials: SearchCredentials =
-        resolved === undefined ? {} : { [credential.field]: resolved.value };
+        credential === undefined || resolved === undefined
+          ? {}
+          : { [credential.field]: resolved.value };
       let result: SearchResponse;
       try {
-        result = await operations.search({
+        const searchInput = {
           query: request.query,
           provider,
           credentials,
           signal,
-        });
+          ...(request.maxResults === undefined || provider !== "kepos-bridge"
+            ? {}
+            : { maxResults: request.maxResults }),
+          ...(provider === "kepos-bridge"
+            ? {
+                keposBridgeEndpoint: dependencies.getKeposBridgeEndpoint(),
+              }
+            : {}),
+        };
+        result = await operations.search(searchInput);
       } catch (error) {
         if (error instanceof Error && error.message === "Operation aborted")
           throw error;
