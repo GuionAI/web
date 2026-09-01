@@ -7,9 +7,9 @@ import {
   throwIfAborted,
 } from "./request.js";
 
-/** The loopback route used by the Web settings surface when no route is set. */
+/** The deployed bridge route used when the Web settings surface has no override. */
 export const DEFAULT_KEPOS_BRIDGE_ENDPOINT =
-  "http://127.0.0.1:8787/codex/web-search" as const;
+  "http://codex-bridge.localhost:17480/codex/web-search" as const;
 
 /** The bridge owns a 45-second request bound; leave a small transport margin. */
 export const KEPOS_BRIDGE_TIMEOUT_MS = 50_000 as const;

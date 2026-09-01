@@ -16,7 +16,7 @@ Provider selection is explicit and persists in the `guionai-web` settings
 namespace. Exa and Brave API keys use namespaced write-only DSH credentials;
 settings expose only configured/source/writable metadata. The credential-free
 `kepos-bridge` provider uses the complete non-secret route configured in the
-card (default `http://127.0.0.1:8787/codex/web-search`). While it is selected,
+card (default `http://codex-bridge.localhost:17480/codex/web-search`). While it is selected,
 the package registers `web_weather`, `web_sports`, `web_finance`, and `web_time`;
 switching to Exa or Brave removes those four schemas.
 The route is a complete absolute `http:` or `https:` URL; credentials, query

@@ -181,7 +181,7 @@ describe("search providers migrated from Organon fixtures", () => {
       ],
     });
     expect(DEFAULT_KEPOS_BRIDGE_ENDPOINT).toBe(
-      "http://127.0.0.1:8787/codex/web-search",
+      "http://codex-bridge.localhost:17480/codex/web-search",
     );
   });
 

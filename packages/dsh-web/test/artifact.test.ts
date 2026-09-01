@@ -250,7 +250,8 @@ describe("DSH 0.1.2-alpha.3 packed package contract", () => {
           register: () => ({
             get: () => ({
               provider: "exa",
-              keposBridgeEndpoint: "http://127.0.0.1:8787/codex/web-search",
+              keposBridgeEndpoint:
+                "http://codex-bridge.localhost:17480/codex/web-search",
             }),
             watch: () => () => undefined,
           }),

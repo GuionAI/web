@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { createWebOperations, type WebOperations } from "@guionai/web-core";
 
 import {
+  DEFAULT_KEPOS_BRIDGE_ENDPOINT,
   SEARCH_PROVIDER_ID,
   type SearchProviderName,
 } from "../src/contract.js";
@@ -15,8 +16,11 @@ function withOperations(overrides: Partial<WebOperations>): WebOperations {
 }
 
 describe("DSH Web package composition", () => {
-  it("resolves the Kepos provider and loopback route defaults", () => {
-    expect(SettingsSchema()).toMatchObject({ provider: "exa" });
+  it("resolves the Kepos provider and deployed route defaults", () => {
+    expect(SettingsSchema()).toMatchObject({
+      provider: "exa",
+      keposBridgeEndpoint: DEFAULT_KEPOS_BRIDGE_ENDPOINT,
+    });
     expect(
       SettingsSchema({
         provider: "exa",

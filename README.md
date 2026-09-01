@@ -101,7 +101,7 @@ dsh plugin --profile web add @guionai/dsh-web
 The included profile patch routes stock PTC web search through the selected Exa,
 Brave, or Kepos Bridge provider. Its settings UI stores provider selection and
 the complete non-secret Kepos Bridge route (default
-`http://127.0.0.1:8787/codex/web-search`) and manages namespaced write-only
+`http://codex-bridge.localhost:17480/codex/web-search`) and manages namespaced write-only
 credentials. Selecting Kepos Bridge additionally exposes `web_weather`,
 `web_sports`, `web_finance`, and `web_time`; these tools are removed when another
 provider is selected. Fetch, link discovery, documentation, and Sourcegraph tools
