@@ -5,7 +5,10 @@ import {
   type WebOperations,
 } from "@guionai/web-core";
 
-import { CONTEXT7_CREDENTIAL_REF } from "../src/contract.js";
+import {
+  CONTEXT7_CREDENTIAL_REF,
+  DEFAULT_KEPOS_BRIDGE_ENDPOINT,
+} from "../src/contract.js";
 import {
   createKeposToolDefinitions,
   createWebToolDefinitions,
@@ -29,7 +32,11 @@ function operations(overrides: Partial<WebOperations>): WebOperations {
 function dependencies(
   overrides: Partial<WebToolDependencies> = {},
 ): WebToolDependencies {
-  return { credentials: { resolve: async () => undefined }, ...overrides };
+  return {
+    credentials: { resolve: async () => undefined },
+    getKeposBridgeEndpoint: () => DEFAULT_KEPOS_BRIDGE_ENDPOINT,
+    ...overrides,
+  };
 }
 
 describe("DSH direct web tools", () => {
@@ -39,7 +46,10 @@ describe("DSH direct web tools", () => {
     registerWebTools(
       {
         tools: {
-          register: (definition: ToolDefinition) => registered.push(definition),
+          register: (definition: ToolDefinition) => {
+            registered.push(definition);
+            return () => undefined;
+          },
         },
       } as never,
       dependencies(),
@@ -481,7 +491,6 @@ describe("DSH direct web tools", () => {
     await call(definitions[2]!, {
       ticker: "BTC",
       type: "crypto",
-      market: "",
     });
     await call(definitions[3]!, { utc_offset: "+08:00" });
     expect(calls).toEqual([
@@ -518,7 +527,7 @@ describe("DSH direct web tools", () => {
       },
       {
         endpoint: "http://fixture.test/route",
-        commands: { finance: [{ ticker: "BTC", type: "crypto", market: "" }] },
+        commands: { finance: [{ ticker: "BTC", type: "crypto" }] },
         signal: expect.any(AbortSignal),
       },
       {
@@ -542,12 +551,31 @@ describe("DSH direct web tools", () => {
     await expect(
       call(definitions[0]!, { location: "x", duration: 0 }),
     ).rejects.toThrow("duration must be a positive integer");
+    await expect(call(definitions[0]!, { location: "  \t" })).rejects.toThrow(
+      "location must be a non-blank string",
+    );
     await expect(
       call(definitions[1]!, { fn: "schedule", league: "nascar" }),
     ).rejects.toThrow("invalid arguments");
     await expect(
+      call(definitions[1]!, {
+        fn: "schedule",
+        league: "nba",
+        opponent: " ",
+      }),
+    ).rejects.toThrow("opponent must be a non-blank string");
+    await expect(
       call(definitions[3]!, { utc_offset: "Asia/Taipei" }),
     ).rejects.toThrow("utc_offset must use +HH:MM or -HH:MM format");
+    await expect(call(definitions[3]!, { utc_offset: "  " })).rejects.toThrow(
+      "utc_offset must be a non-blank string",
+    );
+    await expect(
+      call(definitions[2]!, { ticker: "  ", type: "equity" }),
+    ).rejects.toThrow("ticker must be a non-blank string");
+    await expect(
+      call(definitions[2]!, { ticker: "AAPL", type: "equity", market: " " }),
+    ).rejects.toThrow("market must be a non-blank string");
     await expect(
       call(definitions[2]!, { ticker: "SECRET", type: "equity" }),
     ).rejects.toThrow("web_finance failed");

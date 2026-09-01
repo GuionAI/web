@@ -34,6 +34,7 @@ function setup() {
     sgraphSearch: vi.fn(async () => ({
       content: "# Sourcegraph Search Results\n",
     })),
+    keposBridge: vi.fn(),
   };
   let stdout = "";
   const program = createProgram({
@@ -295,6 +296,7 @@ describe("web search Commander adapter", () => {
       docsResolve: vi.fn(),
       docsFetch: vi.fn(),
       sgraphSearch: vi.fn(),
+      keposBridge: vi.fn(),
     };
     let stdout = "";
     let stderr = "";
@@ -331,6 +333,7 @@ describe("web search Commander adapter", () => {
       docsResolve: vi.fn(),
       docsFetch: vi.fn(),
       sgraphSearch: vi.fn(),
+      keposBridge: vi.fn(),
     };
     let stdout = "";
     let stderr = "";

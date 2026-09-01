@@ -29,6 +29,7 @@ function operations(overrides: Partial<WebOperations>): WebOperations {
     docsResolve: unused,
     docsFetch: unused,
     sgraphSearch: unused,
+    keposBridge: unused,
     ...overrides,
   };
 }

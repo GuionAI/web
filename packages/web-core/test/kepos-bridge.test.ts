@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   callKeposBridge,
@@ -134,5 +134,41 @@ describe("Kepos Bridge core client", () => {
       "https://example.test/route#fragment",
     ])
       expect(isValidKeposBridgeEndpoint(endpoint)).toBe(false);
+  });
+
+  it("aborts a pending transport at the injected timeout without waiting in real time", async () => {
+    vi.useFakeTimers();
+    let aborted = false;
+    const pending = callKeposBridge({
+      endpoint: "https://example.test/route",
+      commands: { time: [{ utc_offset: "+08:00" }] },
+      timeoutMs: 50_000,
+      fetch: async (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => {
+              aborted = true;
+              reject(new DOMException("aborted", "AbortError"));
+            },
+            { once: true },
+          );
+        }),
+    });
+
+    try {
+      const outcome = pending.then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      await vi.advanceTimersByTimeAsync(50_000);
+      await expect(outcome).resolves.toMatchObject({
+        name: "RequestTimeoutError",
+        message: "Kepos Bridge request timed out after 50 seconds",
+      });
+      expect(aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -440,6 +440,8 @@ function SettingsCard({
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const cardId = useId();
+  const endpointInputId = `${cardId}-bridge-endpoint`;
+  const endpointHelpId = `${endpointInputId}-help`;
 
   useEffect(
     () => scope.subscribe(() => setSnapshot(scope.getSnapshot())),
@@ -612,12 +614,13 @@ function SettingsCard({
             { className: styles.field },
             createElement(
               "label",
-              { className: styles.label, htmlFor: `${cardId}-bridge-endpoint` },
+              { className: styles.label, htmlFor: endpointInputId },
               "Kepos Bridge endpoint",
             ),
             createElement("input", {
               className: styles.control,
-              id: `${cardId}-bridge-endpoint`,
+              id: endpointInputId,
+              "aria-describedby": endpointHelpId,
               type: "url",
               autoComplete: "off",
               value: selectedEndpoint,
@@ -629,7 +632,7 @@ function SettingsCard({
             }),
             createElement(
               "p",
-              { className: styles.help },
+              { className: styles.help, id: endpointHelpId },
               "Complete http:// or https:// route; credentials, query strings, and fragments are not allowed.",
             ),
           ),

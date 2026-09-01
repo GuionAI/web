@@ -10,7 +10,10 @@
     "types": ["node"],
     "baseUrl": ".",
     "paths": {
-      "@guionai/web-core": ["packages/web-core/src/index.ts"]
+      "@guionai/web-core": ["packages/web-core/src/index.ts"],
+      "@guionai/web-core/kepos-bridge": [
+        "packages/web-core/src/kepos-bridge.ts"
+      ]
     }
   },
   "include": ["packages/*/src/**/*.ts", "packages/*/test/**/*.ts"]

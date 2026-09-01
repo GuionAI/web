@@ -1,6 +1,5 @@
 import {
   createWebOperations,
-  callKeposBridge,
   DEFAULT_LINK_LIMIT,
   normalizeDocsToolInput,
   formatSize,
@@ -25,10 +24,7 @@ import {
 import type { Context } from "@deepseek-ai/cordis";
 import { defineTool, type ToolDefinition } from "@deepseek-ai/dsh-tools";
 
-import {
-  CONTEXT7_CREDENTIAL_REF,
-  DEFAULT_KEPOS_BRIDGE_ENDPOINT,
-} from "./contract.js";
+import { CONTEXT7_CREDENTIAL_REF } from "./contract.js";
 
 const DEFAULT_TREE_THRESHOLD = 5000;
 
@@ -37,9 +33,7 @@ export interface WebToolDependencies {
     resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined>;
   };
   /** Reads the current validated bridge endpoint when a Kepos tool executes. */
-  getKeposBridgeEndpoint?: () => string;
-  /** Short alias accepted by host-side test seams and adapters. */
-  getEndpoint?: () => string;
+  getKeposBridgeEndpoint: () => string;
   operations?: WebOperations;
 }
 
@@ -362,9 +356,9 @@ function requireString(input: unknown, field: string): string {
   if (
     !isRecord(input) ||
     typeof input[field] !== "string" ||
-    input[field].length === 0
+    input[field].trim().length === 0
   )
-    throw new Error(`${field} must be a non-empty string`);
+    throw new Error(`${field} must be a non-blank string`);
   return input[field];
 }
 
@@ -595,7 +589,8 @@ function normalizeDate(value: unknown, field: string): string | undefined {
 
 function optionalString(value: unknown, field: string): string | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== "string") throw new Error(`${field} must be a string`);
+  if (typeof value !== "string" || value.trim().length === 0)
+    throw new Error(`${field} must be a non-blank string`);
   return value;
 }
 
@@ -732,11 +727,8 @@ async function executeKeposTool(
 ): Promise<any> {
   const normalized = normalize(args);
   try {
-    const response = await (operations.keposBridge ?? callKeposBridge)({
-      endpoint:
-        dependencies.getKeposBridgeEndpoint?.() ??
-        dependencies.getEndpoint?.() ??
-        DEFAULT_KEPOS_BRIDGE_ENDPOINT,
+    const response = await operations.keposBridge({
+      endpoint: dependencies.getKeposBridgeEndpoint(),
       commands: { [operation]: [normalized] },
       signal: exec.signal,
     });
@@ -894,7 +886,7 @@ export function registerWebTools(
   const disposers: Array<() => void> = [];
   for (const definition of createWebToolDefinitions(dependencies)) {
     const dispose = ctx.tools.register(definition);
-    if (typeof dispose === "function") disposers.push(dispose);
+    disposers.push(dispose);
   }
   return disposers;
 }
@@ -906,7 +898,7 @@ export function registerKeposTools(
   const disposers: Array<() => void> = [];
   for (const definition of createKeposToolDefinitions(dependencies)) {
     const dispose = ctx.tools.register(definition);
-    if (typeof dispose === "function") disposers.push(dispose);
+    disposers.push(dispose);
   }
   return disposers;
 }

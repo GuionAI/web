@@ -17,6 +17,7 @@ describe("Guion DSH search provider", () => {
     let received: unknown;
     const provider = createGuionSearchProvider({
       getProvider: () => "brave",
+      getKeposBridgeEndpoint: () => "http://fixture.test/route",
       credentials: {
         resolve: async (ref) => {
           expect(ref).toBe(BRAVE_CREDENTIAL_REF);
@@ -69,6 +70,7 @@ describe("Guion DSH search provider", () => {
     const secret = "exa-secret-never-in-error";
     const provider = createGuionSearchProvider({
       getProvider: () => "exa",
+      getKeposBridgeEndpoint: () => "http://fixture.test/route",
       credentials: {
         resolve: async (ref) => {
           expect(ref).toBe(EXA_CREDENTIAL_REF);
@@ -93,6 +95,7 @@ describe("Guion DSH search provider", () => {
   it("rejects malformed core output before returning a DSH result", async () => {
     const provider = createGuionSearchProvider({
       getProvider: () => "exa",
+      getKeposBridgeEndpoint: () => "http://fixture.test/route",
       credentials: {
         resolve: async () => ({ value: "secret", source: "file" }),
       },

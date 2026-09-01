@@ -195,6 +195,3 @@ function isSafeBridgeError(message: string): boolean {
     message === "Kepos Bridge returned an invalid response"
   );
 }
-
-/** Alias that reads naturally at call sites which treat the bridge as a client. */
-export const keposBridgeRequest = callKeposBridge;

@@ -90,7 +90,6 @@ export {
 } from "./docs.js";
 export {
   callKeposBridge,
-  keposBridgeRequest,
   DEFAULT_KEPOS_BRIDGE_ENDPOINT,
   KEPOS_BRIDGE_TIMEOUT_MS,
   KEPOS_BRIDGE_MAX_REQUEST_BYTES,
@@ -132,22 +131,19 @@ export type SearchResponse = {
 export type SearchInput = {
   query: string;
   provider?: string;
-  credentials?: SearchCredentials;
+  credentials: SearchCredentials;
   maxResults?: number;
   /** Complete route used by the Kepos Bridge provider. */
   keposBridgeEndpoint?: string;
   signal?: AbortSignal;
   fetch?: typeof globalThis.fetch;
-  endpoints?: Partial<Record<SearchProvider, string>> & {
-    /** Convenience spelling for callers that cannot use a hyphenated key. */
-    keposBridge?: string;
-  };
+  endpoints?: Partial<Record<SearchProvider, string>>;
   timeoutMs?: number;
 };
 
 export type WebOperations = {
   search(input: SearchInput): Promise<SearchResponse>;
-  keposBridge?(input: KeposBridgeInput): Promise<KeposBridgeResponse>;
+  keposBridge(input: KeposBridgeInput): Promise<KeposBridgeResponse>;
   fetch(input: FetchInput, signal?: AbortSignal): Promise<FetchResult>;
   links(input: LinksInput, signal?: AbortSignal): Promise<LinksResult>;
   docsResolve(input: DocsResolveInput): Promise<DocsResolveResult>;
@@ -176,7 +172,7 @@ export async function search(input: SearchInput): Promise<SearchResponse> {
   if (input.query === "") throw new Error("query is required");
   throwIfAborted(input.signal);
 
-  const provider = selectProvider(input.provider, input.credentials ?? {});
+  const provider = selectProvider(input.provider, input.credentials);
   try {
     const result = await (provider === "exa"
       ? searchExa(input)
@@ -274,7 +270,7 @@ async function searchExa(input: SearchInput): Promise<SearchResponse> {
     {
       method: "POST",
       headers: {
-        "x-api-key": input.credentials?.exaApiKey!,
+        "x-api-key": input.credentials.exaApiKey!,
         "content-type": "application/json",
         accept: "application/json",
       },
@@ -322,7 +318,7 @@ async function searchBrave(input: SearchInput): Promise<SearchResponse> {
       {
         method: "GET",
         headers: {
-          "X-Subscription-Token": input.credentials?.braveApiKey!,
+          "X-Subscription-Token": input.credentials.braveApiKey!,
           accept: "application/json",
         },
       },
@@ -350,7 +346,6 @@ async function searchKeposBridge(input: SearchInput): Promise<SearchResponse> {
   const endpoint =
     input.keposBridgeEndpoint ??
     input.endpoints?.["kepos-bridge"] ??
-    input.endpoints?.keposBridge ??
     DEFAULT_KEPOS_BRIDGE_ENDPOINT;
   const response = await callKeposBridge({
     endpoint,

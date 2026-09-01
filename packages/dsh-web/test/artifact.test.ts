@@ -106,7 +106,7 @@ function writeHostFakes(): void {
   const dependencies = {
     "dsh-settings": "export {};\n",
     schemastery:
-      "const z = { object: () => ({}), union: () => ({ default: () => ({}) }) }; export default z;\n",
+      "const string = () => { const schema = { pattern: () => schema, default: () => schema }; return schema; }; const z = { object: () => ({}), string, union: () => ({ default: () => ({}) }) }; export default z;\n",
     "dsh-credentials": "export function credentialRef(ref) { return ref; }\n",
     "dsh-tools":
       "export function defineTool(definition) { return definition; }\n",
@@ -246,16 +246,31 @@ describe("DSH 0.1.2-alpha.3 packed package contract", () => {
     };
     try {
       host.apply({
-        settings: { register: () => ({ get: () => ({ provider: "exa" }) }) },
+        settings: {
+          register: () => ({
+            get: () => ({
+              provider: "exa",
+              keposBridgeEndpoint: "http://127.0.0.1:8787/codex/web-search",
+            }),
+            watch: () => () => undefined,
+          }),
+        },
         credentials: {
           resolve: async () => ({ value: "fixture-key", source: "test" }),
         },
         web: {
           registerSearchProvider: (value: unknown) => {
             provider = value;
+            return () => undefined;
           },
         },
-        tools: { register: (definition: unknown) => tools.push(definition) },
+        tools: {
+          register: (definition: unknown) => {
+            tools.push(definition);
+            return () => undefined;
+          },
+        },
+        effect: (execute: () => () => void) => execute(),
       });
       await expect(
         provider.search({ query: "packed fixture" }),

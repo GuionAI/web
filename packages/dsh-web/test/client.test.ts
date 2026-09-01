@@ -76,10 +76,21 @@ describe("DSH settings client credential surface", () => {
     const registrations: Array<{ key: string; priority?: number }> = [
       { key: "web_fetch", priority: 0 },
     ];
+    const fixture = fakeApi();
     const ctx = {
-      effect: () => undefined,
-      remote: { credentials: {}, $on: () => () => undefined },
-      settingsScope: { bind: () => ({}) },
+      effect: (_execute: () => () => void) => () => undefined,
+      remote: { credentials: fixture.credentials, $on: () => () => undefined },
+      settingsScope: {
+        bind: () => ({
+          getSnapshot: () => ({
+            status: "ready",
+            writable: true,
+            value: { provider: "exa" },
+          }),
+          subscribe: () => () => undefined,
+          set: async () => undefined,
+        }),
+      },
       slots: {
         inject: (_name: string, callback: () => unknown) => {
           const value = callback();
@@ -103,7 +114,7 @@ describe("DSH settings client credential surface", () => {
             throw new Error(`duplicate keyed slot entry: ${spec.key}`);
           }
           registrations.push(spec);
-          return spec;
+          return () => undefined;
         },
       },
     };

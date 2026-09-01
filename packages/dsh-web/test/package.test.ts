@@ -43,6 +43,7 @@ describe("DSH Web package composition", () => {
         ctx.web.registerSearchProvider(
           createGuionSearchProvider({
             getProvider: () => "exa",
+            getKeposBridgeEndpoint: () => "http://fixture.test/route",
             credentials: {
               resolve: async () => ({ value: "test-secret", source: "file" }),
             },

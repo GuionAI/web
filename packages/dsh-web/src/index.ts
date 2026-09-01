@@ -8,7 +8,6 @@ import {
   PROVIDERS,
   SETTINGS_NAMESPACE,
   type GuionSettings,
-  isValidKeposBridgeEndpoint,
   validateKeposBridgeEndpoint,
 } from "./contract.js";
 import { createGuionSearchProvider } from "./provider.js";
@@ -17,23 +16,10 @@ import { registerKeposTools, registerWebTools } from "./tools.js";
 export const name = "guionai-dsh-web";
 export const inject = ["web", "credentials", "settings", "tools"] as const;
 
-const keposBridgeEndpointSchema = (
-  typeof (z as unknown as { string?: () => unknown }).string === "function"
-    ? (() => {
-        const base = z.string();
-        const pattern = (
-          base as unknown as { pattern?: (value: RegExp) => typeof base }
-        ).pattern;
-        return (
-          typeof pattern === "function"
-            ? pattern.call(base, /^https?:\/\/[^\/?#@\s]+(?:\/[^?#\s]*)?$/i)
-            : base
-        ).default(DEFAULT_KEPOS_BRIDGE_ENDPOINT);
-      })()
-    : z
-        .union([DEFAULT_KEPOS_BRIDGE_ENDPOINT])
-        .default(DEFAULT_KEPOS_BRIDGE_ENDPOINT)
-) as ReturnType<typeof z.string>;
+const keposBridgeEndpointSchema = z
+  .string()
+  .pattern(/^https?:\/\/[^\/?#@\s]+(?:\/[^?#\s]*)?$/i)
+  .default(DEFAULT_KEPOS_BRIDGE_ENDPOINT);
 
 export const SettingsSchema = z.object({
   provider: z.union(PROVIDERS).default("exa"),
@@ -55,13 +41,8 @@ export function apply(ctx: Context): void {
   ctx.web.registerSearchProvider(
     createGuionSearchProvider({
       getProvider: () => (settings.get() as GuionSettings).provider,
-      getKeposBridgeEndpoint: () => {
-        const endpoint = (settings.get() as Partial<GuionSettings>)
-          .keposBridgeEndpoint;
-        return isValidKeposBridgeEndpoint(endpoint)
-          ? endpoint
-          : DEFAULT_KEPOS_BRIDGE_ENDPOINT;
-      },
+      getKeposBridgeEndpoint: () =>
+        (settings.get() as GuionSettings).keposBridgeEndpoint,
       credentials: ctx.credentials,
       operations,
     }),
@@ -69,13 +50,8 @@ export function apply(ctx: Context): void {
   const toolDependencies = {
     credentials: ctx.credentials,
     operations,
-    getKeposBridgeEndpoint: () => {
-      const endpoint = (settings.get() as Partial<GuionSettings>)
-        .keposBridgeEndpoint;
-      return isValidKeposBridgeEndpoint(endpoint)
-        ? endpoint
-        : DEFAULT_KEPOS_BRIDGE_ENDPOINT;
-    },
+    getKeposBridgeEndpoint: () =>
+      (settings.get() as GuionSettings).keposBridgeEndpoint,
   };
 
   const install = () => {
@@ -93,25 +69,21 @@ export function apply(ctx: Context): void {
         keposActive = true;
       }
     };
-    const currentProvider = () =>
-      (settings.get() as Partial<GuionSettings>).provider;
+    const currentProvider = () => (settings.get() as GuionSettings).provider;
     if (currentProvider() === "kepos-bridge") registerKepos();
-    const watch =
-      typeof settings.watch === "function"
-        ? settings.watch((next: GuionSettings, previous: GuionSettings) => {
-            if (next.provider === previous.provider) return;
-            if (next.provider === "kepos-bridge") registerKepos();
-            else disposeKepos();
-          })
-        : undefined;
+    const watch = settings.watch(
+      (next: GuionSettings, previous: GuionSettings) => {
+        if (next.provider === previous.provider) return;
+        if (next.provider === "kepos-bridge") registerKepos();
+        else disposeKepos();
+      },
+    );
     return () => {
-      watch?.();
+      watch();
       disposeKepos();
       for (const dispose of directDisposers.reverse()) dispose();
     };
   };
 
-  if (typeof (ctx as Context & { effect?: unknown }).effect === "function")
-    ctx.effect(install, "guionai-dsh-web: provider tools");
-  else install();
+  ctx.effect(install, "guionai-dsh-web: provider tools");
 }
