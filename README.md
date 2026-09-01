@@ -1,6 +1,7 @@
 # Guion Web
 
-Guion Web is a Node.js web research toolkit. It provides Exa or Brave search,
+Guion Web is a Node.js web research toolkit. It provides Exa, Brave, or a
+managed Kepos Bridge search endpoint,
 Context7 library documentation lookup, Sourcegraph public code search, page-link
 discovery, and two page-fetch backends through a CLI, stdio MCP server, Pi extension, and DeepSeek
 Harness (DSH) integration: direct HTML-to-Markdown extraction and explicit
@@ -19,8 +20,10 @@ npm install --global @guionai/web
 npx @guionai/web --help
 ```
 
-Search needs one provider credential. If both are present, Exa is selected by
-default; select a provider explicitly with `--provider exa` or `--provider brave`.
+Search needs one provider credential for Exa or Brave. If both are present, Exa
+is selected by default; select a provider explicitly with `--provider exa` or
+`--provider brave`. The DSH Web integration also supports the credential-free
+`kepos-bridge` provider through its live settings card.
 Context7 works anonymously when its key is absent.
 
 ```bash
@@ -95,9 +98,13 @@ Install the DSH bundle in the existing Web profile:
 dsh plugin --profile web add @guionai/dsh-web
 ```
 
-The included profile patch routes stock PTC web search through the selected Exa
-or Brave provider. Its settings UI stores provider selection and manages
-namespaced write-only credentials. Fetch, link discovery, documentation, and Sourcegraph tools
+The included profile patch routes stock PTC web search through the selected Exa,
+Brave, or Kepos Bridge provider. Its settings UI stores provider selection and
+the complete non-secret Kepos Bridge route (default
+`http://127.0.0.1:8787/codex/web-search`) and manages namespaced write-only
+credentials. Selecting Kepos Bridge additionally exposes `web_weather`,
+`web_sports`, `web_finance`, and `web_time`; these tools are removed when another
+provider is selected. Fetch, link discovery, documentation, and Sourcegraph tools
 also run in-process. The host DSH packages and React are peers supplied by DSH.
 `web_fetch` uses direct fetch by default and can explicitly use
 `render: "agent-browser"` with an integer `waitMs` on a host that supplies the

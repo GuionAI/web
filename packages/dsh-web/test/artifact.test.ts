@@ -183,6 +183,18 @@ describe("DSH 0.1.2-alpha.3 packed package contract", () => {
     }
     expect(artifactContents).not.toContain("dsh-client-runtime");
     expect(artifactContents).not.toContain("0.1.1-rc.2");
+    const packedHostSource = readFileSync(
+      join(artifactRoot, "dist", "index.js"),
+      "utf8",
+    );
+    const packedClientSource = readFileSync(
+      join(artifactRoot, "dist", "client.js"),
+      "utf8",
+    );
+    expect(packedHostSource).toContain("kepos-bridge");
+    expect(packedHostSource).toContain("web_weather");
+    expect(packedHostSource).toContain("keposBridgeEndpoint");
+    expect(packedClientSource).toContain("Kepos Bridge endpoint");
     expect(
       Object.keys(packed.peerDependencies).some((name) =>
         /agent-browser|chrom(e|ium)|playwright|puppeteer/i.test(name),

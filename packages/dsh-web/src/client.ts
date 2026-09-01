@@ -15,10 +15,13 @@ import cssText from "./client.css";
 import {
   BRAVE_CREDENTIAL_REF,
   CREDENTIAL_REFS,
+  DEFAULT_KEPOS_BRIDGE_ENDPOINT,
   EXA_CREDENTIAL_REF,
+  PROVIDER_LABELS,
   PROVIDERS,
   SETTINGS_NAMESPACE,
   isSearchProvider,
+  isValidKeposBridgeEndpoint,
   type GuionSettings,
   type SearchProviderName,
 } from "./contract.js";
@@ -347,8 +350,15 @@ export type GuionSettingsScopeSpec = SettingsScopeSpec<ClientSettings>;
 
 export function decodeSettings(value: unknown): ClientSettings | undefined {
   if (typeof value !== "object" || value === null) return undefined;
-  const provider = (value as { provider?: unknown }).provider;
-  return isSearchProvider(provider) ? { provider } : {};
+  const source = value as { provider?: unknown; keposBridgeEndpoint?: unknown };
+  const provider = source.provider;
+  const endpoint = source.keposBridgeEndpoint;
+  return {
+    ...(isSearchProvider(provider) ? { provider } : {}),
+    ...(isValidKeposBridgeEndpoint(endpoint)
+      ? { keposBridgeEndpoint: endpoint }
+      : {}),
+  };
 }
 
 export async function persistProviderSelection(
@@ -356,6 +366,15 @@ export async function persistProviderSelection(
   provider: SearchProviderName,
 ): Promise<void> {
   await scope.set("provider", provider);
+}
+
+export async function persistKeposBridgeEndpoint(
+  scope: Pick<SettingsScope<ClientSettings>, "set">,
+  endpoint: string,
+): Promise<void> {
+  if (!isValidKeposBridgeEndpoint(endpoint))
+    throw new Error("Kepos Bridge endpoint is invalid");
+  await scope.set("keposBridgeEndpoint", endpoint);
 }
 
 export async function describeCredentialStatus(
@@ -414,6 +433,7 @@ function SettingsCard({
   const [status, setStatus] = useState<Record<string, CredentialStatus>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [draftProvider, setDraftProvider] = useState<SearchProviderName>();
+  const [draftEndpoint, setDraftEndpoint] = useState<string>();
   const [removals, setRemovals] = useState<readonly string[]>([]);
   const [credentialRevision, setCredentialRevision] = useState(0);
   const [error, setError] = useState<string>();
@@ -451,9 +471,16 @@ function SettingsCard({
   const provider = isSearchProvider(snapshot.value?.provider)
     ? snapshot.value.provider
     : "exa";
+  const endpoint = isValidKeposBridgeEndpoint(
+    snapshot.value?.keposBridgeEndpoint,
+  )
+    ? snapshot.value!.keposBridgeEndpoint
+    : DEFAULT_KEPOS_BRIDGE_ENDPOINT;
   const selectedProvider = draftProvider ?? provider;
+  const selectedEndpoint = draftEndpoint ?? endpoint;
   const dirty =
     draftProvider !== undefined ||
+    draftEndpoint !== undefined ||
     removals.length > 0 ||
     Object.values(drafts).some((value) => value.trim() !== "");
   const credentialStatusReady = CREDENTIAL_REFS.every(
@@ -466,6 +493,7 @@ function SettingsCard({
   const discard = () => {
     if (saving) return;
     setDraftProvider(undefined);
+    setDraftEndpoint(undefined);
     setDrafts({});
     setRemovals([]);
     setError(undefined);
@@ -475,13 +503,21 @@ function SettingsCard({
     setError(undefined);
     setSaving(true);
     try {
+      if (
+        draftEndpoint !== undefined &&
+        !isValidKeposBridgeEndpoint(draftEndpoint)
+      )
+        throw new Error("Kepos Bridge endpoint is invalid");
       if (draftProvider !== undefined)
         await persistProviderSelection(scope, draftProvider);
+      if (draftEndpoint !== undefined)
+        await persistKeposBridgeEndpoint(scope, draftEndpoint);
       for (const ref of CREDENTIAL_REFS) {
         if (removals.includes(ref)) await removeCredential(api, ref);
         else await writeCredential(api, ref, drafts[ref] ?? "");
       }
       setDraftProvider(undefined);
+      setDraftEndpoint(undefined);
       setDrafts({});
       setRemovals([]);
       setCredentialRevision((revision) => revision + 1);
@@ -516,7 +552,7 @@ function SettingsCard({
         createElement(
           "span",
           { className: styles.description },
-          "Search provider and API credentials.",
+          "Search provider, bridge route, and API credentials.",
         ),
       ),
       dirty
@@ -563,8 +599,38 @@ function SettingsCard({
                 },
               },
               ...PROVIDERS.map((value) =>
-                createElement("option", { key: value, value }, value),
+                createElement(
+                  "option",
+                  { key: value, value },
+                  PROVIDER_LABELS[value],
+                ),
               ),
+            ),
+          ),
+          createElement(
+            "div",
+            { className: styles.field },
+            createElement(
+              "label",
+              { className: styles.label, htmlFor: `${cardId}-bridge-endpoint` },
+              "Kepos Bridge endpoint",
+            ),
+            createElement("input", {
+              className: styles.control,
+              id: `${cardId}-bridge-endpoint`,
+              type: "url",
+              autoComplete: "off",
+              value: selectedEndpoint,
+              disabled: saving || !snapshot.writable,
+              onChange: (event: { target: { value: string } }) => {
+                setDraftEndpoint(event.target.value);
+                setError(undefined);
+              },
+            }),
+            createElement(
+              "p",
+              { className: styles.help },
+              "Complete http:// or https:// route; credentials, query strings, and fragments are not allowed.",
             ),
           ),
           ...CREDENTIAL_REFS.map((ref) => {

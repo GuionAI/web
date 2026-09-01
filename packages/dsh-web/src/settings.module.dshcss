@@ -128,6 +128,12 @@
   color: var(--dsw-alias-label-tertiary);
   cursor: default;
 }
+.help {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+}
 .remove {
   align-self: flex-start;
   appearance: none;

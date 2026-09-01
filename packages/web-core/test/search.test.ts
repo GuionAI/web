@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { formatSearchResults, search, selectProvider } from "../src/index.js";
+import {
+  DEFAULT_KEPOS_BRIDGE_ENDPOINT,
+  formatSearchResults,
+  search,
+  selectProvider,
+} from "../src/index.js";
 
 const exaFixture = {
   results: [
@@ -121,6 +126,78 @@ describe("search providers migrated from Organon fixtures", () => {
     expect(() => selectProvider(undefined, {})).toThrow(
       "web search requires EXA_API_KEY or BRAVE_API_KEY",
     );
+    expect(selectProvider("kepos-bridge", {})).toBe("kepos-bridge");
+  });
+
+  it("sends one Kepos query, maps only usable text results, and honors maxResults", async () => {
+    let url = "";
+    let body: unknown;
+    const result = await search({
+      query: "managed search",
+      provider: "kepos-bridge",
+      maxResults: 2,
+      keposBridgeEndpoint: "http://fixture.test/codex/web-search",
+      credentials: {},
+      fetch: async (receivedURL, init) => {
+        url = String(receivedURL);
+        body = JSON.parse(String(init?.body));
+        return response({
+          output: "not a source record",
+          results: [
+            { type: "unknown", url: "https://ignored.test" },
+            { type: "text_result", url: "/relative", title: "ignored" },
+            {
+              type: "text_result",
+              url: "https://example.test/one",
+              title: "One",
+              snippet: "first",
+              future: { ignored: true },
+            },
+            { type: "text_result", url: "https://example.test/two" },
+            { type: "text_result", url: "https://example.test/three" },
+          ],
+        });
+      },
+    });
+    expect(url).toBe("http://fixture.test/codex/web-search");
+    expect(body).toEqual({
+      commands: { search_query: [{ q: "managed search" }] },
+    });
+    expect(result).toEqual({
+      provider: "Kepos Bridge",
+      results: [
+        {
+          title: "One",
+          link: "https://example.test/one",
+          snippet: "first",
+          position: 1,
+        },
+        {
+          title: "",
+          link: "https://example.test/two",
+          snippet: "",
+          position: 2,
+        },
+      ],
+    });
+    expect(DEFAULT_KEPOS_BRIDGE_ENDPOINT).toBe(
+      "http://127.0.0.1:8787/codex/web-search",
+    );
+  });
+
+  it("fails safely when Kepos output has no usable plaintext source", async () => {
+    await expect(
+      search({
+        query: "none",
+        provider: "kepos-bridge",
+        credentials: {},
+        fetch: async () =>
+          response({
+            output: "safe prose",
+            results: [{ type: "text_result", url: "javascript:bad" }],
+          }),
+      }),
+    ).rejects.toThrow(/Kepos Bridge provider/);
   });
 
   it("does not expose remote error bodies or credentials", async () => {

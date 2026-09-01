@@ -7,6 +7,7 @@ import {
 
 import { CONTEXT7_CREDENTIAL_REF } from "../src/contract.js";
 import {
+  createKeposToolDefinitions,
   createWebToolDefinitions,
   registerWebTools,
   type WebToolDependencies,
@@ -404,5 +405,154 @@ describe("DSH direct web tools", () => {
     expect(fetch).not.toHaveBeenCalled();
     expect(links).not.toHaveBeenCalled();
     expect(docsResolve).not.toHaveBeenCalled();
+  });
+
+  it("registers strict Kepos tools with exact stateless commands and structured output", async () => {
+    const calls: unknown[] = [];
+    const controller = new AbortController();
+    const definitions = createKeposToolDefinitions(
+      dependencies({
+        getKeposBridgeEndpoint: () => "http://fixture.test/route",
+        operations: operations({
+          keposBridge: async (input) => {
+            calls.push(input);
+            return { output: "bridge output", results: [{ future: true }] };
+          },
+        }),
+      }),
+    );
+    expect(definitions.map((definition) => definition.name)).toEqual([
+      "web_weather",
+      "web_sports",
+      "web_finance",
+      "web_time",
+    ]);
+    expect(
+      definitions.every(
+        (definition) =>
+          (definition.parameters as any).additionalProperties === false &&
+          definition.isConcurrencySafe?.(
+            definition.name === "web_weather"
+              ? { location: "x" }
+              : definition.name === "web_sports"
+                ? { fn: "schedule", league: "nba" }
+                : definition.name === "web_finance"
+                  ? { ticker: "x", type: "equity" }
+                  : { utc_offset: "+00:00" },
+          ),
+      ),
+    ).toBe(true);
+    expect(Object.keys((definitions[1]!.parameters as any).properties)).toEqual(
+      [
+        "fn",
+        "league",
+        "team",
+        "opponent",
+        "date_from",
+        "date_to",
+        "num_games",
+        "locale",
+      ],
+    );
+    expect(
+      Object.keys((definitions[1]!.parameters as any).properties),
+    ).not.toContain("response_length");
+
+    await expect(
+      call(
+        definitions[0]!,
+        { location: "Country, Area, City", start: "2026-09-01", duration: 3 },
+        controller.signal,
+      ),
+    ).resolves.toEqual({
+      output: "bridge output",
+      results: [{ future: true }],
+    });
+    await call(definitions[1]!, {
+      fn: "schedule",
+      league: "nba",
+      team: "GSW",
+      opponent: "LAL",
+      date_from: "2026-09-01",
+      date_to: "2026-09-03",
+      num_games: 2,
+      locale: "en-US",
+    });
+    await call(definitions[2]!, {
+      ticker: "BTC",
+      type: "crypto",
+      market: "",
+    });
+    await call(definitions[3]!, { utc_offset: "+08:00" });
+    expect(calls).toEqual([
+      {
+        endpoint: "http://fixture.test/route",
+        commands: {
+          weather: [
+            {
+              location: "Country, Area, City",
+              start: "2026-09-01",
+              duration: 3,
+            },
+          ],
+        },
+        signal: controller.signal,
+      },
+      {
+        endpoint: "http://fixture.test/route",
+        commands: {
+          sports: [
+            {
+              fn: "schedule",
+              league: "nba",
+              team: "GSW",
+              opponent: "LAL",
+              date_from: "2026-09-01",
+              date_to: "2026-09-03",
+              num_games: 2,
+              locale: "en-US",
+            },
+          ],
+        },
+        signal: expect.any(AbortSignal),
+      },
+      {
+        endpoint: "http://fixture.test/route",
+        commands: { finance: [{ ticker: "BTC", type: "crypto", market: "" }] },
+        signal: expect.any(AbortSignal),
+      },
+      {
+        endpoint: "http://fixture.test/route",
+        commands: { time: [{ utc_offset: "+08:00" }] },
+        signal: expect.any(AbortSignal),
+      },
+    ]);
+  });
+
+  it("validates specialized arguments and keeps generic bridge failures safe", async () => {
+    const definitions = createKeposToolDefinitions(
+      dependencies({
+        operations: operations({
+          keposBridge: async () => {
+            throw new Error("remote secret");
+          },
+        }),
+      }),
+    );
+    await expect(
+      call(definitions[0]!, { location: "x", duration: 0 }),
+    ).rejects.toThrow("duration must be a positive integer");
+    await expect(
+      call(definitions[1]!, { fn: "schedule", league: "nascar" }),
+    ).rejects.toThrow("invalid arguments");
+    await expect(
+      call(definitions[3]!, { utc_offset: "Asia/Taipei" }),
+    ).rejects.toThrow("utc_offset must use +HH:MM or -HH:MM format");
+    await expect(
+      call(definitions[2]!, { ticker: "SECRET", type: "equity" }),
+    ).rejects.toThrow("web_finance failed");
+    await expect(
+      call(definitions[2]!, { ticker: "SECRET", type: "equity" }),
+    ).rejects.not.toThrow("remote secret");
   });
 });

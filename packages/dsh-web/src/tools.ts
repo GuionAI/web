@@ -1,5 +1,6 @@
 import {
   createWebOperations,
+  callKeposBridge,
   DEFAULT_LINK_LIMIT,
   normalizeDocsToolInput,
   formatSize,
@@ -13,6 +14,7 @@ import {
   type LinksInput,
   type LinksResult,
   type SGraphResult,
+  type KeposBridgeResponse,
   type WebOperations,
 } from "@guionai/web-core";
 import {
@@ -23,7 +25,10 @@ import {
 import type { Context } from "@deepseek-ai/cordis";
 import { defineTool, type ToolDefinition } from "@deepseek-ai/dsh-tools";
 
-import { CONTEXT7_CREDENTIAL_REF } from "./contract.js";
+import {
+  CONTEXT7_CREDENTIAL_REF,
+  DEFAULT_KEPOS_BRIDGE_ENDPOINT,
+} from "./contract.js";
 
 const DEFAULT_TREE_THRESHOLD = 5000;
 
@@ -31,6 +36,10 @@ export interface WebToolDependencies {
   credentials: {
     resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined>;
   };
+  /** Reads the current validated bridge endpoint when a Kepos tool executes. */
+  getKeposBridgeEndpoint?: () => string;
+  /** Short alias accepted by host-side test seams and adapters. */
+  getEndpoint?: () => string;
   operations?: WebOperations;
 }
 
@@ -130,6 +139,72 @@ const sgraphParameters = {
     type: "integer",
     default: 0,
     description: "Optional timeout in seconds; zero disables the timeout",
+  },
+} as const;
+
+const weatherParameters = {
+  location: {
+    type: "string",
+    required: true,
+    description: 'Location in "Country, Area, City" format',
+  },
+  start: {
+    type: "string",
+    description: "Start date in YYYY-MM-DD format",
+  },
+  duration: {
+    type: "integer",
+    description: "Number of days to return",
+  },
+} as const;
+
+const sportsParameters = {
+  fn: {
+    type: "string",
+    enum: ["schedule", "standings"],
+    required: true,
+    description: "Sports lookup function",
+  },
+  league: {
+    type: "string",
+    enum: [
+      "nba",
+      "wnba",
+      "nfl",
+      "nhl",
+      "mlb",
+      "epl",
+      "ncaamb",
+      "ncaawb",
+      "ipl",
+    ],
+    required: true,
+    description: "League to look up",
+  },
+  team: { type: "string", description: "Optional team alias" },
+  opponent: { type: "string", description: "Optional opposing team alias" },
+  date_from: { type: "string", description: "Start date in YYYY-MM-DD format" },
+  date_to: { type: "string", description: "End date in YYYY-MM-DD format" },
+  num_games: { type: "integer", description: "Number of games to return" },
+  locale: { type: "string", description: "Locale for the lookup" },
+} as const;
+
+const financeParameters = {
+  ticker: { type: "string", required: true, description: "Ticker symbol" },
+  type: {
+    type: "string",
+    enum: ["equity", "fund", "crypto", "index"],
+    required: true,
+    description: "Asset type",
+  },
+  market: { type: "string", description: "Optional market" },
+} as const;
+
+const timeParameters = {
+  utc_offset: {
+    type: "string",
+    required: true,
+    description: "UTC offset in +HH:MM or -HH:MM form",
   },
 } as const;
 
@@ -497,6 +572,297 @@ function webSgraphTool(
   );
 }
 
+const keposBridgeOutput = {
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      output: { type: "string", required: true },
+      results: { type: "array" },
+    },
+  } as const,
+  render: (_args: unknown, value: KeposBridgeResponse) => [
+    { type: "text" as const, text: value.output },
+  ],
+};
+
+function normalizeDate(value: unknown, field: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value))
+    throw new Error(`${field} must use YYYY-MM-DD format`);
+  return value;
+}
+
+function optionalString(value: unknown, field: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") throw new Error(`${field} must be a string`);
+  return value;
+}
+
+function positiveInteger(value: unknown, field: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value) || (value as number) <= 0)
+    throw new Error(`${field} must be a positive integer`);
+  return value as number;
+}
+
+function enumValue<T extends string>(
+  value: unknown,
+  field: string,
+  values: readonly T[],
+): T {
+  if (typeof value !== "string" || !values.includes(value as T))
+    throw new Error(`${field} must be one of ${values.join(", ")}`);
+  return value as T;
+}
+
+function normalizeWeather(input: unknown): {
+  location: string;
+  start?: string;
+  duration?: number;
+} {
+  if (!isRecord(input)) throw new Error("web_weather input must be an object");
+  rejectUnknownFields(input, Object.keys(weatherParameters), "web_weather");
+  const location = requireString(input, "location");
+  const start = normalizeDate(input.start, "start");
+  const duration = positiveInteger(input.duration, "duration");
+  return {
+    location,
+    ...(start === undefined ? {} : { start }),
+    ...(duration === undefined ? {} : { duration }),
+  };
+}
+
+function normalizeSports(input: unknown): {
+  fn: "schedule" | "standings";
+  league:
+    | "nba"
+    | "wnba"
+    | "nfl"
+    | "nhl"
+    | "mlb"
+    | "epl"
+    | "ncaamb"
+    | "ncaawb"
+    | "ipl";
+  team?: string;
+  opponent?: string;
+  date_from?: string;
+  date_to?: string;
+  num_games?: number;
+  locale?: string;
+} {
+  if (!isRecord(input)) throw new Error("web_sports input must be an object");
+  rejectUnknownFields(input, Object.keys(sportsParameters), "web_sports");
+  const fn = enumValue(input.fn, "fn", ["schedule", "standings"] as const);
+  const league = enumValue(input.league, "league", [
+    "nba",
+    "wnba",
+    "nfl",
+    "nhl",
+    "mlb",
+    "epl",
+    "ncaamb",
+    "ncaawb",
+    "ipl",
+  ] as const);
+  const team = optionalString(input.team, "team");
+  const opponent = optionalString(input.opponent, "opponent");
+  const dateFrom = normalizeDate(input.date_from, "date_from");
+  const dateTo = normalizeDate(input.date_to, "date_to");
+  const numGames = positiveInteger(input.num_games, "num_games");
+  const locale = optionalString(input.locale, "locale");
+  return {
+    fn,
+    league,
+    ...(team === undefined ? {} : { team }),
+    ...(opponent === undefined ? {} : { opponent }),
+    ...(dateFrom === undefined ? {} : { date_from: dateFrom }),
+    ...(dateTo === undefined ? {} : { date_to: dateTo }),
+    ...(numGames === undefined ? {} : { num_games: numGames }),
+    ...(locale === undefined ? {} : { locale }),
+  };
+}
+
+function normalizeFinance(input: unknown): {
+  ticker: string;
+  type: "equity" | "fund" | "crypto" | "index";
+  market?: string;
+} {
+  if (!isRecord(input)) throw new Error("web_finance input must be an object");
+  rejectUnknownFields(input, Object.keys(financeParameters), "web_finance");
+  const ticker = requireString(input, "ticker");
+  const type = enumValue(input.type, "type", [
+    "equity",
+    "fund",
+    "crypto",
+    "index",
+  ] as const);
+  const market = optionalString(input.market, "market");
+  return { ticker, type, ...(market === undefined ? {} : { market }) };
+}
+
+function normalizeTime(input: unknown): { utc_offset: string } {
+  if (!isRecord(input)) throw new Error("web_time input must be an object");
+  rejectUnknownFields(input, Object.keys(timeParameters), "web_time");
+  const utcOffset = requireString(input, "utc_offset");
+  if (!/^[+-](?:[01]\d|2[0-3]):[0-5]\d$/.test(utcOffset))
+    throw new Error("utc_offset must use +HH:MM or -HH:MM format");
+  return { utc_offset: utcOffset };
+}
+
+function validKeposBridgeResponse(
+  value: unknown,
+): value is KeposBridgeResponse {
+  return (
+    isRecord(value) &&
+    typeof value.output === "string" &&
+    (value.results === undefined || Array.isArray(value.results))
+  );
+}
+
+async function executeKeposTool(
+  name: string,
+  operation: string,
+  args: unknown,
+  exec: { signal?: AbortSignal },
+  dependencies: WebToolDependencies,
+  operations: WebOperations,
+  normalize: (input: unknown) => Record<string, unknown>,
+): Promise<any> {
+  const normalized = normalize(args);
+  try {
+    const response = await (operations.keposBridge ?? callKeposBridge)({
+      endpoint:
+        dependencies.getKeposBridgeEndpoint?.() ??
+        dependencies.getEndpoint?.() ??
+        DEFAULT_KEPOS_BRIDGE_ENDPOINT,
+      commands: { [operation]: [normalized] },
+      signal: exec.signal,
+    });
+    if (!validKeposBridgeResponse(response))
+      throw new Error("malformed response");
+    return {
+      output: response.output,
+      ...(response.results === undefined ? {} : { results: response.results }),
+    };
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message === "Operation aborted" ||
+        error.name === "OperationAbortedError" ||
+        error.name === "RequestTimeoutError")
+    )
+      throw error;
+    throw new Error(`${name} failed`);
+  }
+}
+
+function webWeatherTool(
+  dependencies: WebToolDependencies,
+  operations: WebOperations,
+): ToolDefinition {
+  return strictDefinition(
+    defineTool({
+      name: "web_weather",
+      description:
+        "Look up a weather forecast for a Country, Area, City location.",
+      parameters: weatherParameters,
+      output: keposBridgeOutput,
+      isConcurrencySafe: () => true,
+      async execute(args, exec) {
+        return executeKeposTool(
+          "web_weather",
+          "weather",
+          args,
+          exec,
+          dependencies,
+          operations,
+          normalizeWeather as (input: unknown) => Record<string, unknown>,
+        );
+      },
+    }),
+  );
+}
+
+function webSportsTool(
+  dependencies: WebToolDependencies,
+  operations: WebOperations,
+): ToolDefinition {
+  return strictDefinition(
+    defineTool({
+      name: "web_sports",
+      description: "Look up sports schedules or standings.",
+      parameters: sportsParameters,
+      output: keposBridgeOutput,
+      isConcurrencySafe: () => true,
+      async execute(args, exec) {
+        return executeKeposTool(
+          "web_sports",
+          "sports",
+          args,
+          exec,
+          dependencies,
+          operations,
+          normalizeSports as (input: unknown) => Record<string, unknown>,
+        );
+      },
+    }),
+  );
+}
+
+function webFinanceTool(
+  dependencies: WebToolDependencies,
+  operations: WebOperations,
+): ToolDefinition {
+  return strictDefinition(
+    defineTool({
+      name: "web_finance",
+      description: "Look up a finance quote or index value.",
+      parameters: financeParameters,
+      output: keposBridgeOutput,
+      isConcurrencySafe: () => true,
+      async execute(args, exec) {
+        return executeKeposTool(
+          "web_finance",
+          "finance",
+          args,
+          exec,
+          dependencies,
+          operations,
+          normalizeFinance as (input: unknown) => Record<string, unknown>,
+        );
+      },
+    }),
+  );
+}
+
+function webTimeTool(
+  dependencies: WebToolDependencies,
+  operations: WebOperations,
+): ToolDefinition {
+  return strictDefinition(
+    defineTool({
+      name: "web_time",
+      description: "Get the current time at a fixed UTC offset.",
+      parameters: timeParameters,
+      output: keposBridgeOutput,
+      isConcurrencySafe: () => true,
+      async execute(args, exec) {
+        return executeKeposTool(
+          "web_time",
+          "time",
+          args,
+          exec,
+          dependencies,
+          operations,
+          normalizeTime as (input: unknown) => Record<string, unknown>,
+        );
+      },
+    }),
+  );
+}
+
 export function createWebToolDefinitions(
   dependencies: WebToolDependencies,
 ): readonly [ToolDefinition, ToolDefinition, ToolDefinition, ToolDefinition] {
@@ -509,10 +875,38 @@ export function createWebToolDefinitions(
   ];
 }
 
+export function createKeposToolDefinitions(
+  dependencies: WebToolDependencies,
+): readonly [ToolDefinition, ToolDefinition, ToolDefinition, ToolDefinition] {
+  const operations = dependencies.operations ?? createWebOperations();
+  return [
+    webWeatherTool(dependencies, operations),
+    webSportsTool(dependencies, operations),
+    webFinanceTool(dependencies, operations),
+    webTimeTool(dependencies, operations),
+  ];
+}
+
 export function registerWebTools(
   ctx: Context,
   dependencies: WebToolDependencies,
-): void {
-  for (const definition of createWebToolDefinitions(dependencies))
-    ctx.tools.register(definition);
+): Array<() => void> {
+  const disposers: Array<() => void> = [];
+  for (const definition of createWebToolDefinitions(dependencies)) {
+    const dispose = ctx.tools.register(definition);
+    if (typeof dispose === "function") disposers.push(dispose);
+  }
+  return disposers;
+}
+
+export function registerKeposTools(
+  ctx: Context,
+  dependencies: WebToolDependencies,
+): Array<() => void> {
+  const disposers: Array<() => void> = [];
+  for (const definition of createKeposToolDefinitions(dependencies)) {
+    const dispose = ctx.tools.register(definition);
+    if (typeof dispose === "function") disposers.push(dispose);
+  }
+  return disposers;
 }

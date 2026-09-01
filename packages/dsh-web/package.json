@@ -1,7 +1,7 @@
 {
   "name": "@guionai/dsh-web",
   "version": "0.1.0",
-  "description": "DeepSeek Harness 0.1.2-alpha.3 provider for web research with direct and optional agent-browser page-fetch backends.",
+  "description": "DeepSeek Harness 0.1.2-alpha.3 provider for Exa, Brave, and Kepos Bridge web research with direct and optional agent-browser page-fetch backends.",
   "homepage": "https://github.com/guionai/web#readme",
   "bugs": {
     "url": "https://github.com/guionai/web/issues"
