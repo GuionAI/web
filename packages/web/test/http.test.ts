@@ -17,6 +17,7 @@ function operations(overrides: Partial<WebOperations> = {}): WebOperations {
       url: input.url,
       mode: "full" as const,
       content: "page",
+      truncated: false,
     })),
     links: vi.fn(async (input) => ({
       url: input.url,
@@ -212,6 +213,7 @@ describe("personal HTTP service", () => {
         url: input.url,
         mode: "tree" as const,
         content: "markdown",
+        truncated: false,
       })),
     });
     const app = createHttpApp({ ...dependencies(), operations: ops });
@@ -223,7 +225,7 @@ describe("personal HTTP service", () => {
     });
 
     expect(result.response.status).toBe(200);
-    expect(result.body).toMatchObject({ mode: "tree" });
+    expect(result.body).toMatchObject({ mode: "tree", truncated: false });
     expect(ops.fetch).toHaveBeenCalledWith(
       expect.objectContaining({
         url: "https://example.test",
@@ -239,43 +241,55 @@ describe("personal HTTP service", () => {
     const ops = operations({
       fetch: vi.fn(async (input) => ({
         url: input.url,
-        mode: input.mode === "tree" ? "tree" : "full",
+        mode:
+          input.section_id !== undefined
+            ? "section"
+            : input.mode === "tree"
+              ? "tree"
+              : input.mode === "auto"
+                ? "auto"
+                : "full",
         content: input.mode === "tree" ? "tree" : "page",
+        truncated: false,
       })) as WebOperations["fetch"],
     });
     const app = createHttpApp({ ...dependencies(), operations: ops });
 
-    for (const mode of ["auto", "full", "tree"] as const) {
-      const result = await json(app, "/v1/fetch", {
+    for (const body of [
+      { url: "https://example.test", mode: "auto" },
+      { url: "https://example.test", mode: "full" },
+      { url: "https://example.test", mode: "tree" },
+      {
         url: "https://example.test",
-        mode,
-      });
+        mode: "auto",
+        section_id: "intro",
+      },
+      { url: "https://example.test", section_id: "intro" },
+    ]) {
+      const result = await json(app, "/v1/fetch", body);
       expect(result.response.status).toBe(200);
     }
-    const section = await json(app, "/v1/fetch", {
-      url: "https://example.test",
-      mode: "section",
-      section_id: "intro",
-    });
-    expect(section.response.status).toBe(200);
     expect(ops.fetch).toHaveBeenNthCalledWith(
       4,
-      expect.objectContaining({ mode: "section", section_id: "intro" }),
+      expect.objectContaining({ mode: "auto", section_id: "intro" }),
+      expect.any(AbortSignal),
+    );
+    expect(ops.fetch).toHaveBeenNthCalledWith(
+      5,
+      expect.objectContaining({ mode: "auto", section_id: "intro" }),
       expect.any(AbortSignal),
     );
 
     for (const body of [
-      { url: "https://example.test", mode: "section" },
-      { url: "https://example.test", mode: "auto", section_id: "intro" },
       { url: "https://example.test", mode: "full", section_id: "intro" },
       { url: "https://example.test", mode: "tree", section_id: "intro" },
-      { url: "https://example.test", section_id: "intro" },
+      { url: "https://example.test", mode: "section" },
       { url: "https://example.test", mode: "invalid" },
       { url: "https://example.test", full: true },
     ]) {
       expect((await json(app, "/v1/fetch", body)).response.status).toBe(400);
     }
-    expect(ops.fetch).toHaveBeenCalledTimes(4);
+    expect(ops.fetch).toHaveBeenCalledTimes(5);
   });
 
   it("forwards links with the same explicit rendered-fetch contract", async () => {
@@ -400,14 +414,17 @@ describe("personal HTTP service", () => {
         .enum,
     ).toEqual(["Exa", "DeepSeek", "Kepos Bridge"]);
     const fetchRequest = (document.components?.schemas as any).FetchRequest;
-    expect(fetchRequest.properties.mode.enum).toEqual([
+    expect(fetchRequest.properties.mode.enum).toEqual(["auto", "full", "tree"]);
+    expect(fetchRequest.properties.mode.default).toBe("auto");
+    expect(fetchRequest.properties.full).toBeUndefined();
+    const fetchResponse = (document.components?.schemas as any).FetchResponse;
+    expect(fetchResponse.properties.mode.enum).toEqual([
       "auto",
       "full",
       "tree",
       "section",
     ]);
-    expect(fetchRequest.properties.mode.default).toBe("auto");
-    expect(fetchRequest.properties.full).toBeUndefined();
+    expect(fetchResponse.properties.truncated.type).toBe("boolean");
     expect(fetchRequest.properties.render.enum).toEqual(["http", "browser"]);
     expect(fetchRequest.properties.tree).toBeUndefined();
     expect(fetchRequest.properties.tree_threshold).toBeUndefined();

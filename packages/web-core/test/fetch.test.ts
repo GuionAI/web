@@ -146,6 +146,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
           url,
           mode: "full",
           content: "Extracted text.\n",
+          truncated: false,
         });
       });
     } finally {
@@ -783,12 +784,20 @@ describe.sequential("browserless fetch migrated from Organon", () => {
       fetchWebPage({ ...input, mode: "tree" }, undefined, { cache }),
     ).resolves.toMatchObject({ mode: "tree" });
     await expect(
-      fetchWebPage({ ...input, mode: "section", section_id: "7i" }, undefined, {
+      fetchWebPage({ ...input, section_id: "7i" }, undefined, { cache }),
+    ).resolves.toMatchObject({
+      mode: "section",
+      content: "## Install\nInstall content.\n",
+      truncated: false,
+    });
+    await expect(
+      fetchWebPage({ ...input, mode: "auto", section_id: "7i" }, undefined, {
         cache,
       }),
     ).resolves.toMatchObject({
       mode: "section",
       content: "## Install\nInstall content.\n",
+      truncated: false,
     });
 
     const complete = "# Complete\n\n" + "x".repeat(30_001);
@@ -806,6 +815,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
       url: "https://navigation.test/complete",
       mode: "full",
       content: complete,
+      truncated: false,
     });
 
     await expect(
@@ -818,35 +828,33 @@ describe.sequential("browserless fetch migrated from Organon", () => {
         undefined,
         { cache },
       ),
-    ).rejects.toThrow('section_id is only valid with mode "section"');
+    ).rejects.toThrow('section_id is only valid with mode "auto"');
     await expect(
       fetchWebPage({ url: input.url, tree: true } as never, undefined, {
         cache,
       }),
     ).rejects.toThrow("does not accept field tree");
     await expect(
+      fetchWebPage({ ...input, mode: "tree", section_id: "7i" }, undefined, {
+        cache,
+      }),
+    ).rejects.toThrow('section_id is only valid with mode "auto"');
+    await expect(
       fetchWebPage({ ...input, mode: "section" } as never, undefined, {
         cache,
       }),
-    ).rejects.toThrow('section_id is required when mode is "section"');
-    await expect(
-      fetchWebPage({ ...input, mode: "auto", section_id: "7i" }, undefined, {
-        cache,
-      }),
-    ).rejects.toThrow('section_id is only valid with mode "section"');
+    ).rejects.toThrow('mode must be one of "auto", "full", or "tree"');
     await expect(
       fetchWebPage({ ...input, mode: "invalid" } as never, undefined, {
         cache,
       }),
-    ).rejects.toThrow(
-      'mode must be one of "auto", "full", "tree", or "section"',
-    );
+    ).rejects.toThrow('mode must be one of "auto", "full", or "tree"');
     await expect(
       fetchWebPage({ url: input.url, tree_threshold: 1 } as never, undefined, {
         cache,
       }),
     ).rejects.toThrow("does not accept field tree_threshold");
-    expect(cache.read).toHaveBeenCalledTimes(3);
+    expect(cache.read).toHaveBeenCalledTimes(4);
   });
 });
 

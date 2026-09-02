@@ -56,12 +56,16 @@ describe("DSH settings client credential surface", () => {
       fetchDetails({
         render: "browser",
         waitMs: 2_000,
-        mode: "section",
+        mode: "auto",
         section_id: "installation",
       }),
     ).toEqual([
       { label: "Backend", value: "Browser rendered" },
       { label: "Wait", value: "2 s" },
+      { label: "Result", value: "Section: installation" },
+    ]);
+    expect(fetchDetails({ section_id: "installation" })).toEqual([
+      { label: "Backend", value: "HTTP rendered" },
       { label: "Result", value: "Section: installation" },
     ]);
     expect(fetchDetails({})).toEqual([

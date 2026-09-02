@@ -247,7 +247,7 @@ function createFetchCommand(dependencies: ProgramDependencies): Command {
     )
     .option(
       "--mode <mode>",
-      "Navigation mode: auto (default), full, tree, or section",
+      "Navigation mode: auto (default), full, or tree",
       parseFetchMode,
     )
     .option("-s, --section <id>", "Read one heading section")
@@ -285,7 +285,7 @@ function createFetchCommand(dependencies: ProgramDependencies): Command {
 
 function parseFetchMode(value: string): FetchMode {
   if (!FETCH_MODES.includes(value as FetchMode))
-    throw new Error("--mode must be one of auto, full, tree, or section");
+    throw new Error("--mode must be one of auto, full, or tree");
   return value as FetchMode;
 }
 
@@ -295,13 +295,8 @@ function validateCliNavigation(
 ): void {
   if (section !== undefined && section.trim() === "")
     throw new Error("--section must be a non-empty string");
-  if (mode === "section") {
-    if (section === undefined)
-      throw new Error('--section is required when --mode is "section"');
-    return;
-  }
-  if (section !== undefined)
-    throw new Error('--section requires --mode "section"');
+  if (section !== undefined && mode !== undefined && mode !== "auto")
+    throw new Error('--section is only valid with --mode "auto"');
 }
 
 function createLinksCommand(dependencies: ProgramDependencies): Command {

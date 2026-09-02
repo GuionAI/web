@@ -24,6 +24,7 @@ function setup() {
       url: "https://example.test/page",
       mode: "full" as const,
       content: "# Fixture page\n",
+      truncated: false,
     })),
     links: vi.fn(async (input: { url: string }) => ({
       url: input.url,
@@ -205,16 +206,29 @@ describe("web search Commander adapter", () => {
   it("passes fetch navigation flags and writes human Markdown", async () => {
     const { program, operations, output } = setup();
     await program.parseAsync(
-      ["fetch", "https://example.test/page", "--mode", "section", "-s", "7i"],
+      ["fetch", "https://example.test/page", "--mode", "auto", "-s", "7i"],
       { from: "user" },
     );
 
     expect(operations.fetch).toHaveBeenCalledWith({
       url: "https://example.test/page",
-      mode: "section",
+      mode: "auto",
       section_id: "7i",
     });
     expect(output()).toEqual({ stdout: "# Fixture page\n", stderr: "" });
+  });
+
+  it("allows a section flag with the default automatic mode", async () => {
+    const { program, operations } = setup();
+    await program.parseAsync(
+      ["fetch", "https://example.test/page", "--section", "7i"],
+      { from: "user" },
+    );
+
+    expect(operations.fetch).toHaveBeenCalledWith({
+      url: "https://example.test/page",
+      section_id: "7i",
+    });
   });
 
   it("forwards explicit browser rendering options", async () => {
@@ -260,8 +274,6 @@ describe("web search Commander adapter", () => {
         "--section",
         "intro",
       ],
-      ["fetch", "https://example.test/page", "--section", "intro"],
-      ["fetch", "https://example.test/page", "--full"],
     ]) {
       const { program, operations } = setup();
       program.exitOverride();
@@ -276,22 +288,30 @@ describe("web search Commander adapter", () => {
     const operations = setup().operations;
     let stdout = "";
     let stderr = "";
-    const exitCode = await runCli(
-      ["node", "web", "fetch", "https://example.test/page", "--full"],
-      { operations, credentials: () => ({}) },
-      {
-        stdout: (text) => {
-          stdout += text;
+    const processStderrWrite = vi
+      .spyOn(process.stderr, "write")
+      .mockReturnValue(true);
+    try {
+      const exitCode = await runCli(
+        ["node", "web", "fetch", "https://example.test/page", "--full"],
+        { operations, credentials: () => ({}) },
+        {
+          stdout: (text) => {
+            stdout += text;
+          },
+          stderr: (text) => {
+            stderr += text;
+          },
         },
-        stderr: (text) => {
-          stderr += text;
-        },
-      },
-    );
-    expect(exitCode).toBe(1);
-    expect(stdout).toBe("");
-    expect(stderr).toContain("unknown option '--full'");
-    expect(operations.fetch).not.toHaveBeenCalled();
+      );
+      expect(exitCode).toBe(1);
+      expect(stdout).toBe("");
+      expect(stderr).toBe("error: unknown option '--full'\n");
+      expect(processStderrWrite).not.toHaveBeenCalled();
+      expect(operations.fetch).not.toHaveBeenCalled();
+    } finally {
+      processStderrWrite.mockRestore();
+    }
   });
 
   it("forwards link discovery options and supports concise and JSON output", async () => {

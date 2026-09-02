@@ -67,13 +67,14 @@ const fetchInputSchema = schema<FetchToolInput>({
       type: "string",
       enum: [...FETCH_MODES],
       default: "auto",
-      description: "navigation mode: auto (default), full, tree, or section",
+      description: "navigation mode: auto (default), full, or tree",
     },
     section_id: {
       type: "string",
       minLength: 1,
       pattern: "\\S",
-      description: "heading section ID; required only with mode section",
+      description:
+        "heading section ID; retrieves a section with omitted/auto mode",
     },
     render: {
       type: "string",
@@ -103,14 +104,16 @@ const fetchInputSchema = schema<FetchToolInput>({
     {
       oneOf: [
         {
-          properties: {
-            mode: { enum: FETCH_MODES.filter((mode) => mode !== "section") },
-          },
+          required: ["mode"],
+          properties: { mode: { const: "auto" } },
+        },
+        {
+          required: ["mode"],
+          properties: { mode: { enum: ["full", "tree"] } },
           not: { required: ["section_id"] },
         },
         {
-          properties: { mode: { const: "section" } },
-          required: ["mode", "section_id"],
+          not: { required: ["mode"] },
         },
       ],
     },
@@ -226,10 +229,11 @@ const fetchOutputSchema = schema({
   type: "object",
   properties: {
     url: { type: "string" },
-    mode: { type: "string", enum: ["full", "tree", "section"] },
+    mode: { type: "string", enum: ["auto", "full", "tree", "section"] },
     content: { type: "string" },
+    truncated: { type: "boolean" },
   },
-  required: ["url", "mode", "content"],
+  required: ["url", "mode", "content", "truncated"],
 });
 const linksOutputSchema = schema({
   type: "object",
@@ -346,7 +350,7 @@ export function createMcpServer(dependencies: McpDependencies): McpServer {
     "fetch",
     toolConfig(
       "Fetch a web page",
-      "Use the default HTTP renderer for static, SSR, and pre-rendered pages. For client-rendered or SPA pages, set render: browser with required waitMs when the host provides browser capability; there is no automatic fallback.",
+      "Use the default HTTP renderer for static, SSR, and pre-rendered pages. Input mode selects auto, full, or tree navigation; section_id with omitted/auto mode retrieves a section. For client-rendered or SPA pages, set render: browser with required waitMs when the host provides browser capability; there is no automatic fallback.",
       fetchInputSchema,
       fetchOutputSchema,
     ),

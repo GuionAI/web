@@ -50,16 +50,19 @@ It uses the same HTTP default and explicit `render: "browser"` / required
 Long `web_fetch` documents with navigable headings return a navigation tree
 automatically when `mode: "auto"` (the default). A headingless long document
 uses the normal bounded response. Set `mode: "full"` for complete Markdown,
-`mode: "tree"` to force the heading tree, or `mode: "section"` with a returned
-`section_id` to continue with one section. `section_id` is required exactly for
-`mode: "section"`; `"auto"` is request-only because results report the actual
-`mode` as `"full"`, `"tree"`, or `"section"`.
+`mode: "tree"` to force the heading tree, or supply a returned `section_id`
+with omitted mode or `mode: "auto"` to continue with one section. Input mode
+`"section"` is not supported, and `section_id` is rejected with `"full"` or
+`"tree"`. Ordinary automatic document results report `mode: "auto"`; tree,
+full, and section results report `"tree"`, `"full"`, and `"section"`.
+Every result includes `truncated`, which is true only when automatic content
+was cut by the content-length limit.
 
 For example, request a tree and then continue with one returned section:
 
 ```json
 { "url": "https://example.test/article", "mode": "tree" }
-{ "url": "https://example.test/article", "mode": "section", "section_id": "7i" }
+{ "url": "https://example.test/article", "section_id": "7i" }
 ```
 
 Rendered requests are bounded and constrained to the requested hostname,

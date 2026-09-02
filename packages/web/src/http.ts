@@ -74,8 +74,9 @@ const SearchResponseSchema = z
 const FetchResponseSchema = z
   .object({
     url: z.string(),
-    mode: z.enum(["full", "tree", "section"]),
+    mode: z.enum(["auto", "full", "tree", "section"]),
     content: z.string(),
+    truncated: z.boolean(),
   })
   .strict()
   .openapi("FetchResponse");
@@ -108,8 +109,7 @@ const FetchRequestSchema = z
   .object({
     url: HttpUrlSchema,
     mode: z.enum(FETCH_MODES).default("auto").openapi({
-      description:
-        'Navigation mode: "auto" (default), "full", "tree", or "section".',
+      description: 'Navigation mode: "auto" (default), "full", or "tree".',
     }),
     section_id: z
       .string()
@@ -124,16 +124,10 @@ const FetchRequestSchema = z
   })
   .strict()
   .superRefine((input, context) => {
-    if (input.mode === "section" && input.section_id === undefined) {
+    if (input.mode !== "auto" && input.section_id !== undefined) {
       context.addIssue({
         code: "custom",
-        message: 'section_id is required when mode is "section"',
-        path: ["section_id"],
-      });
-    } else if (input.mode !== "section" && input.section_id !== undefined) {
-      context.addIssue({
-        code: "custom",
-        message: 'section_id is only valid with mode "section"',
+        message: 'section_id is only valid with mode "auto"',
         path: ["section_id"],
       });
     }
@@ -141,14 +135,16 @@ const FetchRequestSchema = z
   .openapi("FetchRequest", {
     oneOf: [
       {
-        properties: {
-          mode: { enum: ["auto", "full", "tree"] },
-        },
+        required: ["mode"],
+        properties: { mode: { const: "auto" } },
+      },
+      {
+        required: ["mode"],
+        properties: { mode: { enum: ["full", "tree"] } },
         not: { required: ["section_id"] },
       },
       {
-        properties: { mode: { const: "section" } },
-        required: ["mode", "section_id"],
+        not: { required: ["mode"] },
       },
     ],
   });
@@ -207,7 +203,7 @@ const fetchRoute = createRoute({
   operationId: "fetch",
   summary: "Fetch a web page",
   description:
-    'Fetch through HTTP by default with auto navigation; use mode "full", "tree", or "section" for explicit navigation. Browser rendering requires render=browser and waitMs.',
+    'Fetch through HTTP by default with auto navigation; use mode "full" or "tree" for explicit navigation. Supply section_id with omitted mode or mode "auto" to retrieve a section. Browser rendering requires render=browser and waitMs.',
   request: jsonRequest(FetchRequestSchema),
   responses: {
     200: jsonResponse(FetchResponseSchema, "Fetched page."),

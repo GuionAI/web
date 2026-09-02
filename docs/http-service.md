@@ -55,7 +55,6 @@ Request:
 {
   "url": "https://example.test/article",
   "render": "http",
-  "mode": "section",
   "section_id": "7i"
 }
 ```
@@ -65,8 +64,9 @@ must be exactly `"http"` or `"browser"`; omission selects `"http"`. `waitMs`
 is an integer from 0 through 30,000, required with `render: "browser"` and
 forbidden with `render: "http"` (or when `render` is omitted). `mode` is
 optional and defaults to `"auto"`; it must be one of `"auto"`, `"full"`,
-`"tree"`, or `"section"`. `section_id` is required exactly when `mode` is
-`"section"` and is rejected for every other mode.
+or `"tree"`. A non-empty `section_id` may be supplied with omitted mode or
+`mode: "auto"` to retrieve that section; it is rejected with `"full"` or
+`"tree"`.
 
 HTTP rendering fetches the page with Node HTTP, linkedom, and Defuddle.
 Browser rendering invokes the operator-installed `agent-browser` executable
@@ -77,12 +77,15 @@ the service does not fall back between renderers.
 The shared module owns the 5,000-character automatic-tree policy. An `"auto"`
 request for an unsectioned document longer than that threshold with navigable
 headings returns `mode: "tree"` with stable section IDs. Use one of those IDs
-in a subsequent request with `mode: "section"` to retrieve a section. A long
-document without headings uses the normal bounded `mode: "full"` response
-because it has no section to navigate. `mode: "full"` returns the complete
-extracted Markdown without the Core content limit. `mode: "tree"` always
-returns the heading-tree representation, including the explicit no-headings
-result. A short `"auto"` request uses `mode: "full"`; `"auto"` is input-only.
+in a subsequent request with omitted mode or `mode: "auto"` to retrieve a
+section. A short automatic response and a headingless long document report
+`mode: "auto"`; the latter remains bounded by the Core content limit.
+`mode: "full"` returns the complete extracted Markdown without that limit and
+reports `mode: "full"`. `mode: "tree"` always returns the heading-tree
+representation, including the explicit no-headings result, and reports
+`mode: "tree"`. Section requests report `mode: "section"`. Every response
+includes `truncated`, which is true only when ordinary automatic content was
+cut by the Core content-length limit.
 
 Response `200`:
 
@@ -90,7 +93,8 @@ Response `200`:
 {
   "url": "https://example.test/article",
   "mode": "full",
-  "content": "# Article\n...\n"
+  "content": "# Article\n...\n",
+  "truncated": false
 }
 ```
 

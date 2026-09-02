@@ -313,7 +313,7 @@ function formatWait(waitMs: number): string {
 
 function fetchResultMode(args: Record<string, unknown>): string {
   if (
-    args.mode === "section" &&
+    (args.mode === undefined || args.mode === "auto") &&
     typeof args.section_id === "string" &&
     args.section_id !== ""
   )

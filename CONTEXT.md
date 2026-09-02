@@ -39,12 +39,13 @@ _Avoid_: Backend-specific renderer labels, automatic fallback
 **Page Navigation**:
 The shared page-reading module owns its fixed 5,000-character policy. A long,
 unsectioned request with navigable headings returns a navigation tree; a
-headingless long document uses the normal bounded response. The request
-`mode` is `auto` by default and may be `full`, `tree`, or `section`; `auto` is
-input-only because results report the actual mode. `mode: "full"` returns
-complete Markdown, `mode: "tree"` forces the heading tree, and
-`mode: "section"` with a returned `section_id` retrieves one section.
-`section_id` is valid exactly for `mode: "section"`.
+headingless long document uses the normal bounded automatic response. The
+request `mode` is `auto` by default and may be `full` or `tree`; `section_id`
+is allowed with omitted or `auto` mode and retrieves one section. Full and tree
+reject `section_id`, and input mode `section` is removed. Ordinary automatic
+document results report `mode: "auto"`; full, tree, and section results report
+their corresponding modes. Every Fetch result includes `truncated`, which is
+true only when automatic content was cut by the content-length limit.
 _Avoid_: Caller-selected tree thresholds, legacy navigation booleans
 
 **Release Contract**:

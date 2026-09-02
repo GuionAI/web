@@ -41,12 +41,13 @@ const fetchNavigationProperties = {
   mode: Type.Optional(
     StringEnum(FETCH_MODES, {
       default: "auto",
-      description: "Navigation mode: auto (default), full, tree, or section",
+      description: "Navigation mode: auto (default), full, or tree",
     }),
   ),
   section_id: Type.Optional(
     Type.String({
-      description: "Heading section ID; required only with mode section",
+      description:
+        "Heading section ID; retrieves a section with omitted/auto mode",
       minLength: 1,
       pattern: "\\S",
     }),
@@ -87,14 +88,16 @@ export const webFetchSchema = {
     {
       oneOf: [
         {
-          properties: {
-            mode: { enum: ["auto", "full", "tree"] },
-          },
+          required: ["mode"],
+          properties: { mode: { const: "auto" } },
+        },
+        {
+          required: ["mode"],
+          properties: { mode: { enum: ["full", "tree"] } },
           not: { required: ["section_id"] },
         },
         {
-          properties: { mode: { const: "section" } },
-          required: ["mode", "section_id"],
+          not: { required: ["mode"] },
         },
       ],
     },
@@ -212,7 +215,7 @@ const SEARCH_PROMPT_GUIDELINES = [
   "Use web_search to search the web for current facts.",
 ];
 const FETCH_PROMPT_GUIDELINES = [
-  'Use web_fetch to read a web page; mode: "auto" is the default and long documents with navigable headings return a navigation tree. Follow up with mode: "section" and a returned section_id, or mode: "full" to read everything. Headingless long documents use the normal bounded response.',
+  'Use web_fetch to read a web page; mode: "auto" is the default and long documents with navigable headings return a navigation tree. Follow up with section_id using omitted/auto mode to read a section, or use mode: "full" to read everything. Headingless long documents use the normal bounded response.',
   'web_fetch uses HTTP fetching by default; set render: "http" explicitly when desired.',
   'For a client-rendered or SPA page, or after javascript_rendering_may_be_required, retry explicitly with render: "browser" and waitMs: 2000 only when the host provides browser capability. Increase waitMs explicitly or abandon an incomplete page; there is no automatic fallback.',
   "Never send waitMs with HTTP rendering. The browser is a host capability, not a package dependency.",
@@ -286,16 +289,13 @@ function normalizeFetch(input: unknown): WebFetchInput {
   const renderOptions = validateRenderOptions(input);
   const mode = input.mode;
   if (mode !== undefined && !FETCH_MODES.includes(mode as FetchMode))
-    throw new Error('mode must be one of "auto", "full", "tree", or "section"');
+    throw new Error('mode must be one of "auto", "full", or "tree"');
   if (input.section_id !== undefined) {
     if (typeof input.section_id !== "string" || input.section_id.trim() === "")
       throw new Error("section_id must be a non-empty string");
   }
-  if (mode === "section") {
-    if (input.section_id === undefined)
-      throw new Error('section_id is required when mode is "section"');
-  } else if (input.section_id !== undefined) {
-    throw new Error('section_id is only valid with mode "section"');
+  if ((mode === "full" || mode === "tree") && input.section_id !== undefined) {
+    throw new Error('section_id is only valid with mode "auto"');
   }
   const typed = input as unknown as WebFetchInput;
   const navigation = {
@@ -448,14 +448,14 @@ export function webFetchTool(dependencies: WebToolDependencies = {}) {
     name: "web_fetch",
     label: "Web fetch",
     description:
-      "Fetch and read an HTTP or HTTPS web page as Markdown, with HTTP rendering by default or explicit browser rendering for client-rendered pages. Browser rendering requires waitMs 0 through 30000. mode selects auto, full, tree, or section navigation; mode section requires section_id. Text output is limited to 2,000 lines or 50KB; truncated output is saved to a temporary file.",
+      "Fetch and read an HTTP or HTTPS web page as Markdown, with HTTP rendering by default or explicit browser rendering for client-rendered pages. Browser rendering requires waitMs 0 through 30000. mode selects auto, full, or tree navigation; section_id with omitted/auto mode retrieves a section. Text output is limited to 2,000 lines or 50KB; truncated output is saved to a temporary file.",
     promptSnippet: "Fetch a web page with web_fetch",
     promptGuidelines: FETCH_PROMPT_GUIDELINES,
     parameters: webFetchSchema,
     execute: async (params, signal) => {
       const data = await operations.fetch(normalizeFetch(params), signal);
       return modelTextResult(data, data.content, {
-        hint: 'Use web_fetch with mode: "full" for the complete document, or mode: "section" with a returned section_id to navigate the document.',
+        hint: 'Use web_fetch with mode: "full" for the complete document, or section_id with omitted/auto mode to navigate to a section.',
       });
     },
   });

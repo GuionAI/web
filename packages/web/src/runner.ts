@@ -22,8 +22,15 @@ export async function runCli(
   output: CliOutput,
 ): Promise<number> {
   const program = createProgram({ ...dependencies, writeOut: output.stdout });
-  configureExitOverride(program);
+  const fetchCommand = program.commands.find(
+    (command) => command.name() === "fetch",
+  );
+  fetchCommand?.exitOverride();
   program.configureOutput({ writeOut: output.stdout, writeErr: output.stderr });
+  fetchCommand?.configureOutput({
+    writeOut: output.stdout,
+    writeErr: output.stderr,
+  });
   try {
     await program.parseAsync(argv);
     return 0;
@@ -32,17 +39,13 @@ export async function runCli(
       typeof error === "object" &&
       error !== null &&
       "code" in error &&
-      error.code === "commander.helpDisplayed"
+      typeof error.code === "string" &&
+      error.code.startsWith("commander.")
     )
-      return 0;
+      return error.code === "commander.helpDisplayed" ? 0 : 1;
     output.stderr(formatCliError(error));
     return 1;
   }
-}
-
-function configureExitOverride(command: import("commander").Command): void {
-  command.exitOverride();
-  for (const child of command.commands) configureExitOverride(child);
 }
 
 function formatCliError(error: unknown): string {

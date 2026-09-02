@@ -179,6 +179,7 @@ else console.log(JSON.stringify({ success: true, data: {} }));
     if (
       mcpFetch.isError ||
       mcpFetch.structuredContent?.mode !== "full" ||
+      mcpFetch.structuredContent?.truncated !== false ||
       mcpFetch.structuredContent?.content !== "Packed fetch fixture.\n"
     ) {
       throw new Error("packed MCP stdio could not fetch the local fixture");
@@ -204,6 +205,7 @@ else console.log(JSON.stringify({ success: true, data: {} }));
     const fetched = JSON.parse(result.stdout);
     if (
       fetched.mode !== "full" ||
+      fetched.truncated !== false ||
       fetched.content !== "Packed fetch fixture.\n"
     ) {
       throw new Error("installed web CLI could not fetch the local fixture");

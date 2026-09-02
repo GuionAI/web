@@ -194,7 +194,10 @@ if (command === "open" && args.some((value) => value.includes("/blocked"))) {
       url: "https://93.184.216.34/direct",
       mode: "full",
     });
-    if (!direct.content[0]?.text.includes("Browserless output."))
+    if (
+      !direct.content[0]?.text.includes("Browserless output.") ||
+      direct.details?.truncated !== false
+    )
       throw new Error("packed extension did not execute browserless fetch");
     try {
       await readFile(fakeLog, "utf8");

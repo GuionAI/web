@@ -15,10 +15,11 @@ type Heading = {
 
 export type MarkdownResult = {
   content: string;
-  mode: "full" | "tree" | "section";
+  mode: "auto" | "full" | "tree" | "section";
+  truncated: boolean;
 };
 
-export const FETCH_MODES = ["auto", "full", "tree", "section"] as const;
+export const FETCH_MODES = ["auto", "full", "tree"] as const;
 export type FetchMode = (typeof FETCH_MODES)[number];
 
 export type MarkdownNavigationOptions = {
@@ -42,31 +43,38 @@ export function renderMarkdown(
   const headings = assignIds(parseHeadings(source));
   const mode = options.mode ?? "auto";
   const section = options.section_id?.trim();
-  if (mode === "section") {
-    if (!section)
-      throw new Error('section_id is required when mode is "section"');
+  if (section !== undefined) {
+    if (mode !== "auto")
+      throw new Error('section_id is only valid with mode "auto"');
     return {
       content: extractSection(source, headings, section),
       mode: "section",
+      truncated: false,
     };
   }
-  if (section !== undefined)
-    throw new Error('section_id is only valid with mode "section"');
 
-  if (mode === "tree") return { content: renderTree(source, headings), mode };
+  if (mode === "tree")
+    return { content: renderTree(source, headings), mode, truncated: false };
 
   if (mode === "full")
     return {
       content: source,
       mode: "full",
+      truncated: false,
     };
 
   const charCount = Array.from(source).length;
   if (charCount > DEFAULT_TREE_THRESHOLD && headings.length > 0)
-    return { content: renderTree(source, headings), mode: "tree" };
+    return {
+      content: renderTree(source, headings),
+      mode: "tree",
+      truncated: false,
+    };
+  const truncated = charCount > MAX_CONTENT_CHARS;
   return {
     content: truncateContent(source),
-    mode: "full",
+    mode: "auto",
+    truncated,
   };
 }
 
@@ -78,7 +86,7 @@ function validateNavigationOptions(options: object): void {
 
   const mode = (options as { mode?: unknown }).mode;
   if (mode !== undefined && !FETCH_MODES.includes(mode as FetchMode))
-    throw new Error('mode must be one of "auto", "full", "tree", or "section"');
+    throw new Error('mode must be one of "auto", "full", or "tree"');
 
   const section = (options as { section_id?: unknown }).section_id;
   if (
@@ -223,7 +231,7 @@ function renderTree(source: string, headings: Heading[]): string {
           `└── [${heading.id}] ${"#".repeat(heading.level)} ${heading.text}  (${formatNumber(sectionCharCount(source, headings, index))} chars)\n`,
       )
       .join("");
-    return `${header}${tree}\nUse mode: "section" with section_id to read a section, or mode: "full" to read everything.\n`;
+    return `${header}${tree}\nUse section_id with the default or mode: "auto" to read a section, or mode: "full" to read everything.\n`;
   }
 
   const nodes = bodyHeadings.map((heading) => {
@@ -252,7 +260,7 @@ function renderTree(source: string, headings: Heading[]): string {
       hasMore.delete(depth);
   });
 
-  return `${header}${tree}\nUse mode: "section" with section_id to read a section, or mode: "full" to read everything.\n`;
+  return `${header}${tree}\nUse section_id with the default or mode: "auto" to read a section, or mode: "full" to read everything.\n`;
 }
 
 function sectionCharCount(

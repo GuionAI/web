@@ -53,8 +53,9 @@ export type FetchInput = {
 
 export type FetchResult = {
   url: string;
-  mode: "full" | "tree" | "section";
+  mode: "auto" | "full" | "tree" | "section";
   content: string;
+  truncated: boolean;
 };
 
 export type LinksInput = {
@@ -136,7 +137,12 @@ export async function fetchWebPage(
     mode,
     section_id: input.section_id,
   });
-  return { url, mode: rendered.mode, content: rendered.content };
+  return {
+    url,
+    mode: rendered.mode,
+    content: rendered.content,
+    truncated: rendered.truncated,
+  };
 }
 
 /** Lists HTTP(S) links from the original or browser-rendered page DOM. */
@@ -211,14 +217,9 @@ function validateNavigationInput(
 ): FetchMode {
   const mode = input.mode ?? "auto";
   if (!FETCH_MODES.includes(mode as FetchMode))
-    throw new Error('mode must be one of "auto", "full", "tree", or "section"');
-  if (mode === "section") {
-    if (input.section_id === undefined)
-      throw new Error('section_id is required when mode is "section"');
-    return mode;
-  }
-  if (input.section_id !== undefined)
-    throw new Error('section_id is only valid with mode "section"');
+    throw new Error('mode must be one of "auto", "full", or "tree"');
+  if (input.section_id !== undefined && mode !== "auto")
+    throw new Error('section_id is only valid with mode "auto"');
   return mode;
 }
 
