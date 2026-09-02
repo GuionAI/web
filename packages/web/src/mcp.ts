@@ -192,7 +192,7 @@ const sgraphInputSchema = schema<SGraphToolInput>({
 const searchOutputSchema = schema({
   type: "object",
   properties: {
-    provider: { type: "string", enum: ["Exa", "Brave"] },
+    provider: { type: "string", enum: ["Exa", "Brave", "Kepos Bridge"] },
     results: {
       type: "array",
       items: {
@@ -432,7 +432,10 @@ export function createMcpCommand(
 ): Command {
   return new Command("mcp")
     .description("Serve typed web tools over stdio MCP")
-    .option("--provider <provider>", "Search provider: exa or brave")
+    .option(
+      "--provider <provider>",
+      "Search provider: exa, brave, or kepos-bridge",
+    )
     .action((options: { provider?: string }) => {
       const provider = options.provider;
       serveStdio(() => createMcpServer({ ...dependencies, provider }), {

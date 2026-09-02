@@ -7,6 +7,7 @@ import {
   normalizeDocsToolInput,
   type DocsToolInput,
   type LinksResult,
+  type SearchProvider,
   type WebCredentials,
   type WebOperations,
   type SearchResponse,
@@ -187,6 +188,8 @@ type SearchResult = SearchResponse & {
 export type WebToolDependencies = {
   operations?: WebOperations;
   credentials?: () => WebCredentials;
+  /** Pins the provider used by every Pi web search. */
+  provider?: SearchProvider;
 };
 
 const SEARCH_PROMPT_GUIDELINES = [
@@ -353,6 +356,7 @@ function normalizeDocs(input: unknown): DocsToolInput {
 export function webSearchTool(dependencies: WebToolDependencies = {}) {
   const operations = dependencies.operations ?? createWebOperations();
   const credentials = dependencies.credentials ?? environmentCredentials;
+  const provider = dependencies.provider ?? process.env.WEB_SEARCH_PROVIDER;
   return makeTool({
     name: "web_search",
     label: "Web search",
@@ -367,6 +371,7 @@ export function webSearchTool(dependencies: WebToolDependencies = {}) {
         queries.map((query) =>
           operations.search({
             query,
+            ...(provider === undefined ? {} : { provider }),
             credentials: credentials(),
             signal,
           }),

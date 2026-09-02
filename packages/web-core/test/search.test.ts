@@ -136,7 +136,6 @@ describe("search providers migrated from Organon fixtures", () => {
       query: "managed search",
       provider: "kepos-bridge",
       maxResults: 2,
-      keposBridgeEndpoint: "http://fixture.test/codex/web-search",
       credentials: {},
       fetch: async (receivedURL, init) => {
         url = String(receivedURL);
@@ -159,7 +158,7 @@ describe("search providers migrated from Organon fixtures", () => {
         });
       },
     });
-    expect(url).toBe("http://fixture.test/codex/web-search");
+    expect(url).toBe(DEFAULT_KEPOS_BRIDGE_ENDPOINT);
     expect(body).toEqual({
       commands: { search_query: [{ q: "managed search" }] },
     });

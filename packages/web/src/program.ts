@@ -39,7 +39,10 @@ function createSearchCommand(dependencies: ProgramDependencies): Command {
     .description("Search the web")
     .argument("<query>", "One search query")
     .option("--json", "Output the structured result as JSON")
-    .option("--provider <provider>", "Search provider: exa or brave")
+    .option(
+      "--provider <provider>",
+      "Search provider: exa, brave, or kepos-bridge",
+    )
     .action(
       async (query: string, options: { json?: boolean; provider?: string }) => {
         const result = await dependencies.operations.search({
