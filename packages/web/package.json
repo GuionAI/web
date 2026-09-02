@@ -1,7 +1,7 @@
 {
   "name": "@guionai/web",
   "version": "0.1.0",
-  "description": "Web research CLI and stdio MCP server with direct and optional agent-browser page-fetch backends.",
+  "description": "Web research CLI, stdio MCP server, and personal HTTP service with HTTP and optional browser page-rendering modes.",
   "homepage": "https://github.com/guionai/web#readme",
   "bugs": {
     "url": "https://github.com/guionai/web/issues"
@@ -27,13 +27,23 @@
     "node": ">=20"
   },
   "dependencies": {
-    "commander": "12.1.0"
+    "@hono/node-server": "2.1.1",
+    "@hono/zod-openapi": "1.6.1",
+    "commander": "12.1.0",
+    "hono": "4.13.5",
+    "yaml": "2.9.0",
+    "zod": "4.4.3"
   },
   "bundledDependencies": [
-    "commander"
+    "@hono/node-server",
+    "@hono/zod-openapi",
+    "commander",
+    "hono",
+    "yaml",
+    "zod"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node dist/generate-openapi.js",
     "typecheck": "tsc --noEmit -p ../../tsconfig.json",
     "test:pack": "node test/packed-smoke.mjs"
   },

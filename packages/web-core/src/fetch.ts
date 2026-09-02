@@ -9,7 +9,7 @@ import { spawn } from "node:child_process";
 import { Defuddle } from "defuddle/node";
 import { parseHTML } from "linkedom";
 
-import { renderMarkdown, truncateContent } from "./markdown.js";
+import { renderMarkdown } from "./markdown.js";
 import {
   boundedRequest,
   isOperationAborted,
@@ -45,11 +45,9 @@ export const RENDER_CDN_ALLOWLIST = [
 
 export type FetchInput = {
   url: string;
-  tree?: boolean;
   section_id?: string;
   full?: boolean;
-  tree_threshold?: number;
-  render?: "fetch" | "agent-browser";
+  render?: "http" | "browser";
   waitMs?: number;
 };
 
@@ -62,7 +60,7 @@ export type FetchResult = {
 export type LinksInput = {
   url: string;
   limit?: number;
-  render?: "fetch" | "agent-browser";
+  render?: "http" | "browser";
   waitMs?: number;
 };
 
@@ -79,7 +77,7 @@ export type LinksResult = {
 
 export type FetchErrorDetails = {
   retryableWithRender?: boolean;
-  suggestedArguments?: { render: "agent-browser"; waitMs: 2000 };
+  suggestedArguments?: { render: "browser"; waitMs: 2000 };
   retryable?: boolean;
   reportUrl?: string;
   blockedHostname?: string;
@@ -125,20 +123,19 @@ export async function fetchWebPage(
   callerSignal?: AbortSignal,
   options?: FetchOptions,
 ): Promise<FetchResult> {
+  validateFetchFields(input);
   const url = validateURL(input.url);
   const render = validateRenderInput(input);
+  validateNavigationInput(input);
   const content =
-    render === "agent-browser"
+    render === "browser"
       ? await renderPage(url, input.waitMs!, callerSignal, options)
       : await fetchCached(url, callerSignal, options);
   throwIfAborted(callerSignal);
-  const rendered = renderMarkdown(
-    content,
-    input.tree ?? false,
-    input.section_id,
-    input.full ?? false,
-    input.tree_threshold,
-  );
+  const rendered = renderMarkdown(content, {
+    section_id: input.section_id,
+    full: input.full === true,
+  });
   return { url, mode: rendered.mode, content: rendered.content };
 }
 
@@ -148,11 +145,12 @@ export async function fetchWebLinks(
   callerSignal?: AbortSignal,
   options?: FetchOptions,
 ): Promise<LinksResult> {
+  validateLinksFields(input);
   const url = validateURL(input.url);
   const render = validateRenderInput(input);
   const limit = validateLinkLimit(input.limit);
   const source =
-    render === "agent-browser"
+    render === "browser"
       ? await renderPageHTML(url, input.waitMs!, callerSignal, options)
       : await fetchPageHTML(url, callerSignal, options);
   throwIfAborted(callerSignal);
@@ -161,17 +159,17 @@ export async function fetchWebLinks(
 
 function validateRenderInput(
   input: Pick<FetchInput, "render" | "waitMs">,
-): "fetch" | "agent-browser" {
-  const render = input.render ?? "fetch";
-  if (render !== "fetch" && render !== "agent-browser")
-    throw new Error('render must be "fetch" or "agent-browser"');
-  if (render === "fetch") {
+): "http" | "browser" {
+  const render = input.render ?? "http";
+  if (render !== "http" && render !== "browser")
+    throw new Error('render must be "http" or "browser"');
+  if (render === "http") {
     if (input.waitMs !== undefined)
-      throw new Error("waitMs is only valid with render agent-browser");
+      throw new Error("waitMs is only valid with render browser");
     return render;
   }
   if (input.waitMs === undefined)
-    throw new Error("waitMs is required with render agent-browser");
+    throw new Error("waitMs is required with render browser");
   if (
     !Number.isInteger(input.waitMs) ||
     input.waitMs < 0 ||
@@ -179,6 +177,42 @@ function validateRenderInput(
   )
     throw new Error("waitMs must be an integer from 0 through 30000");
   return render;
+}
+
+function validateFetchFields(input: FetchInput): void {
+  validateKnownFields(
+    input,
+    ["url", "section_id", "full", "render", "waitMs"],
+    "fetch",
+  );
+  if (typeof input.full !== "undefined" && typeof input.full !== "boolean")
+    throw new Error("full must be a boolean");
+  if (typeof input.section_id !== "undefined") {
+    if (typeof input.section_id !== "string" || input.section_id.trim() === "")
+      throw new Error("section_id must be a non-empty string");
+  }
+}
+
+function validateLinksFields(input: LinksInput): void {
+  validateKnownFields(input, ["url", "limit", "render", "waitMs"], "links");
+}
+
+function validateKnownFields(
+  input: object,
+  fields: readonly string[],
+  operation: string,
+): void {
+  for (const field of Object.keys(input)) {
+    if (!fields.includes(field))
+      throw new Error(`${operation} input does not accept field ${field}`);
+  }
+}
+
+function validateNavigationInput(
+  input: Pick<FetchInput, "section_id" | "full">,
+): void {
+  if (input.full === true && input.section_id !== undefined)
+    throw new Error("full and section_id cannot be used together");
 }
 
 function validateLinkLimit(limit: number | undefined): number {
@@ -220,7 +254,7 @@ async function fetchLocal(
   try {
     const response = await downloadPage(url, callerSignal, options);
     if (response.contentType !== "" && response.contentType !== "text/html")
-      return truncateContent(new TextDecoder().decode(response.body));
+      return new TextDecoder().decode(response.body);
     return extractHTML(
       new TextDecoder().decode(response.body),
       url,
@@ -576,12 +610,12 @@ async function extractHTML(
       if (suggestRender) {
         throw new FetchCapabilityError("javascript_rendering_may_be_required", {
           retryableWithRender: true,
-          suggestedArguments: { render: "agent-browser", waitMs: 2000 },
+          suggestedArguments: { render: "browser", waitMs: 2000 },
         });
       }
       throw new Error("no content could be extracted");
     }
-    return truncateContent(content.endsWith("\n") ? content : content + "\n");
+    return ensureTrailingNewline(content);
   } catch (error) {
     if (error instanceof FetchCapabilityError) throw error;
     throw new Error(`defuddle parse failed: ${errorMessage(error)}`);
@@ -641,6 +675,9 @@ function rendererEnvironment(
     TEMP: workDirectory,
     AGENT_BROWSER_CONFIG: configPath,
   };
+  if (process.env.AGENT_BROWSER_EXECUTABLE_PATH !== undefined)
+    environment.AGENT_BROWSER_EXECUTABLE_PATH =
+      process.env.AGENT_BROWSER_EXECUTABLE_PATH;
   for (const name of [
     "HTTP_PROXY",
     "HTTPS_PROXY",
@@ -1099,6 +1136,10 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function ensureTrailingNewline(content: string): string {
+  return content.endsWith("\n") ? content : `${content}\n`;
+}
+
 function defaultCacheDir(): string {
   const home = process.env.HOME?.trim() || homedir();
   if (process.platform === "win32") {
@@ -1148,7 +1189,7 @@ class DailyCache implements FetchCache {
       });
     } catch {
       if (signal?.aborted) throwIfAborted(signal);
-      // Cache failures must not make a successful direct fetch fail.
+      // Cache failures must not make a successful HTTP fetch fail.
     }
   }
 

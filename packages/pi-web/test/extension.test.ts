@@ -98,41 +98,48 @@ describe("pi-web extension", () => {
     expect(
       Value.Check(webFetchSchema, {
         url: "https://fixture.test",
-        render: "fetch",
+        render: "http",
       }),
     ).toBe(true);
     expect(
       Value.Check(webFetchSchema, {
         url: "https://fixture.test",
-        render: "agent-browser",
+        render: "browser",
         waitMs: 0,
       }),
     ).toBe(true);
     expect(
       Value.Check(webFetchSchema, {
         url: "https://fixture.test",
-        render: "agent-browser",
+        render: "browser",
         waitMs: 30_000,
       }),
     ).toBe(true);
     expect(
       Value.Check(webFetchSchema, {
         url: "https://fixture.test",
-        render: "agent-browser",
+        render: "browser",
       }),
     ).toBe(false);
     expect(
       Value.Check(webFetchSchema, {
         url: "https://fixture.test",
-        render: "fetch",
+        render: "http",
         waitMs: 0,
       }),
     ).toBe(false);
     expect(
       Value.Check(webFetchSchema, {
         url: "https://fixture.test",
-        render: "agent-browser",
+        render: "browser",
         waitMs: 30_001,
+      }),
+    ).toBe(false);
+    expect(
+      Value.Check(webFetchSchema, {
+        url: "https://fixture.test",
+        full: true,
+        section_id: "intro",
       }),
     ).toBe(false);
 
@@ -146,17 +153,13 @@ describe("pi-web extension", () => {
     const tool = webFetchTool({ operations: operations({ fetch }) });
     const result = await call(tool, {
       url: "https://fixture.test",
-      render: "agent-browser",
+      render: "browser",
       waitMs: 1250,
     });
     expect(fetch).toHaveBeenCalledWith(
       {
         url: "https://fixture.test",
-        tree: undefined,
-        section_id: undefined,
-        full: undefined,
-        tree_threshold: undefined,
-        render: "agent-browser",
+        render: "browser",
         waitMs: 1250,
       },
       undefined,
@@ -166,13 +169,13 @@ describe("pi-web extension", () => {
     await expect(
       call(tool, {
         url: "https://fixture.test",
-        render: "agent-browser",
+        render: "browser",
       }),
     ).rejects.toThrow("waitMs is required");
     await expect(
       call(tool, {
         url: "https://fixture.test",
-        render: "fetch",
+        render: "http",
         waitMs: 0,
       }),
     ).rejects.toThrow("waitMs is only valid");
@@ -184,7 +187,7 @@ describe("pi-web extension", () => {
     expect(
       Value.Check(webLinksSchema, {
         url: "https://fixture.test",
-        render: "agent-browser",
+        render: "browser",
         waitMs: 0,
         limit: 25,
       }),
@@ -192,7 +195,7 @@ describe("pi-web extension", () => {
     expect(
       Value.Check(webLinksSchema, {
         url: "https://fixture.test",
-        render: "agent-browser",
+        render: "browser",
       }),
     ).toBe(false);
     expect(
@@ -211,14 +214,14 @@ describe("pi-web extension", () => {
     const linksResult = await call(linksTool, {
       url: "https://fixture.test",
       limit: 25,
-      render: "agent-browser",
+      render: "browser",
       waitMs: 1250,
     });
     expect(links).toHaveBeenCalledWith(
       {
         url: "https://fixture.test",
         limit: 25,
-        render: "agent-browser",
+        render: "browser",
         waitMs: 1250,
       },
       undefined,
@@ -233,7 +236,7 @@ describe("pi-web extension", () => {
         code: "javascript_rendering_may_be_required",
         details: {
           retryableWithRender: true,
-          suggestedArguments: { render: "agent-browser", waitMs: 2000 },
+          suggestedArguments: { render: "browser", waitMs: 2000 },
         },
       },
     );
@@ -266,7 +269,7 @@ describe("pi-web extension", () => {
     await expect(
       call(blockedTool, {
         url: "https://fixture.test",
-        render: "agent-browser",
+        render: "browser",
         waitMs: 0,
       }),
     ).rejects.toBe(blocked);
@@ -469,7 +472,7 @@ describe("pi-web extension", () => {
       expect(details.url).toBe("https://fixture.test");
       expect(details.truncation.truncated).toBe(true);
       expect(result.content[0]?.text).toContain(
-        "Use web_fetch with tree or section_id to navigate the document.",
+        "Use web_fetch with full: true or a returned section_id to navigate the document.",
       );
       expect(await readFile(details.fullOutputPath, "utf8")).toBe(content);
     } finally {

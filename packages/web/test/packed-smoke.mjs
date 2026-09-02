@@ -229,7 +229,7 @@ else console.log(JSON.stringify({ success: true, data: {} }));
     [
       "fetch",
       "https://93.184.216.34/rendered",
-      "--render=agent-browser",
+      "--render=browser",
       "--wait=0",
       "--full",
       "--json",
@@ -261,7 +261,7 @@ else console.log(JSON.stringify({ success: true, data: {} }));
       [
         "fetch",
         "https://93.184.216.34/blocked",
-        "--render=agent-browser",
+        "--render=browser",
         "--wait=0",
       ],
       { cwd: root, env: fakeEnvironment },

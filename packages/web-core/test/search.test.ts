@@ -199,6 +199,18 @@ describe("search providers migrated from Organon fixtures", () => {
     ).rejects.toThrow(/Kepos Bridge provider/);
   });
 
+  it("can preserve an explicitly empty successful Bridge result for HTTP callers", async () => {
+    await expect(
+      search({
+        query: "empty",
+        provider: "kepos-bridge",
+        allowEmptyKeposResults: true,
+        credentials: {},
+        fetch: async () => response({ output: "no matches", results: [] }),
+      }),
+    ).resolves.toEqual({ provider: "Kepos Bridge", results: [] });
+  });
+
   it("does not expose remote error bodies or credentials", async () => {
     await expect(
       search({

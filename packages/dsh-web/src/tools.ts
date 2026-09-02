@@ -9,6 +9,7 @@ import {
   type DocsFetchResult,
   type DocsResolveResult,
   type DocsToolInput,
+  type FetchInput,
   type FetchResult,
   type LinksInput,
   type LinksResult,
@@ -26,8 +27,6 @@ import { defineTool, type ToolDefinition } from "@deepseek-ai/dsh-tools";
 
 import { CONTEXT7_CREDENTIAL_REF } from "./contract.js";
 
-const DEFAULT_TREE_THRESHOLD = 5000;
-
 export interface WebToolDependencies {
   credentials: {
     resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined>;
@@ -43,7 +42,6 @@ const fetchParameters = {
     required: true,
     description: "HTTP or HTTPS URL to fetch",
   },
-  tree: { type: "boolean", description: "Show the page heading tree" },
   section_id: {
     type: "string",
     description: "Optional heading section ID to return",
@@ -52,20 +50,14 @@ const fetchParameters = {
     type: "boolean",
     description: "Return full content without automatic tree mode",
   },
-  tree_threshold: {
-    type: "integer",
-    default: DEFAULT_TREE_THRESHOLD,
-    description: "Automatic tree threshold; defaults to 5000",
-  },
   render: {
     type: "string",
-    enum: ["fetch", "agent-browser"],
-    description: "Page-fetch backend; defaults to direct fetch",
+    enum: ["http", "browser"],
+    description: "Page renderer; defaults to HTTP",
   },
   waitMs: {
     type: "integer",
-    description:
-      "Required post-load wait for agent-browser rendering (0-30000)",
+    description: "Required post-load wait for browser rendering (0-30000)",
   },
 } as const;
 
@@ -82,13 +74,12 @@ const linksParameters = {
   },
   render: {
     type: "string",
-    enum: ["fetch", "agent-browser"],
-    description: "Page-fetch backend; defaults to direct fetch",
+    enum: ["http", "browser"],
+    description: "Page renderer; defaults to HTTP",
   },
   waitMs: {
     type: "integer",
-    description:
-      "Required post-load wait for agent-browser rendering (0-30000)",
+    description: "Required post-load wait for browser rendering (0-30000)",
   },
 } as const;
 
@@ -221,7 +212,7 @@ const fetchOutput = {
       type: "text" as const,
       text: boundedToolText(
         value.content,
-        "Use web_fetch with tree or section_id to navigate the document.",
+        "Use web_fetch with full: true or a returned section_id to navigate the document.",
       ),
     },
   ],
@@ -378,32 +369,72 @@ function normalizeLinks(input: unknown): LinksInput {
       `limit must be an integer from 1 through ${MAX_LINK_LIMIT}`,
     );
 
-  const render = input.render;
-  const waitMs = input.waitMs;
-  if (render !== undefined && render !== "fetch" && render !== "agent-browser")
-    throw new Error('render must be "fetch" or "agent-browser"');
-  if (render !== "agent-browser") {
-    if (waitMs !== undefined)
-      throw new Error("waitMs is only valid with render agent-browser");
-  } else {
-    if (waitMs === undefined)
-      throw new Error("waitMs is required with render agent-browser");
-    if (
-      typeof waitMs !== "number" ||
-      !Number.isInteger(waitMs) ||
-      waitMs < 0 ||
-      waitMs > 30_000
-    )
-      throw new Error("waitMs must be an integer from 0 through 30000");
-  }
+  const renderOptions = validateRenderOptions(input);
 
   return {
     url,
     ...(limit !== undefined ? { limit } : {}),
-    ...(render !== undefined ? { render } : {}),
-    ...(waitMs !== undefined ? { waitMs } : {}),
+    ...renderOptions,
   };
 }
+
+function normalizeFetch(input: unknown): FetchInput {
+  if (!isRecord(input)) throw new Error("web_fetch input must be an object");
+  rejectUnknownFields(
+    input,
+    ["url", "section_id", "full", "render", "waitMs"],
+    "web_fetch",
+  );
+  const url = requireString(input, "url");
+  const sectionID = input.section_id;
+  if (
+    sectionID !== undefined &&
+    (typeof sectionID !== "string" || sectionID.trim().length === 0)
+  )
+    throw new Error("section_id must be a non-empty string");
+  const full = input.full;
+  if (full !== undefined && typeof full !== "boolean")
+    throw new Error("full must be a boolean");
+  if (full === true && sectionID !== undefined)
+    throw new Error("full and section_id cannot be used together");
+  const renderOptions = validateRenderOptions(input);
+  return {
+    url,
+    ...(sectionID === undefined ? {} : { section_id: sectionID }),
+    ...(full === undefined ? {} : { full }),
+    ...renderOptions,
+  };
+}
+
+function validateRenderOptions(input: {
+  render?: unknown;
+  waitMs?: unknown;
+}): RenderOptions {
+  const render = input.render;
+  const waitMs = input.waitMs;
+  if (render !== undefined && render !== "http" && render !== "browser")
+    throw new Error('render must be "http" or "browser"');
+  if (render !== "browser") {
+    if (waitMs !== undefined)
+      throw new Error("waitMs is only valid with render browser");
+    return render === undefined ? {} : { render };
+  }
+  if (waitMs === undefined)
+    throw new Error("waitMs is required with render browser");
+  if (
+    typeof waitMs !== "number" ||
+    !Number.isInteger(waitMs) ||
+    waitMs < 0 ||
+    waitMs > 30_000
+  )
+    throw new Error("waitMs must be an integer from 0 through 30000");
+  return { render, waitMs };
+}
+
+type RenderOptions =
+  | { render?: undefined; waitMs?: undefined }
+  | { render: "http"; waitMs?: undefined }
+  | { render: "browser"; waitMs: number };
 
 function normalizeDocs(input: unknown): DocsToolInput {
   if (!isRecord(input)) throw new Error("web_docs input must be an object");
@@ -458,24 +489,12 @@ function webFetchTool(
     defineTool({
       name: "web_fetch",
       description:
-        "Use direct fetch for static, SSR, and pre-rendered pages. For client-rendered or SPA pages, set render: agent-browser with required waitMs on a host that has agent-browser installed; there is no automatic fallback.",
+        "Use HTTP rendering for static, SSR, and pre-rendered pages. For client-rendered or SPA pages, set render: browser with required waitMs when the host provides browser capability; there is no automatic fallback.",
       parameters: fetchParameters,
       output: fetchOutput,
       isConcurrencySafe: () => true,
       async execute(args, exec) {
-        rejectUnknownFields(args, Object.keys(fetchParameters), "web_fetch");
-        return operations.fetch(
-          {
-            url: requireString(args, "url"),
-            tree: args.tree,
-            section_id: args.section_id,
-            full: args.full,
-            tree_threshold: args.tree_threshold,
-            render: args.render,
-            waitMs: args.waitMs,
-          },
-          exec.signal,
-        );
+        return operations.fetch(normalizeFetch(args), exec.signal);
       },
     }),
   );
@@ -489,7 +508,7 @@ function webLinksTool(
     defineTool({
       name: "web_links",
       description:
-        "List HTTP(S) links from a page. Use direct fetch for static pages, or explicit agent-browser rendering with waitMs for client-rendered pages.",
+        "List HTTP(S) links from a page. Use HTTP rendering for static pages, or explicit browser rendering with waitMs for client-rendered pages.",
       parameters: linksParameters,
       output: linksOutput,
       isConcurrencySafe: () => true,

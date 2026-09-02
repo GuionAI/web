@@ -155,7 +155,7 @@ describe("web stdio MCP adapter", () => {
       .mockRejectedValueOnce(
         new FetchCapabilityError("javascript_rendering_may_be_required", {
           retryableWithRender: true,
-          suggestedArguments: { render: "agent-browser", waitMs: 2000 },
+          suggestedArguments: { render: "browser", waitMs: 2000 },
         }),
       )
       .mockResolvedValueOnce({
@@ -174,7 +174,7 @@ describe("web stdio MCP adapter", () => {
         name: "fetch",
         arguments: {
           url: "https://example.test/page",
-          render: "agent-browser",
+          render: "browser",
           waitMs: 2000,
         },
       });
@@ -185,7 +185,7 @@ describe("web stdio MCP adapter", () => {
           code: "javascript_rendering_may_be_required",
           details: {
             retryableWithRender: true,
-            suggestedArguments: { render: "agent-browser", waitMs: 2000 },
+            suggestedArguments: { render: "browser", waitMs: 2000 },
           },
         },
       });
@@ -196,11 +196,7 @@ describe("web stdio MCP adapter", () => {
         2,
         {
           url: "https://example.test/page",
-          tree: false,
-          full: false,
-          section_id: undefined,
-          tree_threshold: 5000,
-          render: "agent-browser",
+          render: "browser",
           waitMs: 2000,
         },
         expect.any(AbortSignal),
@@ -250,10 +246,9 @@ describe("web stdio MCP adapter", () => {
       string,
       unknown
     >;
-    expect(fetchProperties.tree_threshold).toMatchObject({ default: 5000 });
     expect(fetchProperties.render).toMatchObject({
-      enum: ["fetch", "agent-browser"],
-      default: "fetch",
+      enum: ["http", "browser"],
+      default: "http",
     });
     expect(fetchProperties.waitMs).toMatchObject({
       type: "integer",
@@ -267,8 +262,8 @@ describe("web stdio MCP adapter", () => {
       maximum: 100,
     });
     expect(linksProperties.render).toMatchObject({
-      enum: ["fetch", "agent-browser"],
-      default: "fetch",
+      enum: ["http", "browser"],
+      default: "http",
     });
     expect(docsFetchProperties.tokens).toMatchObject({ default: 0 });
     expect(sgraphProperties).toMatchObject({
@@ -293,8 +288,7 @@ describe("web stdio MCP adapter", () => {
       name: "fetch",
       arguments: {
         url: "https://example.test/page",
-        tree: true,
-        render: "agent-browser",
+        render: "browser",
         waitMs: 125,
       },
     });
@@ -303,7 +297,7 @@ describe("web stdio MCP adapter", () => {
       arguments: {
         url: "https://example.test/page",
         limit: 25,
-        render: "agent-browser",
+        render: "browser",
         waitMs: 125,
       },
     });
@@ -347,11 +341,7 @@ describe("web stdio MCP adapter", () => {
     expect(operations.fetch).toHaveBeenCalledWith(
       {
         url: "https://example.test/page",
-        tree: true,
-        full: false,
-        section_id: undefined,
-        tree_threshold: 5000,
-        render: "agent-browser",
+        render: "browser",
         waitMs: 125,
       },
       expect.any(AbortSignal),
@@ -360,7 +350,7 @@ describe("web stdio MCP adapter", () => {
       {
         url: "https://example.test/page",
         limit: 25,
-        render: "agent-browser",
+        render: "browser",
         waitMs: 125,
       },
       expect.any(AbortSignal),
@@ -387,17 +377,17 @@ describe("web stdio MCP adapter", () => {
     await client.listTools();
 
     for (const arguments_ of [
-      { url: "https://example.test/page", render: "agent-browser" },
-      { url: "https://example.test/page", render: "fetch", waitMs: 0 },
-      { url: "https://example.test/page", render: "agent-browser", waitMs: -1 },
+      { url: "https://example.test/page", render: "browser" },
+      { url: "https://example.test/page", render: "http", waitMs: 0 },
+      { url: "https://example.test/page", render: "browser", waitMs: -1 },
       {
         url: "https://example.test/page",
-        render: "agent-browser",
+        render: "browser",
         waitMs: 30_001,
       },
       {
         url: "https://example.test/page",
-        render: "agent-browser",
+        render: "browser",
         waitMs: 1.5,
       },
     ]) {
@@ -437,7 +427,7 @@ describe("web stdio MCP adapter", () => {
       name: "fetch",
       arguments: {
         url: "https://example.test/page",
-        render: "agent-browser",
+        render: "browser",
         waitMs: 2000,
       },
     });
@@ -549,7 +539,7 @@ describe("web stdio MCP adapter", () => {
         name: "fetch",
         arguments: {
           url: "https://example.test/page",
-          render: "agent-browser",
+          render: "browser",
           waitMs: 0,
         },
       },

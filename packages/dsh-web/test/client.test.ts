@@ -53,7 +53,7 @@ describe("DSH settings client credential surface", () => {
   it("labels the fetch backend, wait, and retrieval mode from its request", () => {
     expect(
       fetchDetails({
-        render: "agent-browser",
+        render: "browser",
         waitMs: 2_000,
         section_id: "installation",
       }),
@@ -62,12 +62,12 @@ describe("DSH settings client credential surface", () => {
       { label: "Wait", value: "2 s" },
       { label: "Result", value: "Section: installation" },
     ]);
-    expect(fetchDetails({ tree: true })).toEqual([
-      { label: "Backend", value: "Direct fetch" },
-      { label: "Result", value: "Heading tree" },
+    expect(fetchDetails({})).toEqual([
+      { label: "Backend", value: "HTTP rendered" },
+      { label: "Result", value: "Adaptive document" },
     ]);
     expect(fetchDetails({ full: true })).toEqual([
-      { label: "Backend", value: "Direct fetch" },
+      { label: "Backend", value: "HTTP rendered" },
       { label: "Result", value: "Full document" },
     ]);
   });

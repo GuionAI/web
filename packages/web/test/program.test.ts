@@ -184,24 +184,13 @@ describe("web search Commander adapter", () => {
   it("passes fetch navigation flags and writes human Markdown", async () => {
     const { program, operations, output } = setup();
     await program.parseAsync(
-      [
-        "fetch",
-        "https://example.test/page",
-        "--tree",
-        "-s",
-        "7i",
-        "--tree-threshold",
-        "9000",
-      ],
+      ["fetch", "https://example.test/page", "-s", "7i"],
       { from: "user" },
     );
 
     expect(operations.fetch).toHaveBeenCalledWith({
       url: "https://example.test/page",
-      tree: true,
       section_id: "7i",
-      full: undefined,
-      tree_threshold: 9000,
     });
     expect(output()).toEqual({ stdout: "# Fixture page\n", stderr: "" });
   });
@@ -209,23 +198,14 @@ describe("web search Commander adapter", () => {
   it("forwards explicit browser rendering options", async () => {
     const { program, operations } = setup();
     await program.parseAsync(
-      [
-        "fetch",
-        "https://example.test/page",
-        "--render=agent-browser",
-        "--wait=0",
-      ],
+      ["fetch", "https://example.test/page", "--render=browser", "--wait=0"],
       { from: "user" },
     );
 
     expect(operations.fetch).toHaveBeenCalledWith({
       url: "https://example.test/page",
-      tree: undefined,
-      render: "agent-browser",
+      render: "browser",
       waitMs: 0,
-      section_id: undefined,
-      full: undefined,
-      tree_threshold: undefined,
     });
   });
 
@@ -238,10 +218,7 @@ describe("web search Commander adapter", () => {
 
     expect(operations.fetch).toHaveBeenCalledWith({
       url: "https://example.test/page",
-      tree: undefined,
-      section_id: undefined,
       full: true,
-      tree_threshold: undefined,
     });
     expect(JSON.parse(output().stdout)).toEqual(
       await operations.fetch.mock.results[0]!.value,
@@ -257,7 +234,7 @@ describe("web search Commander adapter", () => {
         "https://example.test/page",
         "--limit",
         "25",
-        "--render=agent-browser",
+        "--render=browser",
         "--wait=0",
       ],
       { from: "user" },
@@ -266,7 +243,7 @@ describe("web search Commander adapter", () => {
     expect(operations.links).toHaveBeenCalledWith({
       url: "https://example.test/page",
       limit: 25,
-      render: "agent-browser",
+      render: "browser",
       waitMs: 0,
     });
     expect(output()).toEqual({
@@ -289,7 +266,7 @@ describe("web search Commander adapter", () => {
       fetch: vi.fn(async () => {
         throw new FetchCapabilityError("javascript_rendering_may_be_required", {
           retryableWithRender: true,
-          suggestedArguments: { render: "agent-browser", waitMs: 2000 },
+          suggestedArguments: { render: "browser", waitMs: 2000 },
         });
       }),
       links: vi.fn(),
@@ -317,7 +294,7 @@ describe("web search Commander adapter", () => {
     expect(stdout).toBe("");
     expect(stderr).toBe(
       "javascript_rendering_may_be_required: content may require JavaScript rendering\n" +
-        "Retry: web fetch <url> --render=agent-browser --wait=2000\n",
+        "Retry: web fetch <url> --render=browser --wait=2000\n",
     );
   });
 
