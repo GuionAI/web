@@ -140,6 +140,72 @@ describe("personal HTTP service", () => {
     });
   });
 
+  it("selects DeepSeek from server-local configuration without fallback", async () => {
+    const ops = operations({
+      search: vi.fn(async () => ({
+        provider: "DeepSeek" as const,
+        results: [],
+      })),
+    });
+    const app = createHttpApp({
+      ...dependencies(),
+      operations: ops,
+      credentials: { deepseekApiKey: "deepseek-secret" },
+      environment: { WEB_SEARCH_PROVIDER: "deepseek" },
+    });
+
+    const result = await json(app, "/v1/search", { query: "selected" });
+
+    expect(result.response.status).toBe(200);
+    expect(result.body).toEqual({ provider: "DeepSeek", results: [] });
+    expect(ops.search).toHaveBeenCalledTimes(1);
+    expect(ops.search).toHaveBeenCalledWith({
+      query: "selected",
+      provider: "deepseek",
+      credentials: { deepseekApiKey: "deepseek-secret" },
+      signal: expect.any(AbortSignal),
+    });
+  });
+
+  it("returns a DeepSeek failure without trying another provider", async () => {
+    const ops = operations({
+      search: vi.fn(async () => {
+        throw new Error("deepseek unavailable");
+      }),
+    });
+    const app = createHttpApp({
+      ...dependencies(),
+      operations: ops,
+      credentials: { deepseekApiKey: "deepseek-secret" },
+      environment: { WEB_SEARCH_PROVIDER: "deepseek" },
+    });
+
+    const result = await json(app, "/v1/search", { query: "failure" });
+
+    expect(result.response.status).toBe(502);
+    expect(result.body).toEqual({
+      code: "upstream_error",
+      message: "search failed",
+    });
+    expect(ops.search).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not start HTTP DeepSeek mode without its server-local key", () => {
+    expect(() =>
+      createHttpApp({
+        credentials: { exaApiKey: "exa-secret" },
+        environment: { WEB_SEARCH_PROVIDER: "deepseek" },
+      }),
+    ).toThrow("DEEPSEEK_API_KEY");
+  });
+
+  it("does not expose an HTTP request provider field", () => {
+    const document = createHttpOpenAPIDocument();
+    const schema = (document.components?.schemas as any).SearchRequest;
+    expect(schema.properties.provider).toBeUndefined();
+    expect(schema.additionalProperties).toBe(false);
+  });
+
   it("forwards fetch with its explicit rendered-fetch contract", async () => {
     const ops = operations({
       fetch: vi.fn(async (input) => ({
@@ -289,7 +355,7 @@ describe("personal HTTP service", () => {
     expect(
       (document.components?.schemas as any).SearchResponse.properties.provider
         .enum,
-    ).toEqual(["Exa", "Kepos Bridge"]);
+    ).toEqual(["Exa", "DeepSeek", "Kepos Bridge"]);
     const fetchRequest = (document.components?.schemas as any).FetchRequest;
     expect(fetchRequest.properties.render.enum).toEqual(["http", "browser"]);
     expect(fetchRequest.properties.tree).toBeUndefined();

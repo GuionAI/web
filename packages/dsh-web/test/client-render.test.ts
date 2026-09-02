@@ -70,6 +70,8 @@ describe("DSH settings client rendered contract", () => {
       expect(html).toContain(`id="${describedBy}"`);
       expect(html).toContain('value="kepos-bridge"');
       expect(html).toContain('value="https://bridge.example.test/route"');
+      expect(html).toContain("DeepSeek API key");
+      expect(html).not.toContain("DeepSeek endpoint");
     } finally {
       if (previousDocument === undefined) delete (globalThis as any).document;
       else (globalThis as any).document = previousDocument;

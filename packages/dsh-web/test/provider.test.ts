@@ -3,6 +3,7 @@ import { createWebOperations, type WebOperations } from "@guionai/web-core";
 
 import {
   BRAVE_CREDENTIAL_REF,
+  DEEPSEEK_CREDENTIAL_REF,
   EXA_CREDENTIAL_REF,
   SEARCH_PROVIDER_ID,
 } from "../src/contract.js";
@@ -13,6 +14,37 @@ function withOperations(overrides: Partial<WebOperations>): WebOperations {
 }
 
 describe("Guion DSH search provider", () => {
+  it("resolves only the namespaced DeepSeek key and forwards explicit selection", async () => {
+    let received: unknown;
+    const provider = createGuionSearchProvider({
+      getProvider: () => "deepseek",
+      getKeposBridgeEndpoint: () => "http://fixture.test/route",
+      credentials: {
+        resolve: async (ref) => {
+          expect(ref).toBe(DEEPSEEK_CREDENTIAL_REF);
+          return { value: "deepseek-secret", source: "file" };
+        },
+      },
+      operations: withOperations({
+        search: async (input) => {
+          received = input;
+          return { provider: "DeepSeek", results: [] };
+        },
+      }),
+    });
+
+    await expect(provider.search({ query: "latest" })).resolves.toEqual({
+      sources: [],
+      truncated: false,
+    });
+    expect(received).toEqual({
+      query: "latest",
+      provider: "deepseek",
+      credentials: { deepseekApiKey: "deepseek-secret" },
+      signal: undefined,
+    });
+  });
+
   it("routes each stock PTC query through the live selected provider and resolved credential", async () => {
     let received: unknown;
     const provider = createGuionSearchProvider({

@@ -30,6 +30,12 @@ describe("DSH Web package composition", () => {
       provider: "exa",
       keposBridgeEndpoint: "https://bridge.example.test/route",
     });
+    expect(
+      SettingsSchema({
+        provider: "deepseek",
+        keposBridgeEndpoint: DEFAULT_KEPOS_BRIDGE_ENDPOINT,
+      }),
+    ).toMatchObject({ provider: "deepseek" });
     expect(() =>
       SettingsSchema({
         provider: "kepos-bridge",

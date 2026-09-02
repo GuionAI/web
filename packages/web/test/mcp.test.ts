@@ -273,7 +273,7 @@ describe("web stdio MCP adapter", () => {
     });
     expect(searchProperties.provider).toEqual({
       type: "string",
-      enum: ["Exa", "Brave", "Kepos Bridge"],
+      enum: ["Exa", "Brave", "DeepSeek", "Kepos Bridge"],
     });
   });
 
@@ -566,6 +566,19 @@ describe("web stdio MCP adapter", () => {
       2,
       expect.objectContaining({ provider: "kepos-bridge" }),
     );
+  });
+
+  it("forwards explicit DeepSeek selection while keeping the tool input query-only", async () => {
+    const { client, operations } = await connect(webService(), "deepseek");
+
+    await client.callTool({ name: "search", arguments: { query: "deepseek" } });
+
+    expect(operations.search).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "deepseek", query: "deepseek" }),
+    );
+    const listed = await client.listTools();
+    const search = listed.tools.find((tool) => tool.name === "search");
+    expect(search?.inputSchema.properties).not.toHaveProperty("provider");
   });
 });
 

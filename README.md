@@ -1,7 +1,7 @@
 # Guion Web
 
-Guion Web is a Node.js web research toolkit. It provides Exa, Brave, or a
-managed Kepos Bridge search endpoint,
+Guion Web is a Node.js web research toolkit. It provides Exa, Brave, DeepSeek,
+or a managed Kepos Bridge search endpoint,
 Context7 library documentation lookup, Sourcegraph public code search, page-link
 discovery, and two page-rendering modes through a CLI, stdio MCP server, personal
 HTTP service, Pi extension, and DeepSeek Harness (DSH) integration: HTTP
@@ -21,17 +21,22 @@ npm install --global @guionai/web
 npx @guionai/web --help
 ```
 
-Search needs one provider credential for Exa or Brave. If both are present, Exa
-is selected by default; select a provider explicitly with `--provider exa`,
-`--provider brave`, or `--provider kepos-bridge`. Kepos Bridge uses the bundled
-default route unless it runs in DSH, whose live settings card can override the
-route.
+Search needs one provider credential for Exa, Brave, or DeepSeek. If Exa and
+Brave are both present, Exa is selected by default; DeepSeek is never selected
+implicitly. Select a provider explicitly with `--provider exa`,
+`--provider brave`, `--provider deepseek`, or `--provider kepos-bridge`.
+DeepSeek makes one auxiliary model call using its native web-search tool and
+returns the same normalized ranked URL/title/snippet results as the other
+providers. Kepos Bridge uses the bundled default route unless it runs in DSH,
+whose live settings card can override the route.
 Context7 works anonymously when its key is absent.
 
-The HTTP service always requires a non-empty `EXA_API_KEY`: it tries the
-server-local Kepos Bridge route first and retries Exa once when Bridge fails.
-HTTP clients cannot select a provider, pass credentials, or override the Bridge
-route per request. Set `KEPOS_BRIDGE_ENDPOINT` to replace the default route
+The HTTP service always uses the Bridge-to-Exa policy by default and requires a
+non-empty `EXA_API_KEY` for its retry. Set the server-local
+`WEB_SEARCH_PROVIDER=deepseek` to select DeepSeek instead; this requires a
+non-empty `DEEPSEEK_API_KEY` and does not fall back to Bridge or Exa when the
+DeepSeek request fails. HTTP clients cannot select a provider, pass credentials,
+or override the Bridge route per request. Set `KEPOS_BRIDGE_ENDPOINT` to replace the default route
 (`http://codex-bridge.localhost:17480/codex/web-search`); it must be a complete
 HTTP(S) URL without credentials, query, or fragment.
 
@@ -39,10 +44,14 @@ HTTP(S) URL without credentials, query, or fragment.
 export EXA_API_KEY="..."
 # or
 export BRAVE_API_KEY="..."
+# for explicit DeepSeek selection in CLI, MCP, Pi, or DSH
+export DEEPSEEK_API_KEY="..."
 # optional, for authenticated Context7 requests
 export CONTEXT7_API_KEY="..."
 # optional complete Bridge route for `web serve`
 export KEPOS_BRIDGE_ENDPOINT="http://127.0.0.1:8787/codex/web-search"
+# HTTP/Pi: select DeepSeek server-side (HTTP clients still send {"query":"..."})
+export WEB_SEARCH_PROVIDER="deepseek"
 ```
 
 Do not put credentials in command arguments or commit them. The CLI reads these
@@ -51,7 +60,9 @@ application configuration path.
 
 ## Personal HTTP service
 
-Run the service with the server-local environment above:
+Run the service with the server-local environment above. Leave
+`WEB_SEARCH_PROVIDER` unset for Bridge-to-Exa; set it to `deepseek` for the
+DeepSeek-only path:
 
 ```bash
 web serve --host 0.0.0.0 --port 8787
@@ -65,16 +76,19 @@ docker run --rm -p 8787:8787 \
 Every HTTP operation is a versioned JSON `POST` route. Request and response schemas
 are generated into `openapi.yaml` from the same route definitions:
 
-| Route        | Request                                                   | Purpose                                                  |
-| ------------ | --------------------------------------------------------- | -------------------------------------------------------- |
-| `/v1/search` | `{ "query": "..." }`                                      | Kepos Bridge search with one Exa retry on Bridge failure |
-| `/v1/fetch`  | `{ "url", "section_id?", "full?", "render?", "waitMs?" }` | Fetch Markdown                                           |
-| `/v1/links`  | `{ "url", "limit?", "render?", "waitMs?" }`               | List page HTTP(S) links                                  |
+| Route        | Request                                                   | Purpose                                                         |
+| ------------ | --------------------------------------------------------- | --------------------------------------------------------------- |
+| `/v1/search` | `{ "query": "..." }`                                      | Server-selected search: Bridge→Exa by default, or DeepSeek only |
+| `/v1/fetch`  | `{ "url", "section_id?", "full?", "render?", "waitMs?" }` | Fetch Markdown                                                  |
+| `/v1/links`  | `{ "url", "limit?", "render?", "waitMs?" }`               | List page HTTP(S) links                                         |
 
 The complete human-readable contract is in the [HTTP service reference](docs/http-service.md).
 
 Search keeps a successful empty Bridge result, retries Exa exactly once for a
-non-cancellation Bridge failure, and reports the provider in its response.
+non-cancellation Bridge failure when no server provider is selected, and
+reports the provider in its response. DeepSeek selection is server-local and
+has no automatic fallback. The request remains `{ "query": "..." }` in every
+case.
 Weather, sports, finance, and time are not exposed because the configured
 providers do not offer contract-equivalent official typed data APIs. Invalid JSON
 bodies, unknown fields, and invalid typed values are rejected before an upstream call.
@@ -104,6 +118,7 @@ document on stdout, which is useful for automation.
 
 ```bash
 web search --provider exa -- "Node AbortSignal"
+web search --provider deepseek -- "Node AbortSignal"
 web search --provider kepos-bridge -- "Node AbortSignal"
 web fetch https://example.com/article
 web fetch https://example.com/article --section introduction
@@ -129,6 +144,7 @@ Run the stdio server with the same credential environment:
 web mcp
 # Pin search selection for the lifetime of this MCP process:
 web mcp --provider brave
+web mcp --provider deepseek
 web mcp --provider kepos-bridge
 ```
 
@@ -155,8 +171,10 @@ an integer `waitMs` when its host provides that optional executable.
 from the original page DOM.
 
 Set `WEB_SEARCH_PROVIDER=kepos-bridge` before starting Pi to select the
-credential-free Kepos Bridge provider. Pi uses the bundled default Bridge route;
-only DSH exposes a route setting.
+credential-free Kepos Bridge provider, or `WEB_SEARCH_PROVIDER=deepseek` with
+`DEEPSEEK_API_KEY` for explicit DeepSeek search. Pi uses the bundled default
+Bridge route; only DSH exposes a route setting. DeepSeek is never selected by
+the presence of its key alone.
 
 ## DSH
 
@@ -167,10 +185,11 @@ dsh plugin --profile web add @guionai/dsh-web
 ```
 
 The included profile patch routes stock PTC web search through the selected Exa,
-Brave, or Kepos Bridge provider. Its settings UI stores provider selection and
+Brave, DeepSeek, or Kepos Bridge provider. Its settings UI stores provider selection and
 the complete non-secret Kepos Bridge route (default
 `http://codex-bridge.localhost:17480/codex/web-search`) and manages namespaced write-only
-credentials. Selecting Kepos Bridge additionally exposes `web_weather`,
+credentials, including a write-only DeepSeek API key. DeepSeek uses the same
+provider picker/key workflow and exposes no DeepSeek endpoint field. Selecting Kepos Bridge additionally exposes `web_weather`,
 `web_sports`, `web_finance`, and `web_time`; these tools are removed when another
 provider is selected. Fetch, link discovery, documentation, and Sourcegraph tools
 also run in-process. The host DSH packages and React are peers supplied by DSH.

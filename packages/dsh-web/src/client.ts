@@ -16,6 +16,7 @@ import {
   BRAVE_CREDENTIAL_REF,
   CREDENTIAL_REFS,
   DEFAULT_KEPOS_BRIDGE_ENDPOINT,
+  DEEPSEEK_CREDENTIAL_REF,
   EXA_CREDENTIAL_REF,
   PROVIDER_LABELS,
   PROVIDERS,
@@ -641,7 +642,9 @@ function SettingsCard({
                 ? "Exa API key"
                 : ref === BRAVE_CREDENTIAL_REF
                   ? "Brave API key"
-                  : "Context7 API key";
+                  : ref === DEEPSEEK_CREDENTIAL_REF
+                    ? "DeepSeek API key"
+                    : "Context7 API key";
             const current = status[ref] ?? {
               configured: false,
               writable: false,

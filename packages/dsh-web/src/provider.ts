@@ -13,6 +13,7 @@ import type { WebSearchProvider, WebSearchResult } from "@deepseek-ai/dsh-web";
 
 import {
   BRAVE_CREDENTIAL_REF,
+  DEEPSEEK_CREDENTIAL_REF,
   EXA_CREDENTIAL_REF,
   SEARCH_PROVIDER_ID,
   type SearchProviderName,
@@ -39,6 +40,11 @@ function credentialFor(provider: SearchProviderName):
       return { ref: credentialRef(EXA_CREDENTIAL_REF), field: "exaApiKey" };
     case "brave":
       return { ref: credentialRef(BRAVE_CREDENTIAL_REF), field: "braveApiKey" };
+    case "deepseek":
+      return {
+        ref: credentialRef(DEEPSEEK_CREDENTIAL_REF),
+        field: "deepseekApiKey",
+      };
     case "kepos-bridge":
       return undefined;
   }

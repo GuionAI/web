@@ -33,6 +33,8 @@ export type HttpServiceState = {
   operations: WebOperations;
   credentials: WebCredentials;
   keposBridgeEndpoint: string;
+  /** Server-local override; undefined keeps the Bridge-to-Exa default. */
+  searchProvider?: "deepseek";
 };
 
 export type HttpError = {
@@ -62,7 +64,7 @@ const SearchResultSchema = z
 
 const SearchResponseSchema = z
   .object({
-    provider: z.enum(["Exa", "Kepos Bridge"]),
+    provider: z.enum(["Exa", "DeepSeek", "Kepos Bridge"]),
     results: z.array(SearchResultSchema),
   })
   .strict()
@@ -163,7 +165,7 @@ const searchRoute = createRoute({
   operationId: "search",
   summary: "Search the web",
   description:
-    "Search through the server-local Kepos Bridge, retrying once through Exa when Bridge is unavailable.",
+    "Search through the server-local Kepos Bridge with one Exa retry by default, or select DeepSeek with WEB_SEARCH_PROVIDER=deepseek.",
   request: jsonRequest(SearchRequestSchema),
   responses: {
     200: jsonResponse(SearchResponseSchema, "Search results."),
@@ -272,6 +274,7 @@ export function createHttpOpenAPIDocument(version = "0.1.0") {
   const app = createHttpApp({
     credentials: { exaApiKey: "build-placeholder" },
     keposBridgeEndpoint: DEFAULT_KEPOS_BRIDGE_ENDPOINT,
+    environment: {},
     validateStartup: false,
   });
   return app.getOpenAPI31Document({
@@ -290,8 +293,25 @@ export function resolveHttpServiceState(
 ): HttpServiceState {
   const environment = dependencies.environment ?? process.env;
   const credentials = resolveCredentials(dependencies.credentials, environment);
+  const configuredProvider = environment.WEB_SEARCH_PROVIDER;
+  if (configuredProvider !== undefined && configuredProvider !== "deepseek") {
+    throw new Error(
+      `unsupported HTTP search provider ${JSON.stringify(configuredProvider)}; only deepseek is supported`,
+    );
+  }
+  const searchProvider =
+    configuredProvider === "deepseek" ? ("deepseek" as const) : undefined;
   if (dependencies.validateStartup !== false) {
-    if (
+    if (searchProvider === "deepseek") {
+      if (
+        typeof credentials.deepseekApiKey !== "string" ||
+        credentials.deepseekApiKey.trim().length === 0
+      ) {
+        throw new Error(
+          "DEEPSEEK_API_KEY is required and must be non-empty when WEB_SEARCH_PROVIDER=deepseek",
+        );
+      }
+    } else if (
       typeof credentials.exaApiKey !== "string" ||
       credentials.exaApiKey.trim().length === 0
     ) {
@@ -308,6 +328,7 @@ export function resolveHttpServiceState(
     operations: dependencies.operations ?? webCoreModule.createWebOperations(),
     credentials,
     keposBridgeEndpoint: validateKeposBridgeEndpoint(endpoint),
+    ...(searchProvider === undefined ? {} : { searchProvider }),
   };
 }
 
@@ -371,6 +392,16 @@ async function searchWithFallback(
   signal: AbortSignal,
 ): Promise<SearchResponse> {
   throwIfAborted(signal);
+  if (state.searchProvider === "deepseek") {
+    const result = await state.operations.search({
+      query,
+      provider: "deepseek",
+      credentials: state.credentials,
+      signal,
+    });
+    throwIfAborted(signal);
+    return parseResponse(SearchResponseSchema, result);
+  }
   try {
     const result = await state.operations.search({
       query,
