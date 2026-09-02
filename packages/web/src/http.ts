@@ -1,8 +1,10 @@
 import {
+  DEFAULT_LINK_LIMIT,
   DEFAULT_KEPOS_BRIDGE_ENDPOINT,
   FetchCapabilityError,
   isOperationAborted,
   isRequestTimeout,
+  MAX_LINK_LIMIT,
   RENDER_REPORT_URL,
   throwIfAborted,
   validateKeposBridgeEndpoint,
@@ -75,6 +77,20 @@ const FetchResponseSchema = z
   .strict()
   .openapi("FetchResponse");
 
+const LinkSchema = z
+  .object({ text: z.string(), url: z.string() })
+  .strict()
+  .openapi("PageLink");
+
+const LinksResponseSchema = z
+  .object({
+    url: z.string(),
+    links: z.array(LinkSchema),
+    truncated: z.boolean(),
+  })
+  .strict()
+  .openapi("LinksResponse");
+
 const SearchRequestSchema = z
   .object({ query: z.string().min(1) })
   .strict()
@@ -97,6 +113,21 @@ const FetchRequestSchema = z
   })
   .strict()
   .openapi("FetchRequest");
+
+const LinksRequestSchema = z
+  .object({
+    url: HttpUrlSchema,
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_LINK_LIMIT)
+      .default(DEFAULT_LINK_LIMIT),
+    render: z.enum(["fetch", "agent-browser"]).default("fetch"),
+    waitMs: z.number().int().min(0).max(30_000).optional(),
+  })
+  .strict()
+  .openapi("LinksRequest");
 
 const commonResponses = {
   400: {
@@ -141,6 +172,20 @@ const fetchRoute = createRoute({
   request: jsonRequest(FetchRequestSchema),
   responses: {
     200: jsonResponse(FetchResponseSchema, "Fetched page."),
+    ...commonResponses,
+  },
+});
+
+const linksRoute = createRoute({
+  method: "post",
+  path: "/v1/links",
+  operationId: "links",
+  summary: "List page links",
+  description:
+    "List HTTP(S) anchors using direct fetch by default or explicit agent-browser rendering.",
+  request: jsonRequest(LinksRequestSchema),
+  responses: {
+    200: jsonResponse(LinksResponseSchema, "Page links."),
     ...commonResponses,
   },
 });
@@ -190,6 +235,22 @@ export function createHttpApp(
     }
   });
 
+  app.openapi(linksRoute, async (context) => {
+    const input = context.req.valid("json");
+    const renderError = validateRenderFields(input.render, input.waitMs);
+    if (renderError) return context.json(renderError, 400) as never;
+    try {
+      const result = await state.operations.links(
+        { ...input, limit: input.limit ?? DEFAULT_LINK_LIMIT },
+        context.req.raw.signal,
+      );
+      throwIfAborted(context.req.raw.signal);
+      return context.json(parseResponse(LinksResponseSchema, result), 200);
+    } catch (error) {
+      return failureResponse(context, error, "links") as never;
+    }
+  });
+
   app.onError((error, context) => failureResponse(context, error, "request"));
   app.notFound((context) =>
     context.json(errorBody("not_found", "Route not found"), 404),
@@ -210,7 +271,7 @@ export function createHttpOpenAPIDocument(version = "0.1.0") {
       title: "Guion Web Personal HTTP Service",
       version,
       description:
-        "Read-only Guion Web research operations and typed Kepos Bridge data operations.",
+        "Provider-neutral Guion Web search, page fetch, and link discovery.",
     },
   });
 }
@@ -437,6 +498,8 @@ export {
   ErrorSchema,
   FetchRequestSchema,
   FetchResponseSchema,
+  LinksRequestSchema,
+  LinksResponseSchema,
   SearchRequestSchema,
   SearchResponseSchema,
 };

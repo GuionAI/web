@@ -171,6 +171,37 @@ describe("personal HTTP service", () => {
     );
   });
 
+  it("forwards links with the same explicit rendered-fetch contract", async () => {
+    const ops = operations({
+      links: vi.fn(async (input) => ({
+        url: input.url,
+        links: [{ text: "Docs", url: "https://example.test/docs" }],
+        truncated: false,
+      })),
+    });
+    const app = createHttpApp({ ...dependencies(), operations: ops });
+
+    const result = await json(app, "/v1/links", {
+      url: "https://example.test",
+      render: "agent-browser",
+      waitMs: 0,
+    });
+
+    expect(result.response.status).toBe(200);
+    expect(result.body).toMatchObject({
+      links: [{ text: "Docs", url: "https://example.test/docs" }],
+    });
+    expect(ops.links).toHaveBeenCalledWith(
+      {
+        url: "https://example.test",
+        limit: 100,
+        render: "agent-browser",
+        waitMs: 0,
+      },
+      expect.any(AbortSignal),
+    );
+  });
+
   it("rejects invalid search and fetch requests before an operation", async () => {
     const ops = operations();
     const app = createHttpApp({ ...dependencies(), operations: ops });
@@ -186,8 +217,17 @@ describe("personal HTTP service", () => {
         })
       ).response.status,
     ).toBe(400);
+    expect(
+      (
+        await json(app, "/v1/links", {
+          url: "https://example.test",
+          waitMs: 100,
+        })
+      ).response.status,
+    ).toBe(400);
     expect(ops.search).not.toHaveBeenCalled();
     expect(ops.fetch).not.toHaveBeenCalled();
+    expect(ops.links).not.toHaveBeenCalled();
 
     const malformed = await app.request("/v1/search", {
       method: "POST",
@@ -199,7 +239,6 @@ describe("personal HTTP service", () => {
   });
 
   it.each([
-    "/v1/links",
     "/v1/docs/resolve",
     "/v1/docs/fetch",
     "/v1/source-search",
@@ -222,13 +261,14 @@ describe("personal HTTP service", () => {
       expect(operation).not.toHaveBeenCalled();
   });
 
-  it("exposes only search and fetch in a generated OpenAPI 3.1 document", () => {
+  it("exposes search, fetch, and links in a generated OpenAPI 3.1 document", () => {
     const document = createHttpOpenAPIDocument("1.2.3");
 
     expect(document.openapi).toBe("3.1.0");
     expect(document.info.version).toBe("1.2.3");
     expect(Object.keys(document.paths ?? {}).sort()).toEqual([
       "/v1/fetch",
+      "/v1/links",
       "/v1/search",
     ]);
     expect(

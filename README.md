@@ -69,6 +69,7 @@ are generated into `openapi.yaml` from the same route definitions:
 | ------------ | ------------------------------------------------------------------------------------- | -------------------------------------------------------- |
 | `/v1/search` | `{ "query": "..." }`                                                                  | Kepos Bridge search with one Exa retry on Bridge failure |
 | `/v1/fetch`  | `{ "url", "tree?", "section_id?", "full?", "tree_threshold?", "render?", "waitMs?" }` | Fetch Markdown                                           |
+| `/v1/links`  | `{ "url", "limit?", "render?", "waitMs?" }`                                           | List page HTTP(S) links                                  |
 
 Search keeps a successful empty Bridge result, retries Exa exactly once for a
 non-cancellation Bridge failure, and reports the provider in its response.
@@ -81,8 +82,8 @@ Error responses use a stable `{ "code", "message", "details"? }` JSON shape;
 upstream failures use 502 (or 504 for an upstream timeout), while client
 cancellation is reported as 499.
 
-Fetch uses direct HTTP fetching when `render` is omitted (or set to `"fetch"`).
-Rendered fetching is explicit and requires both
+Fetch and Links use direct HTTP fetching when `render` is omitted (or set to
+`"fetch"`). Rendered fetching is explicit and requires both
 `render: "agent-browser"` and an integer `waitMs` from 0 through 30,000; direct
 fetch never silently switches backends. The container installs `agent-browser`
 with Debian Chromium (including Linux ARM64, where Chrome for Testing has no

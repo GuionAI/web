@@ -1,6 +1,6 @@
 # Expose research operations through a containerized REST API
 
-Guion Web will add a self-hosted, single-user HTTP service in a portable container. It will expose only provider-neutral web search and page fetch as REST routes defined with Hono and `@hono/zod-openapi`. Each tagged release will publish the generated OpenAPI 3.1 document as a downloadable `openapi.yaml` GitHub Release asset, alongside the matching npm packages and GHCR image. The current stdio MCP server remains supported, but remote Streamable HTTP MCP is outside this first service slice.
+Guion Web will add a self-hosted, single-user HTTP service in a portable container. It will expose only provider-neutral web search, page fetch, and link discovery as REST routes defined with Hono and `@hono/zod-openapi`. Each tagged release will publish the generated OpenAPI 3.1 document as a downloadable `openapi.yaml` GitHub Release asset, alongside the matching npm packages and GHCR image. The current stdio MCP server remains supported, but remote Streamable HTTP MCP is outside this first service slice.
 
 ## Consequences
 
