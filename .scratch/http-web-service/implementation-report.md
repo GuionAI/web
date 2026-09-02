@@ -6,9 +6,17 @@
 - Branch: `http-web-service`
 - Fixed point: `ebad44eb55f8a406b855318cb8a4b4cd04633227`
 - Implementation commit: `3316d5bb5e14e81d89dbdd84239d16b5de007b10` (`feat(http): add personal research service`)
+- Review-fix commit: `73405d85f047e35354bb340c90faf8374b23a2ba` (`fix(http): close service review gaps`)
 - Delivery boundary: the complete HTTP-service spec and tickets 01, 02, and 03; code review and deployment were excluded.
 
 The implementation was completed in dependency order: the server-local Bridge-first Search and typed Bridge Data Operations, the remaining Research Operations and container guide, and then the release/OpenAPI/GHCR contract.
+
+## Review fixes
+
+- Removed the unused `createHttpService` alias and compatibility comment; the canonical `createHttpApp` export is the only HTTP-app constructor.
+- Added a test-owned temporary-file artifact test that calls the YAML generator, reads and parses `openapi.yaml`, checks package-version parity, all ten `/v1` paths, and the absence of a generic Bridge route.
+- Added table-driven invalid-body cases for Links, Docs Resolve, Docs Fetch, Source Search, Sports, Finance, and Time. Every case asserts HTTP 400, `invalid_request`, and no operation invocation.
+- Narrowed the HTTP Search response/OpenAPI provider enum to `Exa` and `Kepos Bridge`; provider-selection behavior for CLI, MCP, Pi, and DSH remains unchanged.
 
 ## Ticket outcomes
 
@@ -36,13 +44,13 @@ The implementation was completed in dependency order: the server-local Bridge-fi
 
 ## Verification
 
-All checks below completed successfully against the implementation commit:
+All checks below completed successfully against the review-fix commit:
 
 - `pnpm format:check` — all files matched Prettier.
 - `pnpm typecheck` — TypeScript completed with no errors.
 - `pnpm build` — all workspace packages built; `packages/web/dist/openapi.yaml` generated.
 - Generated OpenAPI parse check — OpenAPI `3.1.0`, package version `0.1.0`, exactly the 10 documented `/v1` paths, and no generic Bridge route.
-- `pnpm test` — 18 test files and 109 tests passed. The existing DSH source-map warning was non-fatal.
+- `pnpm test` — 19 test files and 117 tests passed. The existing DSH source-map warning was non-fatal.
 - `pnpm test:release` — release version synchronization fixtures passed.
 - `pnpm test:pack` — packed-installation/host-loading smoke tests passed for `@guionai/web`, `@guionai/pi-web`, and `@guionai/dsh-web`.
 - Focused in-process HTTP tests use injected operation fakes and test-owned credentials; they cover validation, exact fallback/cancellation behavior, typed Bridge command shapes, response normalization, startup configuration, and OpenAPI paths without provider or browser network calls.
@@ -51,11 +59,11 @@ The local Docker daemon was unavailable for a Docker build check (`/Users/neil/.
 
 ## Changed paths and size
 
-Against the fixed point, excluding generated `dist` output (including `openapi.yaml`) and `pnpm-lock.yaml`:
+Against the fixed point, excluding generated `dist` output (including `openapi.yaml`), `pnpm-lock.yaml`, and this report:
 
-- Product code: 932 additions, 1 deletion (`packages/web/src`, `packages/web-core/src`).
-- Tests: 385 additions (`packages/web/test`, `packages/web-core/test`).
+- Product code: 938 additions, 1 deletion (`packages/web/src`, `packages/web-core/src`).
+- Tests: 485 additions (`packages/web/test`, `packages/web-core/test`).
 - Configuration and documentation: 240 additions, 14 deletions (Docker, release workflow, manifests, README, CONTEXT, ADR, and deferred note).
-- Total: 1,557 additions and 15 deletions (net 1,542 lines).
+- Total: 1,663 additions and 15 deletions (net 1,648 lines).
 
-The total is within the spec estimate of 1,230–1,900 lines. The focused HTTP suite is 385 lines, just below the 400-line test estimate because route behavior is consolidated in one in-process fixture file rather than duplicated across transport tests.
+The total is within the spec estimate of 1,230–1,900 lines. The review adds focused file-artifact and table-driven validation coverage while keeping all fixtures in process or test-owned temporary directories.
