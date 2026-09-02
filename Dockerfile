@@ -16,13 +16,19 @@ RUN pnpm --filter @guionai/web run build
 FROM node:24-bookworm
 
 ENV NODE_ENV=production
+# Chrome for Testing has no Linux ARM64 distribution. Debian's Chromium works
+# on both released container architectures, and agent-browser documents this
+# executable override for containers.
+ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 WORKDIR /app
 
 # Rendering is deliberately explicit at the HTTP contract. The executable and
 # browser runtime are image capabilities, while credentials remain env-only.
 ARG AGENT_BROWSER_VERSION=0.36.0
-RUN npm install --global agent-browser@${AGENT_BROWSER_VERSION} \
-  && agent-browser install
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends chromium \
+  && rm -rf /var/lib/apt/lists/* \
+  && npm install --global agent-browser@${AGENT_BROWSER_VERSION}
 
 COPY --from=build /workspace/packages/web/dist ./dist
 

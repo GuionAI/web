@@ -641,6 +641,9 @@ function rendererEnvironment(
     TEMP: workDirectory,
     AGENT_BROWSER_CONFIG: configPath,
   };
+  if (process.env.AGENT_BROWSER_EXECUTABLE_PATH !== undefined)
+    environment.AGENT_BROWSER_EXECUTABLE_PATH =
+      process.env.AGENT_BROWSER_EXECUTABLE_PATH;
   for (const name of [
     "HTTP_PROXY",
     "HTTPS_PROXY",

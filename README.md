@@ -93,8 +93,9 @@ Fetch and Links use direct HTTP fetching when `render` is omitted (or set to
 `"fetch"`). Rendered fetching is explicit and requires both
 `render: "agent-browser"` and an integer `waitMs` from 0 through 30,000; direct
 fetch never silently switches backends. The container installs `agent-browser`
-and its browser runtime, while credentials and Bridge configuration remain
-server-local environment variables.
+with Debian Chromium (including Linux ARM64, where Chrome for Testing has no
+build), while credentials and Bridge configuration remain server-local
+environment variables.
 
 This is a Personal Web Service: a single-trust-boundary deployment for its
 operator and agents. It is not hardened for public or multi-tenant exposure;

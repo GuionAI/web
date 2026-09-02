@@ -338,6 +338,8 @@ describe.sequential("browserless fetch migrated from Organon", () => {
       const cacheDirectory = mkdtempSync(
         join(tmpdir(), "guionai-web-render-cache-"),
       );
+      const previousExecutable = process.env.AGENT_BROWSER_EXECUTABLE_PATH;
+      process.env.AGENT_BROWSER_EXECUTABLE_PATH = "/usr/bin/chromium";
       const resolveHost = async () => ["93.184.216.34"];
       const directFetch = vi.fn(
         async () =>
@@ -405,6 +407,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
         expect(open.home).toBeUndefined();
         expect(open.config).toBe("{}\n");
         expect(open.profile).toBeUndefined();
+        expect(open.executable).toBe("/usr/bin/chromium");
 
         await fetchWebPage(
           {
@@ -417,6 +420,9 @@ describe.sequential("browserless fetch migrated from Organon", () => {
         );
         expect(readFakeLog(logPath)).toHaveLength(6);
       } finally {
+        if (previousExecutable === undefined)
+          delete process.env.AGENT_BROWSER_EXECUTABLE_PATH;
+        else process.env.AGENT_BROWSER_EXECUTABLE_PATH = previousExecutable;
         rmSync(cacheDirectory, { recursive: true, force: true });
       }
     });
@@ -786,6 +792,7 @@ appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({
   home: process.env.HOME,
   config: readFileSync(process.env.AGENT_BROWSER_CONFIG, "utf8"),
   profile: process.env.AGENT_BROWSER_PROFILE,
+  executable: process.env.AGENT_BROWSER_EXECUTABLE_PATH,
 }) + "\\n");
 if (command === "open" && args.includes("https://ignore-term.test/page")) {
   process.on("SIGTERM", () => {});
@@ -819,6 +826,7 @@ type FakeCommand = {
   home?: string;
   config: string;
   profile?: string;
+  executable?: string;
 };
 
 function readFakeLog(path: string): FakeCommand[] {
