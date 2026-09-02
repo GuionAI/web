@@ -5,7 +5,7 @@
 - Repository: `guionai/web`
 - Branch: `http-web-service`
 - Fixed point: `9fff0766001f5ebcad91045c34958af72841da09`
-- Implementation commit: `bb4900a5dba9b5d71fdd64363ce860953b2dc098` (`feat(http): unify page-reading contract`)
+- Implementation commits: `bb4900a5dba9b5d71fdd64363ce860953b2dc098` (`feat(http): unify page-reading contract`) and `90de2fa9d77a6dc2ac8c34284f469e1d722e3d12` (`fix(http): repair navigation and renderer validation`)
 - Delivery boundary: the complete `http-web-service` spec and tickets 01 and 02.
   Code review and deployment were excluded.
 
@@ -28,6 +28,9 @@ seam first, then every adapter, HTTP/OpenAPI contract, tests, and documentation.
   unknown legacy fields and invalid navigation values.
 - Core tests use injected cache, HTTP, and browser seams; no live provider or
   browser state is required.
+- H1-only long documents now list their H1 as a selectable tree node with a
+  stable `section_id`; a Core behavior test retrieves the emitted ID and checks
+  the complete section content.
 
 ### 02 — Align adapters, HTTP, and reference documentation
 
@@ -46,6 +49,22 @@ seam first, then every adapter, HTTP/OpenAPI contract, tests, and documentation.
   behavior, renderer behavior, errors, and the OpenAPI release asset. README
   and ADR 0001 link to and describe the same contract. Operator setup may still
   name the installed browser executable.
+- CONTEXT.md now uses the public `render: "http" | "browser"` vocabulary for
+  glossary and HTTP guidance; `agent-browser` appears only as an operator
+  implementation/setup detail. Pi and DSH each consolidate their repeated
+  renderer/wait checks in one local helper while preserving validation order,
+  messages, and forwarding behavior.
+
+## Review-fix batch
+
+The post-review repairs were applied together in `90de2fa`:
+
+- Core tree output for an H1-only long document emits its deterministic heading
+  ID, and the behavior test uses that ID to retrieve the section.
+- CONTEXT.md describes the public HTTP/browser renderer contract and reserves
+  the `agent-browser` name for operator implementation/setup wording.
+- Pi and DSH each own a local `validateRenderOptions` helper; no
+  cross-adapter abstraction was added.
 
 ## Verification
 
@@ -69,23 +88,37 @@ guionai-web-http-smoke .` passed; a disposable container returned HTTP 400
 No live credentials were used. The Docker smoke used a disposable container
 and a non-secret placeholder startup key; it was stopped after verification.
 
+The review-fix commit was additionally verified with:
+
+- `pnpm typecheck`.
+- `pnpm format:check` and explicit Prettier checks for the changed source files,
+  CONTEXT.md, and the HTTP reference.
+- `pnpm test` — 19 test files and 118 tests passed. The existing DSH source-map
+  warning was non-fatal.
+- `pnpm build` — all workspace packages built and generated
+  `packages/web/dist/openapi.yaml`.
+- `pnpm test:release` — release version synchronization fixtures passed.
+- `pnpm test:pack` — packed-installation/host-loading checks passed for
+  `@guionai/web`, `@guionai/pi-web`, and `@guionai/dsh-web`.
+
 ## Changed paths and size
 
 Against the fixed point, excluding generated `dist` output, lockfiles, and
 this report:
 
-- Product code: 290 additions and 210 deletions (500 changed lines) across
+- Product code: 324 additions and 254 deletions (578 changed lines) across
   Core, CLI, MCP, Pi, DSH, and HTTP.
-- Tests: 203 additions and 194 deletions (397 changed lines), including Core
+- Tests: 218 additions and 166 deletions (384 changed lines), including Core
   navigation/renderer seams, adapter forwarding/validation, and OpenAPI
   artifact parsing.
-- Documentation/configuration: 210 additions and 49 deletions (259 changed
+- Documentation/configuration: 226 additions and 53 deletions (279 changed
   lines), including the 154-line standalone HTTP reference and aligned README,
   ADR, package metadata, and DSH guide.
-- Total: 703 additions and 425 deletions (1,128 changed lines), within the
+- Total: 768 additions and 473 deletions (1,241 changed lines), within the
   spec estimate of 780–1,400 total changed lines. Product code is modestly
   above its 250–450 estimate because each owned adapter now performs explicit
-  input normalization and legacy-field rejection at its boundary.
+  input normalization and legacy-field rejection at its boundary; the review
+  repair remains a small local delta.
 
 ## Remaining concerns
 
