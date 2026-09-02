@@ -47,7 +47,11 @@ export function renderMarkdown(
   }
 
   const charCount = Array.from(source).length;
-  if (!options.full && charCount > DEFAULT_TREE_THRESHOLD)
+  if (
+    !options.full &&
+    charCount > DEFAULT_TREE_THRESHOLD &&
+    headings.length > 0
+  )
     return { content: renderTree(source, headings), mode: "tree" };
   return {
     content: options.full ? source : truncateContent(source),

@@ -72,11 +72,6 @@ describe("Markdown navigation", () => {
       content: "plain content",
       mode: "full",
     });
-    expect(renderMarkdown("x".repeat(5001))).toEqual({
-      content: "(no headings)\n",
-      mode: "tree",
-    });
-
     const complete = "# H\n\n" + "x".repeat(30_001);
     expect(renderMarkdown(complete, { full: true })).toEqual({
       content: complete,
@@ -96,6 +91,20 @@ describe("Markdown navigation", () => {
     expect(renderMarkdown(source, { section_id: sectionID })).toEqual({
       content: source,
       mode: "section",
+    });
+  });
+
+  it("keeps headingless long documents bounded and selectable only by headings", () => {
+    const source = "x".repeat(5001);
+    expect(renderMarkdown(source)).toEqual({
+      content: source,
+      mode: "full",
+    });
+
+    const complete = "x".repeat(30_001);
+    expect(renderMarkdown(complete, { full: true })).toEqual({
+      content: complete,
+      mode: "full",
     });
   });
 });

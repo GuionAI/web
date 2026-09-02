@@ -72,11 +72,13 @@ public request value. Browser rendering is never selected automatically, and
 the service does not fall back between renderers.
 
 The shared module owns the 5,000-character automatic-tree policy. A non-full,
-unsectioned document longer than that threshold returns `mode: "tree"` with
-stable section IDs. Use one of those IDs in a subsequent request to retrieve a
-section. `full: true` returns the complete extracted Markdown without the Core
-content limit. A short or unsectioned result uses `mode: "full"`; a section
-request uses `mode: "section"`.
+unsectioned document longer than that threshold with navigable headings returns
+`mode: "tree"` with stable section IDs. Use one of those IDs in a subsequent
+request to retrieve a section. A long document without headings uses the normal
+bounded `mode: "full"` response because it has no section to navigate. The
+`full: true` option returns the complete extracted Markdown without the Core
+content limit. A short result uses `mode: "full"`; a section request uses
+`mode: "section"`.
 
 Response `200`:
 

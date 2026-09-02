@@ -33,9 +33,10 @@ _Avoid_: Backend-specific renderer labels, automatic fallback
 
 **Page Navigation**:
 The shared page-reading module owns its fixed 5,000-character policy. A long,
-unsectioned request returns a navigation tree; `full: true` returns complete
-Markdown, and a tree's `section_id` retrieves one section. `full: true` and
-`section_id` are mutually exclusive.
+unsectioned request with navigable headings returns a navigation tree; a
+headingless long document uses the normal bounded response. `full: true`
+returns complete Markdown, and a tree's `section_id` retrieves one section.
+`full: true` and `section_id` are mutually exclusive.
 _Avoid_: Caller-selected tree thresholds, public `tree` controls
 
 **Release Contract**:
