@@ -3,14 +3,15 @@
 Guion Web is a Node.js web research toolkit. It provides Exa, Brave, or a
 managed Kepos Bridge search endpoint,
 Context7 library documentation lookup, Sourcegraph public code search, page-link
-discovery, and two page-fetch backends through a CLI, stdio MCP server, Pi extension, and DeepSeek
-Harness (DSH) integration: direct HTML-to-Markdown extraction and explicit
-`agent-browser` rendering for client-rendered pages on supported hosts.
+discovery, and two page-fetch backends through a CLI, stdio MCP server, personal
+HTTP service, Pi extension, and DeepSeek Harness (DSH) integration: direct
+HTML-to-Markdown extraction and explicit `agent-browser` rendering for
+client-rendered pages on supported hosts.
 
 ## Install and configure
 
-Node.js 20 or later is required. `@guionai/web` intentionally exposes only
-its `web` executable and stdio MCP server; it does not provide a root
+Node.js 20 or later is required. `@guionai/web` exposes its `web` executable,
+stdio MCP server, and personal HTTP service; it does not provide a root
 JavaScript or TypeScript SDK. Use the Pi or DSH packages for those host
 integrations.
 
@@ -27,17 +28,78 @@ default route unless it runs in DSH, whose live settings card can override the
 route.
 Context7 works anonymously when its key is absent.
 
+The HTTP service always requires a non-empty `EXA_API_KEY`: it tries the
+server-local Kepos Bridge route first and retries Exa once when Bridge fails.
+HTTP clients cannot select a provider, pass credentials, or override the Bridge
+route per request. Set `KEPOS_BRIDGE_ENDPOINT` to replace the default route
+(`http://codex-bridge.localhost:17480/codex/web-search`); it must be a complete
+HTTP(S) URL without credentials, query, or fragment.
+
 ```bash
 export EXA_API_KEY="..."
 # or
 export BRAVE_API_KEY="..."
 # optional, for authenticated Context7 requests
 export CONTEXT7_API_KEY="..."
+# optional complete Bridge route for `web serve`
+export KEPOS_BRIDGE_ENDPOINT="http://127.0.0.1:8787/codex/web-search"
 ```
 
 Do not put credentials in command arguments or commit them. The CLI reads these
 environment variables directly; it does not load a dotenv file or an older
 application configuration path.
+
+## Personal HTTP service
+
+Run the service with the server-local environment above:
+
+```bash
+web serve --host 0.0.0.0 --port 8787
+# or use the published image
+docker run --rm -p 8787:8787 \
+  -e EXA_API_KEY="$EXA_API_KEY" \
+  -e KEPOS_BRIDGE_ENDPOINT="http://host.docker.internal:17480/codex/web-search" \
+  ghcr.io/guionai/web:v0.1.0
+```
+
+Every operation is a versioned JSON `POST` route. Request and response schemas
+are generated into `openapi.yaml` from the same route definitions:
+
+| Route               | Request                                                                               | Purpose                                                  |
+| ------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `/v1/search`        | `{ "query": "..." }`                                                                  | Kepos Bridge search with one Exa retry on Bridge failure |
+| `/v1/fetch`         | `{ "url", "tree?", "section_id?", "full?", "tree_threshold?", "render?", "waitMs?" }` | Fetch Markdown                                           |
+| `/v1/links`         | `{ "url", "limit?", "render?", "waitMs?" }`                                           | List page HTTP(S) links                                  |
+| `/v1/docs/resolve`  | `{ "query" }`                                                                         | Resolve a Context7 library                               |
+| `/v1/docs/fetch`    | `{ "library_id", "topic?", "tokens?" }`                                               | Fetch Context7 documentation                             |
+| `/v1/source-search` | `{ "query", "count?", "context?", "timeout?" }`                                       | Search public source through Sourcegraph                 |
+| `/v1/weather`       | `{ "location", "start?", "duration?" }`                                               | Typed Bridge weather lookup                              |
+| `/v1/sports`        | `{ "fn", "league", ... }`                                                             | Typed Bridge schedule or standings lookup                |
+| `/v1/finance`       | `{ "ticker", "type", "market?" }`                                                     | Typed Bridge quote or index lookup                       |
+| `/v1/time`          | `{ "utc_offset" }`                                                                    | Typed Bridge time lookup                                 |
+
+Weather, sports, finance, and time are separate Bridge-only operations; they do
+not fall back to Exa and there is no generic Bridge-command route. Search keeps
+a successful empty Bridge result, retries Exa exactly once for a non-cancellation
+Bridge failure, and reports the provider in its response. Invalid JSON bodies,
+unknown fields, and invalid typed values are rejected before an upstream call.
+Upstream failures are bounded JSON errors and never include credentials or raw
+provider response bodies.
+Error responses use a stable `{ "code", "message", "details"? }` JSON shape;
+upstream failures use 502 (or 504 for an upstream timeout), while client
+cancellation is reported as 499.
+
+Fetch and Links use direct HTTP fetching when `render` is omitted (or set to
+`"fetch"`). Rendered fetching is explicit and requires both
+`render: "agent-browser"` and an integer `waitMs` from 0 through 30,000; direct
+fetch never silently switches backends. The container installs `agent-browser`
+and its browser runtime, while credentials and Bridge configuration remain
+server-local environment variables.
+
+This is a Personal Web Service: a single-trust-boundary deployment for its
+operator and agents. It is not hardened for public or multi-tenant exposure;
+SSRF/egress isolation, browser sandboxing, quotas, and authentication remain
+deferred in `.scratch/defered/public-http-service-security.md`.
 
 ## CLI
 
@@ -220,9 +282,13 @@ before any publication begins.
 Three independent, non-fail-fast protected `npm` Environment matrix cells then
 publish one package each through npm Trusted Publishing with provenance. The
 synchronized version selects npm's `latest` tag for stable SemVer and `beta` for
-a prerelease. After all three cells succeed, the workflow creates the GitHub
-release with generated notes and source archives. It publishes no binaries or
-platform archives.
+a prerelease. A matching immutable-tagged image is published to
+`ghcr.io/guionai/web:<tag>` with the `web serve` entrypoint and the
+`agent-browser` runtime. After all three npm cells and the image job succeed,
+the workflow creates the GitHub release with generated notes, source archives,
+and the build-generated `openapi.yaml` asset. The asset is generated from the
+same Hono route schemas as the image and package; it is not checked in or
+versioned independently. It publishes no binaries or platform archives.
 
 If publication partially fails, use GitHub Actions **Re-run failed jobs**. Never
 use **Re-run all jobs**: npm versions are immutable, so the jobs that already

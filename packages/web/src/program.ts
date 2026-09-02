@@ -1,6 +1,8 @@
 import { Command } from "commander";
 
 import { createMcpCommand } from "./mcp.js";
+import { parseHttpPort, startHttpServer } from "./serve.js";
+import { DEFAULT_HTTP_HOST, DEFAULT_HTTP_PORT } from "./serve.js";
 
 import {
   formatSearchResults,
@@ -28,8 +30,39 @@ export function createProgram(dependencies: ProgramDependencies): Command {
     .addCommand(createLinksCommand(dependencies))
     .addCommand(createDocsCommand(dependencies))
     .addCommand(createSGraphCommand(dependencies))
+    .addCommand(createServeCommand(dependencies))
     .addCommand(createMcpCommand(dependencies));
   return program;
+}
+
+function createServeCommand(dependencies: ProgramDependencies): Command {
+  const writeOut =
+    dependencies.writeOut ?? ((text: string) => process.stdout.write(text));
+  return new Command("serve")
+    .description("Serve all web research operations over HTTP")
+    .option("--host <hostname>", "HTTP listen hostname", DEFAULT_HTTP_HOST)
+    .option(
+      "--port <port>",
+      "HTTP listen port",
+      parseHttpPort,
+      DEFAULT_HTTP_PORT,
+    )
+    .action((options: { host: string; port: number }) => {
+      startHttpServer(
+        {
+          operations: dependencies.operations,
+          credentials: dependencies.credentials,
+        },
+        {
+          hostname: options.host,
+          port: options.port,
+          onListening: ({ hostname, port }) =>
+            writeOut(
+              `Guion Web HTTP service listening on ${hostname}:${port}\n`,
+            ),
+        },
+      );
+    });
 }
 
 function createSearchCommand(dependencies: ProgramDependencies): Command {

@@ -63,6 +63,7 @@ jobs:
           path: |
             packages/web/package.json
             packages/web/dist
+            packages/web/dist/openapi.yaml
             packages/pi-web/package.json
             packages/pi-web/dist
             packages/dsh-web/package.json
@@ -161,8 +162,41 @@ jobs:
         working-directory: packages/${{ matrix.directory }}
         run: npm publish --no-git-checks --access public --provenance --tag "${{ steps.version.outputs.dist-tag }}"
 
+  container:
+    needs: preflight
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Synchronize image package version
+        run: node scripts/sync-version.mjs "${GITHUB_REF_NAME#v}"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and publish immutable release image
+        env:
+          IMAGE_NAME: ghcr.io/${{ github.repository }}
+        run: |
+          image="${IMAGE_NAME,,}:${GITHUB_REF_NAME}"
+          docker build --tag "$image" .
+          docker push "$image"
+
   github-release:
-    needs: publish
+    needs: [publish, container]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -171,3 +205,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" --generate-notes --repo "$GITHUB_REPOSITORY"
+
+      - name: Download generated OpenAPI artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: release-dist
+          path: packages
+
+      - name: Attach generated OpenAPI contract
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" packages/web/dist/openapi.yaml#openapi.yaml --repo "$GITHUB_REPOSITORY"

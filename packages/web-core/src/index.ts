@@ -37,6 +37,7 @@ export {
   isOperationAborted,
   isRequestTimeout,
   isResponseBodyLimit,
+  throwIfAborted,
 } from "./request.js";
 
 export {
@@ -133,6 +134,8 @@ export type SearchInput = {
   provider?: string;
   credentials: SearchCredentials;
   maxResults?: number;
+  /** Permit an empty successful Kepos result for the HTTP service contract. */
+  allowEmptyKeposResults?: boolean;
   /** Complete route used by the Kepos Bridge provider. */
   keposBridgeEndpoint?: string;
   signal?: AbortSignal;
@@ -355,7 +358,11 @@ async function searchKeposBridge(input: SearchInput): Promise<SearchResponse> {
     timeoutMs: input.timeoutMs ?? undefined,
   });
   const usable = (response.results ?? []).filter(isUsableTextResult);
-  if (usable.length === 0)
+  const returnedResults = response.results ?? [];
+  if (
+    usable.length === 0 &&
+    (!input.allowEmptyKeposResults || returnedResults.length > 0)
+  )
     throw new Error("Kepos Bridge search returned no usable text results");
   const limited =
     input.maxResults === undefined

@@ -1,0 +1,7 @@
+# Expose research operations through a containerized REST API
+
+Guion Web will add a self-hosted, single-user HTTP service in a portable container. It will expose every existing read-only Research Operation plus typed Bridge Data Operations for weather, sports, finance, and time as REST routes defined with Hono and `@hono/zod-openapi`. Each tagged release will publish the generated OpenAPI 3.1 document as a downloadable `openapi.yaml` GitHub Release asset, alongside the matching npm packages and GHCR image. The current stdio MCP server remains supported, but remote Streamable HTTP MCP is outside this first service slice.
+
+## Consequences
+
+The service's provider credentials and Bridge Route are server-local configuration; clients cannot choose a provider or supply a Bridge Route per request. Search tries Kepos Bridge and uses Exa only when the Bridge is operationally unavailable; it does not fall back for cancellation, malformed client input, or an empty result set. A failed Bridge attempt is retried through Exa exactly once, and a successful empty Bridge response is returned unchanged. Weather, sports, finance, and time remain separate typed Bridge-only routes rather than a generic command passthrough, and never fall back to Exa. `agent-browser` is available as the explicit Rendered Fetch backend in the image. `openapi.yaml` is generated from the release build rather than manually maintained or independently versioned. Public or multi-tenant deployment hardening is deliberately deferred in `.scratch/defered/public-http-service-security.md`.
