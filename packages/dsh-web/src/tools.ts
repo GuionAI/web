@@ -369,30 +369,12 @@ function normalizeLinks(input: unknown): LinksInput {
       `limit must be an integer from 1 through ${MAX_LINK_LIMIT}`,
     );
 
-  const render = input.render;
-  const waitMs = input.waitMs;
-  if (render !== undefined && render !== "http" && render !== "browser")
-    throw new Error('render must be "http" or "browser"');
-  if (render !== "browser") {
-    if (waitMs !== undefined)
-      throw new Error("waitMs is only valid with render browser");
-  } else {
-    if (waitMs === undefined)
-      throw new Error("waitMs is required with render browser");
-    if (
-      typeof waitMs !== "number" ||
-      !Number.isInteger(waitMs) ||
-      waitMs < 0 ||
-      waitMs > 30_000
-    )
-      throw new Error("waitMs must be an integer from 0 through 30000");
-  }
+  const renderOptions = validateRenderOptions(input);
 
   return {
     url,
     ...(limit !== undefined ? { limit } : {}),
-    ...(render !== undefined ? { render } : {}),
-    ...(waitMs !== undefined ? { waitMs } : {}),
+    ...renderOptions,
   };
 }
 
@@ -415,32 +397,44 @@ function normalizeFetch(input: unknown): FetchInput {
     throw new Error("full must be a boolean");
   if (full === true && sectionID !== undefined)
     throw new Error("full and section_id cannot be used together");
-  const render = input.render;
-  if (render !== undefined && render !== "http" && render !== "browser")
-    throw new Error('render must be "http" or "browser"');
-  const waitMs = input.waitMs;
-  if (render !== "browser") {
-    if (waitMs !== undefined)
-      throw new Error("waitMs is only valid with render browser");
-  } else {
-    if (waitMs === undefined)
-      throw new Error("waitMs is required with render browser");
-    if (
-      typeof waitMs !== "number" ||
-      !Number.isInteger(waitMs) ||
-      waitMs < 0 ||
-      waitMs > 30_000
-    )
-      throw new Error("waitMs must be an integer from 0 through 30000");
-  }
+  const renderOptions = validateRenderOptions(input);
   return {
     url,
     ...(sectionID === undefined ? {} : { section_id: sectionID }),
     ...(full === undefined ? {} : { full }),
-    ...(render === undefined ? {} : { render }),
-    ...(waitMs === undefined ? {} : { waitMs }),
+    ...renderOptions,
   };
 }
+
+function validateRenderOptions(input: {
+  render?: unknown;
+  waitMs?: unknown;
+}): RenderOptions {
+  const render = input.render;
+  const waitMs = input.waitMs;
+  if (render !== undefined && render !== "http" && render !== "browser")
+    throw new Error('render must be "http" or "browser"');
+  if (render !== "browser") {
+    if (waitMs !== undefined)
+      throw new Error("waitMs is only valid with render browser");
+    return render === undefined ? {} : { render };
+  }
+  if (waitMs === undefined)
+    throw new Error("waitMs is required with render browser");
+  if (
+    typeof waitMs !== "number" ||
+    !Number.isInteger(waitMs) ||
+    waitMs < 0 ||
+    waitMs > 30_000
+  )
+    throw new Error("waitMs must be an integer from 0 through 30000");
+  return { render, waitMs };
+}
+
+type RenderOptions =
+  | { render?: undefined; waitMs?: undefined }
+  | { render: "http"; waitMs?: undefined }
+  | { render: "browser"; waitMs: number };
 
 function normalizeDocs(input: unknown): DocsToolInput {
   if (!isRecord(input)) throw new Error("web_docs input must be an object");

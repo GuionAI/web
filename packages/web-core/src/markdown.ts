@@ -184,7 +184,13 @@ function renderTree(source: string, headings: Heading[]): string {
     99,
   );
   if (bodyHeadings.length === 0) {
-    return `${header}(empty)\n\nUse section_id to read a section, or full: true to read everything.\n`;
+    const tree = headings
+      .map(
+        (heading, index) =>
+          `└── [${heading.id}] ${"#".repeat(heading.level)} ${heading.text}  (${formatNumber(sectionCharCount(source, headings, index))} chars)\n`,
+      )
+      .join("");
+    return `${header}${tree}\nUse section_id to read a section, or full: true to read everything.\n`;
   }
 
   const nodes = bodyHeadings.map((heading) => {

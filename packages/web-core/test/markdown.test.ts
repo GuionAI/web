@@ -83,4 +83,19 @@ describe("Markdown navigation", () => {
       mode: "full",
     });
   });
+
+  it("lists and retrieves an H1-only long document section", () => {
+    const source = `# Only title\n\n${"x".repeat(5001)}\n`;
+    const tree = renderMarkdown(source);
+    const sectionID = tree.content.match(
+      /\[([0-9A-Za-z]{2,3})\] # Only title/,
+    )?.[1];
+
+    expect(tree.mode).toBe("tree");
+    expect(sectionID).toBeDefined();
+    expect(renderMarkdown(source, { section_id: sectionID })).toEqual({
+      content: source,
+      mode: "section",
+    });
+  });
 });

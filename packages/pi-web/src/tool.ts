@@ -275,24 +275,7 @@ function normalizeFetch(input: unknown): WebFetchInput {
       throw new Error(`web_fetch input does not accept field ${field}`);
   }
   const url = requireString(input, "url");
-  const render = input.render;
-  const waitMs = input.waitMs;
-  if (render !== undefined && render !== "http" && render !== "browser")
-    throw new Error('render must be "http" or "browser"');
-  if (render !== "browser") {
-    if (waitMs !== undefined)
-      throw new Error("waitMs is only valid with render browser");
-  } else {
-    if (waitMs === undefined)
-      throw new Error("waitMs is required with render browser");
-    if (
-      typeof waitMs !== "number" ||
-      !Number.isInteger(waitMs) ||
-      waitMs < 0 ||
-      waitMs > 30_000
-    )
-      throw new Error("waitMs must be an integer from 0 through 30000");
-  }
+  const renderOptions = validateRenderOptions(input);
   if (input.full !== undefined && typeof input.full !== "boolean")
     throw new Error("full must be a boolean");
   if (input.section_id !== undefined) {
@@ -307,10 +290,7 @@ function normalizeFetch(input: unknown): WebFetchInput {
     ...(typed.section_id === undefined ? {} : { section_id: typed.section_id }),
     ...(typed.full === undefined ? {} : { full: typed.full }),
   };
-  if (render === "browser")
-    return { ...navigation, render, waitMs: waitMs as number };
-  if (render === "http") return { ...navigation, render };
-  return navigation;
+  return { ...navigation, ...renderOptions };
 }
 
 function normalizeLinks(input: unknown): WebLinksInput {
@@ -320,25 +300,8 @@ function normalizeLinks(input: unknown): WebLinksInput {
       throw new Error(`web_links input does not accept field ${field}`);
   }
   const url = requireString(input, "url");
-  const render = input.render;
-  const waitMs = input.waitMs;
+  const renderOptions = validateRenderOptions(input);
   const limit = input.limit;
-  if (render !== undefined && render !== "http" && render !== "browser")
-    throw new Error('render must be "http" or "browser"');
-  if (render !== "browser") {
-    if (waitMs !== undefined)
-      throw new Error("waitMs is only valid with render browser");
-  } else {
-    if (waitMs === undefined)
-      throw new Error("waitMs is required with render browser");
-    if (
-      typeof waitMs !== "number" ||
-      !Number.isInteger(waitMs) ||
-      waitMs < 0 ||
-      waitMs > 30_000
-    )
-      throw new Error("waitMs must be an integer from 0 through 30000");
-  }
   if (
     limit !== undefined &&
     (typeof limit !== "number" ||
@@ -354,11 +317,38 @@ function normalizeLinks(input: unknown): WebLinksInput {
     url,
     ...(typed.limit === undefined ? {} : { limit: typed.limit }),
   };
-  if (render === "browser")
-    return { ...result, render, waitMs: waitMs as number };
-  if (render === "http") return { ...result, render };
-  return result;
+  return { ...result, ...renderOptions };
 }
+
+function validateRenderOptions(input: {
+  render?: unknown;
+  waitMs?: unknown;
+}): RenderOptions {
+  const render = input.render;
+  const waitMs = input.waitMs;
+  if (render !== undefined && render !== "http" && render !== "browser")
+    throw new Error('render must be "http" or "browser"');
+  if (render !== "browser") {
+    if (waitMs !== undefined)
+      throw new Error("waitMs is only valid with render browser");
+    return render === undefined ? {} : { render };
+  }
+  if (waitMs === undefined)
+    throw new Error("waitMs is required with render browser");
+  if (
+    typeof waitMs !== "number" ||
+    !Number.isInteger(waitMs) ||
+    waitMs < 0 ||
+    waitMs > 30_000
+  )
+    throw new Error("waitMs must be an integer from 0 through 30000");
+  return { render, waitMs };
+}
+
+type RenderOptions =
+  | { render?: undefined; waitMs?: undefined }
+  | { render: "http"; waitMs?: undefined }
+  | { render: "browser"; waitMs: number };
 
 function mergeSearchResults(responses: SearchResponse[]): SearchResponse {
   const results: SearchResponse["results"] = [];
