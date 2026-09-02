@@ -13,6 +13,26 @@ The tickets were implemented in dependency order: the shared Core adapter and
 selection seam first, then CLI/MCP/Pi and DSH, followed by the server-local
 HTTP selection and OpenAPI contract.
 
+## Review repair batch
+
+- Repair commit: `e7ef2fc` (`fix(search): tighten DeepSeek review contracts`).
+- The review-again gate classified these as local contract/test repairs: the
+  runtime method and risk surface are unchanged, so focused verification was
+  sufficient and a second broad code review was not required.
+- Removed the three DeepSeek packed-artifact source-string assertions from the
+  artifact test. Existing runtime, provider, and rendered-settings tests remain
+  the behavior coverage for those contracts.
+- DeepSeek's seven endpoint/model/version/token/tool protocol constants are now
+  implementation-private in web-core. The Core fixture asserts the expected
+  protocol through test-local constants instead of importing production
+  implementation details.
+- DSH alpha.3 deployed-entrypoint acceptance was unavailable on this host. The
+  documented path `/home/neil/.local/share/dsh-runtime/node_modules/@deepseek-ai/dsh/lib/bin.js`
+  failed the availability check (`test -f` returned `unavailable`), and the
+  direct probe `node --expose-internals /home/neil/.local/share/dsh-runtime/node_modules/@deepseek-ai/dsh/lib/bin.js --help`
+  failed with `MODULE_NOT_FOUND`. Consequently, no Host/browser acceptance was
+  run, and no host state or credentials were created or modified.
+
 ## Ticket outcomes
 
 ### 01 — Add explicit DeepSeek search outside DSH
@@ -68,7 +88,10 @@ HTTP selection and OpenAPI contract.
 
 ## Verification
 
-All checks completed successfully against the implementation:
+All implementation and review-repair checks completed successfully:
+
+- Focused `pnpm exec vitest run packages/web-core/test/search.test.ts
+  packages/dsh-web/test/artifact.test.ts` — 2 files and 14 tests passed.
 
 - `pnpm format:check` and explicit Prettier checks for the changed Markdown
   references; `git diff --check`.
@@ -109,7 +132,8 @@ this report:
   the spec; tests use injected local fetch fixtures only.
 - Public or multi-tenant HTTP hardening remains out of scope as documented by
   ADR 0001 and the existing deferred security note.
-- Code review and deployment were intentionally not run for this task.
+- A second broad code review and deployment were intentionally not run; the
+  review-again gate classified this batch as local repairs.
 
 ## Acceptance result
 
