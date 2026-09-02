@@ -86,6 +86,12 @@ describe("DSH direct web tools", () => {
       "http",
       "browser",
     ]);
+    expect((definitions[0]!.parameters as any).properties.mode.enum).toEqual([
+      "auto",
+      "full",
+      "tree",
+      "section",
+    ]);
     expect((definitions[0]!.parameters as any).properties.waitMs.type).toBe(
       "integer",
     );
@@ -148,6 +154,7 @@ describe("DSH direct web tools", () => {
         fetch!,
         {
           url: "https://example.test",
+          mode: "section",
           section_id: "install",
           render: "browser",
           waitMs: 2000,
@@ -191,6 +198,7 @@ describe("DSH direct web tools", () => {
         kind: "fetch",
         input: {
           url: "https://example.test",
+          mode: "section",
           section_id: "install",
           render: "browser",
           waitMs: 2000,
@@ -237,6 +245,22 @@ describe("DSH direct web tools", () => {
 
   it("preserves shared fetch validation, cancellation, and structured renderer failures", async () => {
     const fetch = createWebToolDefinitions(dependencies())[0]!;
+    await expect(
+      call(fetch, { url: "https://example.test", mode: "section" }),
+    ).rejects.toThrow('section_id is required when mode is "section"');
+    await expect(
+      call(fetch, {
+        url: "https://example.test",
+        mode: "full",
+        section_id: "intro",
+      }),
+    ).rejects.toThrow('section_id is only valid with mode "section"');
+    await expect(
+      call(fetch, { url: "https://example.test", full: true }),
+    ).rejects.toThrow(/does not accept field full/);
+    await expect(
+      call(fetch, { url: "https://example.test", mode: "invalid" }),
+    ).rejects.toThrow(/mode.*auto.*full.*tree.*section/);
     await expect(
       call(fetch, {
         url: "https://example.test",

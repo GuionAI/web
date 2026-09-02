@@ -55,7 +55,7 @@ Request:
 {
   "url": "https://example.test/article",
   "render": "http",
-  "full": false,
+  "mode": "section",
   "section_id": "7i"
 }
 ```
@@ -63,9 +63,10 @@ Request:
 `url` must be an absolute `http:` or `https:` URL. `render` is optional and
 must be exactly `"http"` or `"browser"`; omission selects `"http"`. `waitMs`
 is an integer from 0 through 30,000, required with `render: "browser"` and
-forbidden with `render: "http"` (or when `render` is omitted). `full` is an
-optional boolean. `section_id` is an optional non-empty string returned in a
-navigation tree. `full: true` and `section_id` cannot be sent together.
+forbidden with `render: "http"` (or when `render` is omitted). `mode` is
+optional and defaults to `"auto"`; it must be one of `"auto"`, `"full"`,
+`"tree"`, or `"section"`. `section_id` is required exactly when `mode` is
+`"section"` and is rejected for every other mode.
 
 HTTP rendering fetches the page with Node HTTP, linkedom, and Defuddle.
 Browser rendering invokes the operator-installed `agent-browser` executable
@@ -73,14 +74,15 @@ through the isolated renderer implementation; the executable name is not a
 public request value. Browser rendering is never selected automatically, and
 the service does not fall back between renderers.
 
-The shared module owns the 5,000-character automatic-tree policy. A non-full,
-unsectioned document longer than that threshold with navigable headings returns
-`mode: "tree"` with stable section IDs. Use one of those IDs in a subsequent
-request to retrieve a section. A long document without headings uses the normal
-bounded `mode: "full"` response because it has no section to navigate. The
-`full: true` option returns the complete extracted Markdown without the Core
-content limit. A short result uses `mode: "full"`; a section request uses
-`mode: "section"`.
+The shared module owns the 5,000-character automatic-tree policy. An `"auto"`
+request for an unsectioned document longer than that threshold with navigable
+headings returns `mode: "tree"` with stable section IDs. Use one of those IDs
+in a subsequent request with `mode: "section"` to retrieve a section. A long
+document without headings uses the normal bounded `mode: "full"` response
+because it has no section to navigate. `mode: "full"` returns the complete
+extracted Markdown without the Core content limit. `mode: "tree"` always
+returns the heading-tree representation, including the explicit no-headings
+result. A short `"auto"` request uses `mode: "full"`; `"auto"` is input-only.
 
 Response `200`:
 

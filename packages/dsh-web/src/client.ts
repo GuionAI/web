@@ -312,10 +312,15 @@ function formatWait(waitMs: number): string {
 }
 
 function fetchResultMode(args: Record<string, unknown>): string {
-  if (typeof args.section_id === "string" && args.section_id !== "")
+  if (
+    args.mode === "section" &&
+    typeof args.section_id === "string" &&
+    args.section_id !== ""
+  )
     return `Section: ${args.section_id}`;
-  if (args.full === true) return "Full document";
-  return "Adaptive document";
+  if (args.mode === "full") return "Full document";
+  if (args.mode === "tree") return "Heading tree";
+  return "Automatic navigation";
 }
 
 function excerpt(output: string): string {

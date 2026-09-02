@@ -1,6 +1,7 @@
 import {
   createWebOperations,
   DEFAULT_LINK_LIMIT,
+  FETCH_MODES,
   normalizeDocsToolInput,
   formatSize,
   MAX_LINK_LIMIT,
@@ -10,6 +11,7 @@ import {
   type DocsResolveResult,
   type DocsToolInput,
   type FetchInput,
+  type FetchMode,
   type FetchResult,
   type LinksInput,
   type LinksResult,
@@ -42,13 +44,15 @@ const fetchParameters = {
     required: true,
     description: "HTTP or HTTPS URL to fetch",
   },
+  mode: {
+    type: "string",
+    enum: [...FETCH_MODES],
+    default: "auto",
+    description: "Navigation mode: auto (default), full, tree, or section",
+  },
   section_id: {
     type: "string",
-    description: "Optional heading section ID to return",
-  },
-  full: {
-    type: "boolean",
-    description: "Return full content without automatic tree mode",
+    description: "Heading section ID; required only with mode section",
   },
   render: {
     type: "string",
@@ -212,7 +216,7 @@ const fetchOutput = {
       type: "text" as const,
       text: boundedToolText(
         value.content,
-        "Use web_fetch with full: true or a returned section_id to navigate the document.",
+        'Use web_fetch with mode: "full" for the complete document, or mode: "section" with a returned section_id to navigate the document.',
       ),
     },
   ],
@@ -382,26 +386,31 @@ function normalizeFetch(input: unknown): FetchInput {
   if (!isRecord(input)) throw new Error("web_fetch input must be an object");
   rejectUnknownFields(
     input,
-    ["url", "section_id", "full", "render", "waitMs"],
+    ["url", "mode", "section_id", "render", "waitMs"],
     "web_fetch",
   );
   const url = requireString(input, "url");
+  const mode = input.mode;
+  if (mode !== undefined && !FETCH_MODES.includes(mode as FetchMode))
+    throw new Error('mode must be one of "auto", "full", "tree", or "section"');
+  const selectedMode = mode as FetchMode | undefined;
   const sectionID = input.section_id;
   if (
     sectionID !== undefined &&
     (typeof sectionID !== "string" || sectionID.trim().length === 0)
   )
     throw new Error("section_id must be a non-empty string");
-  const full = input.full;
-  if (full !== undefined && typeof full !== "boolean")
-    throw new Error("full must be a boolean");
-  if (full === true && sectionID !== undefined)
-    throw new Error("full and section_id cannot be used together");
+  if (selectedMode === "section") {
+    if (sectionID === undefined)
+      throw new Error('section_id is required when mode is "section"');
+  } else if (sectionID !== undefined) {
+    throw new Error('section_id is only valid with mode "section"');
+  }
   const renderOptions = validateRenderOptions(input);
   return {
     url,
+    ...(selectedMode === undefined ? {} : { mode: selectedMode }),
     ...(sectionID === undefined ? {} : { section_id: sectionID }),
-    ...(full === undefined ? {} : { full }),
     ...renderOptions,
   };
 }
@@ -489,7 +498,7 @@ function webFetchTool(
     defineTool({
       name: "web_fetch",
       description:
-        "Use HTTP rendering for static, SSR, and pre-rendered pages. For client-rendered or SPA pages, set render: browser with required waitMs when the host provides browser capability; there is no automatic fallback.",
+        "Use HTTP rendering for static, SSR, and pre-rendered pages. mode selects auto, full, tree, or section navigation; mode section requires section_id. For client-rendered or SPA pages, set render: browser with required waitMs when the host provides browser capability; there is no automatic fallback.",
       parameters: fetchParameters,
       output: fetchOutput,
       isConcurrencySafe: () => true,

@@ -293,7 +293,7 @@ describe("DSH 0.1.2-alpha.3 packed package contract", () => {
         throw new Error("packed DSH artifact did not register web_links");
       process.env.PATH = `${browser.bin}:${originalPath ?? ""}`;
       const direct = await fetchTool.execute(
-        { url: "https://93.184.216.34/direct", full: true },
+        { url: "https://93.184.216.34/direct", mode: "full" },
         { signal: new AbortController().signal },
       );
       expect(direct.content).toBe("Packed DSH browserless fixture.\n");
@@ -313,7 +313,7 @@ describe("DSH 0.1.2-alpha.3 packed package contract", () => {
           url: "https://93.184.216.34/rendered",
           render: "browser",
           waitMs: 0,
-          full: true,
+          mode: "full",
         },
         { signal: new AbortController().signal },
       );

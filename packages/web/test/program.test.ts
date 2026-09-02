@@ -205,12 +205,13 @@ describe("web search Commander adapter", () => {
   it("passes fetch navigation flags and writes human Markdown", async () => {
     const { program, operations, output } = setup();
     await program.parseAsync(
-      ["fetch", "https://example.test/page", "-s", "7i"],
+      ["fetch", "https://example.test/page", "--mode", "section", "-s", "7i"],
       { from: "user" },
     );
 
     expect(operations.fetch).toHaveBeenCalledWith({
       url: "https://example.test/page",
+      mode: "section",
       section_id: "7i",
     });
     expect(output()).toEqual({ stdout: "# Fixture page\n", stderr: "" });
@@ -233,18 +234,64 @@ describe("web search Commander adapter", () => {
   it("writes fetch JSON as exactly one document", async () => {
     const { program, operations, output } = setup();
     await program.parseAsync(
-      ["fetch", "https://example.test/page", "--full", "--json"],
+      ["fetch", "https://example.test/page", "--mode", "full", "--json"],
       { from: "user" },
     );
 
     expect(operations.fetch).toHaveBeenCalledWith({
       url: "https://example.test/page",
-      full: true,
+      mode: "full",
     });
     expect(JSON.parse(output().stdout)).toEqual(
       await operations.fetch.mock.results[0]!.value,
     );
     expect(output().stdout.endsWith("\n")).toBe(true);
+  });
+
+  it("rejects invalid navigation mode and section combinations before fetching", async () => {
+    for (const argv of [
+      ["fetch", "https://example.test/page", "--mode", "invalid"],
+      ["fetch", "https://example.test/page", "--mode", "section"],
+      [
+        "fetch",
+        "https://example.test/page",
+        "--mode",
+        "full",
+        "--section",
+        "intro",
+      ],
+      ["fetch", "https://example.test/page", "--section", "intro"],
+      ["fetch", "https://example.test/page", "--full"],
+    ]) {
+      const { program, operations } = setup();
+      program.exitOverride();
+      await expect(
+        program.parseAsync(argv, { from: "user" }),
+      ).rejects.toThrow();
+      expect(operations.fetch).not.toHaveBeenCalled();
+    }
+  });
+
+  it("returns a nonzero result for removed CLI flags without invoking fetch", async () => {
+    const operations = setup().operations;
+    let stdout = "";
+    let stderr = "";
+    const exitCode = await runCli(
+      ["node", "web", "fetch", "https://example.test/page", "--full"],
+      { operations, credentials: () => ({}) },
+      {
+        stdout: (text) => {
+          stdout += text;
+        },
+        stderr: (text) => {
+          stderr += text;
+        },
+      },
+    );
+    expect(exitCode).toBe(1);
+    expect(stdout).toBe("");
+    expect(stderr).toContain("unknown option '--full'");
+    expect(operations.fetch).not.toHaveBeenCalled();
   });
 
   it("forwards link discovery options and supports concise and JSON output", async () => {

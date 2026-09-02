@@ -227,12 +227,55 @@ describe("personal HTTP service", () => {
     expect(ops.fetch).toHaveBeenCalledWith(
       expect.objectContaining({
         url: "https://example.test",
-        full: false,
+        mode: "auto",
         render: "browser",
         waitMs: 0,
       }),
       expect.any(AbortSignal),
     );
+  });
+
+  it("forwards every navigation mode and rejects incompatible section IDs", async () => {
+    const ops = operations({
+      fetch: vi.fn(async (input) => ({
+        url: input.url,
+        mode: input.mode === "tree" ? "tree" : "full",
+        content: input.mode === "tree" ? "tree" : "page",
+      })) as WebOperations["fetch"],
+    });
+    const app = createHttpApp({ ...dependencies(), operations: ops });
+
+    for (const mode of ["auto", "full", "tree"] as const) {
+      const result = await json(app, "/v1/fetch", {
+        url: "https://example.test",
+        mode,
+      });
+      expect(result.response.status).toBe(200);
+    }
+    const section = await json(app, "/v1/fetch", {
+      url: "https://example.test",
+      mode: "section",
+      section_id: "intro",
+    });
+    expect(section.response.status).toBe(200);
+    expect(ops.fetch).toHaveBeenNthCalledWith(
+      4,
+      expect.objectContaining({ mode: "section", section_id: "intro" }),
+      expect.any(AbortSignal),
+    );
+
+    for (const body of [
+      { url: "https://example.test", mode: "section" },
+      { url: "https://example.test", mode: "auto", section_id: "intro" },
+      { url: "https://example.test", mode: "full", section_id: "intro" },
+      { url: "https://example.test", mode: "tree", section_id: "intro" },
+      { url: "https://example.test", section_id: "intro" },
+      { url: "https://example.test", mode: "invalid" },
+      { url: "https://example.test", full: true },
+    ]) {
+      expect((await json(app, "/v1/fetch", body)).response.status).toBe(400);
+    }
+    expect(ops.fetch).toHaveBeenCalledTimes(4);
   });
 
   it("forwards links with the same explicit rendered-fetch contract", async () => {
@@ -293,7 +336,7 @@ describe("personal HTTP service", () => {
       (
         await json(app, "/v1/fetch", {
           url: "https://example.test",
-          full: true,
+          mode: "full",
           section_id: "intro",
         })
       ).response.status,
@@ -357,6 +400,14 @@ describe("personal HTTP service", () => {
         .enum,
     ).toEqual(["Exa", "DeepSeek", "Kepos Bridge"]);
     const fetchRequest = (document.components?.schemas as any).FetchRequest;
+    expect(fetchRequest.properties.mode.enum).toEqual([
+      "auto",
+      "full",
+      "tree",
+      "section",
+    ]);
+    expect(fetchRequest.properties.mode.default).toBe("auto");
+    expect(fetchRequest.properties.full).toBeUndefined();
     expect(fetchRequest.properties.render.enum).toEqual(["http", "browser"]);
     expect(fetchRequest.properties.tree).toBeUndefined();
     expect(fetchRequest.properties.tree_threshold).toBeUndefined();

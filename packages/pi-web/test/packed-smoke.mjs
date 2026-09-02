@@ -192,7 +192,7 @@ if (command === "open" && args.some((value) => value.includes("/blocked"))) {
       throw new Error("packed extension did not register web_fetch");
     const direct = await fetchTool.execute("test", {
       url: "https://93.184.216.34/direct",
-      full: true,
+      mode: "full",
     });
     if (!direct.content[0]?.text.includes("Browserless output."))
       throw new Error("packed extension did not execute browserless fetch");
@@ -217,7 +217,7 @@ if (command === "open" && args.some((value) => value.includes("/blocked"))) {
       url: "https://93.184.216.34/rendered",
       render: "browser",
       waitMs: 0,
-      full: true,
+      mode: "full",
     });
     if (
       !rendered.content[0]?.text.includes(

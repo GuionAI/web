@@ -3,9 +3,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   createWebOperations,
   DEFAULT_LINK_LIMIT,
+  FETCH_MODES,
   MAX_LINK_LIMIT,
   normalizeDocsToolInput,
   type DocsToolInput,
+  type FetchMode,
   type LinksResult,
   type SearchProvider,
   type WebCredentials,
@@ -36,16 +38,17 @@ export const webSearchSchema = Type.Object(
 
 const fetchNavigationProperties = {
   url: Type.String({ description: "HTTP or HTTPS URL to fetch" }),
-  section_id: Type.Optional(
-    Type.String({
-      description: "Optional heading section ID to return",
-      minLength: 1,
-      pattern: "\\S",
+  mode: Type.Optional(
+    StringEnum(FETCH_MODES, {
+      default: "auto",
+      description: "Navigation mode: auto (default), full, tree, or section",
     }),
   ),
-  full: Type.Optional(
-    Type.Boolean({
-      description: "Return full content without automatic tree mode",
+  section_id: Type.Optional(
+    Type.String({
+      description: "Heading section ID; required only with mode section",
+      minLength: 1,
+      pattern: "\\S",
     }),
   ),
 };
@@ -82,14 +85,18 @@ export const webFetchSchema = {
   ...webFetchBaseSchema,
   allOf: [
     {
-      not: {
-        type: "object",
-        required: ["full", "section_id"],
-        properties: {
-          full: { const: true },
-          section_id: { type: "string" },
+      oneOf: [
+        {
+          properties: {
+            mode: { enum: ["auto", "full", "tree"] },
+          },
+          not: { required: ["section_id"] },
         },
-      },
+        {
+          properties: { mode: { const: "section" } },
+          required: ["mode", "section_id"],
+        },
+      ],
     },
   ],
 } as typeof webFetchBaseSchema;
@@ -205,7 +212,7 @@ const SEARCH_PROMPT_GUIDELINES = [
   "Use web_search to search the web for current facts.",
 ];
 const FETCH_PROMPT_GUIDELINES = [
-  "Use web_fetch to read a web page; long documents with navigable headings return a navigation tree automatically, so follow up with full: true or a returned section_id. Headingless long documents use the normal bounded response.",
+  'Use web_fetch to read a web page; mode: "auto" is the default and long documents with navigable headings return a navigation tree. Follow up with mode: "section" and a returned section_id, or mode: "full" to read everything. Headingless long documents use the normal bounded response.',
   'web_fetch uses HTTP fetching by default; set render: "http" explicitly when desired.',
   'For a client-rendered or SPA page, or after javascript_rendering_may_be_required, retry explicitly with render: "browser" and waitMs: 2000 only when the host provides browser capability. Increase waitMs explicitly or abandon an incomplete page; there is no automatic fallback.',
   "Never send waitMs with HTTP rendering. The browser is a host capability, not a package dependency.",
@@ -272,24 +279,29 @@ function requireQueries(input: unknown): string[] {
 function normalizeFetch(input: unknown): WebFetchInput {
   if (!isRecord(input)) throw new Error("web_fetch input must be an object");
   for (const field of Object.keys(input)) {
-    if (!["url", "section_id", "full", "render", "waitMs"].includes(field))
+    if (!["url", "mode", "section_id", "render", "waitMs"].includes(field))
       throw new Error(`web_fetch input does not accept field ${field}`);
   }
   const url = requireString(input, "url");
   const renderOptions = validateRenderOptions(input);
-  if (input.full !== undefined && typeof input.full !== "boolean")
-    throw new Error("full must be a boolean");
+  const mode = input.mode;
+  if (mode !== undefined && !FETCH_MODES.includes(mode as FetchMode))
+    throw new Error('mode must be one of "auto", "full", "tree", or "section"');
   if (input.section_id !== undefined) {
     if (typeof input.section_id !== "string" || input.section_id.trim() === "")
       throw new Error("section_id must be a non-empty string");
   }
-  if (input.full === true && input.section_id !== undefined)
-    throw new Error("full and section_id cannot be used together");
+  if (mode === "section") {
+    if (input.section_id === undefined)
+      throw new Error('section_id is required when mode is "section"');
+  } else if (input.section_id !== undefined) {
+    throw new Error('section_id is only valid with mode "section"');
+  }
   const typed = input as unknown as WebFetchInput;
   const navigation = {
     url,
+    ...(typed.mode === undefined ? {} : { mode: typed.mode }),
     ...(typed.section_id === undefined ? {} : { section_id: typed.section_id }),
-    ...(typed.full === undefined ? {} : { full: typed.full }),
   };
   return { ...navigation, ...renderOptions };
 }
@@ -436,14 +448,14 @@ export function webFetchTool(dependencies: WebToolDependencies = {}) {
     name: "web_fetch",
     label: "Web fetch",
     description:
-      "Fetch and read an HTTP or HTTPS web page as Markdown, with HTTP rendering by default or explicit browser rendering for client-rendered pages. Browser rendering requires waitMs 0 through 30000. Long documents with navigable headings return a navigation tree unless full or section_id is requested; headingless long documents use the normal bounded response. Text output is limited to 2,000 lines or 50KB; truncated output is saved to a temporary file.",
+      "Fetch and read an HTTP or HTTPS web page as Markdown, with HTTP rendering by default or explicit browser rendering for client-rendered pages. Browser rendering requires waitMs 0 through 30000. mode selects auto, full, tree, or section navigation; mode section requires section_id. Text output is limited to 2,000 lines or 50KB; truncated output is saved to a temporary file.",
     promptSnippet: "Fetch a web page with web_fetch",
     promptGuidelines: FETCH_PROMPT_GUIDELINES,
     parameters: webFetchSchema,
     execute: async (params, signal) => {
       const data = await operations.fetch(normalizeFetch(params), signal);
       return modelTextResult(data, data.content, {
-        hint: "Use web_fetch with full: true or a returned section_id to navigate the document.",
+        hint: 'Use web_fetch with mode: "full" for the complete document, or mode: "section" with a returned section_id to navigate the document.',
       });
     },
   });

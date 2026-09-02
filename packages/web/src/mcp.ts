@@ -9,9 +9,11 @@ import { Command } from "commander";
 
 import {
   DEFAULT_LINK_LIMIT,
+  FETCH_MODES,
   FetchCapabilityError,
   MAX_LINK_LIMIT,
   RENDER_REPORT_URL,
+  type FetchMode,
   type FetchErrorDetails,
   type WebCredentials,
   type WebOperations,
@@ -20,8 +22,8 @@ import {
 type SearchToolInput = { query: string };
 type FetchToolInput = {
   url: string;
+  mode?: FetchMode;
   section_id?: string;
-  full?: boolean;
   render?: "http" | "browser";
   waitMs?: number;
 };
@@ -61,14 +63,17 @@ const fetchInputSchema = schema<FetchToolInput>({
   additionalProperties: false,
   properties: {
     url: { type: "string", description: "HTTP or HTTPS URL to fetch" },
+    mode: {
+      type: "string",
+      enum: [...FETCH_MODES],
+      default: "auto",
+      description: "navigation mode: auto (default), full, tree, or section",
+    },
     section_id: {
       type: "string",
       minLength: 1,
-      description: "optional heading section ID to return",
-    },
-    full: {
-      type: "boolean",
-      description: "return full content without automatic tree mode",
+      pattern: "\\S",
+      description: "heading section ID; required only with mode section",
     },
     render: {
       type: "string",
@@ -96,10 +101,18 @@ const fetchInputSchema = schema<FetchToolInput>({
   ],
   allOf: [
     {
-      not: {
-        required: ["section_id", "full"],
-        properties: { full: { const: true } },
-      },
+      oneOf: [
+        {
+          properties: {
+            mode: { enum: FETCH_MODES.filter((mode) => mode !== "section") },
+          },
+          not: { required: ["section_id"] },
+        },
+        {
+          properties: { mode: { const: "section" } },
+          required: ["mode", "section_id"],
+        },
+      ],
     },
   ],
 });
@@ -337,14 +350,14 @@ export function createMcpServer(dependencies: McpDependencies): McpServer {
       fetchInputSchema,
       fetchOutputSchema,
     ),
-    async ({ url, section_id, full, render, waitMs }, context) =>
+    async ({ url, mode, section_id, render, waitMs }, context) =>
       runTool(
         () =>
           dependencies.operations.fetch(
             {
               url,
+              ...(mode !== undefined ? { mode } : {}),
               ...(section_id !== undefined ? { section_id } : {}),
-              ...(full !== undefined ? { full } : {}),
               ...(render !== undefined ? { render } : {}),
               ...(waitMs !== undefined ? { waitMs } : {}),
             },

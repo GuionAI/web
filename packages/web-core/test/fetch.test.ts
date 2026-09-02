@@ -78,7 +78,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
           "invalid URL",
         );
         await expect(
-          fetchPage({ url: `${url}/redirect`, full: true }),
+          fetchPage({ url: `${url}/redirect`, mode: "full" }),
         ).resolves.toMatchObject({
           content: "redirected text",
           mode: "full",
@@ -138,11 +138,11 @@ describe.sequential("browserless fetch migrated from Organon", () => {
     try {
       await withTempCache(async (fetchPage) => {
         await expect(
-          fetchPage({ url: `${url}/text`, full: true }),
+          fetchPage({ url: `${url}/text`, mode: "full" }),
         ).resolves.toMatchObject({
           content: "package main\n\nfunc main() {}\n",
         });
-        await expect(fetchPage({ url, full: true })).resolves.toEqual({
+        await expect(fetchPage({ url, mode: "full" })).resolves.toEqual({
           url,
           mode: "full",
           content: "Extracted text.\n",
@@ -369,7 +369,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
               url: "https://render.test/page",
               render: "browser",
               waitMs: 0,
-              full: true,
+              mode: "full",
             },
             undefined,
             { cacheDirectory, fetch: directFetch, resolveHost },
@@ -754,7 +754,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
     });
     try {
       await withTempCache(async (fetchPage) => {
-        const result = await fetchPage({ url, full: true });
+        const result = await fetchPage({ url, mode: "full" });
         expect(result.content).toContain("Initial static content.");
         expect(result.content).not.toContain("SPA_MARKER_RENDERED");
       });
@@ -780,7 +780,12 @@ describe.sequential("browserless fetch migrated from Organon", () => {
       mode: "tree",
     });
     await expect(
-      fetchWebPage({ ...input, section_id: "7i" }, undefined, { cache }),
+      fetchWebPage({ ...input, mode: "tree" }, undefined, { cache }),
+    ).resolves.toMatchObject({ mode: "tree" });
+    await expect(
+      fetchWebPage({ ...input, mode: "section", section_id: "7i" }, undefined, {
+        cache,
+      }),
     ).resolves.toMatchObject({
       mode: "section",
       content: "## Install\nInstall content.\n",
@@ -793,7 +798,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
       write: vi.fn(async () => {}),
     };
     const result = await fetchWebPage(
-      { url: "https://navigation.test/complete", full: true },
+      { url: "https://navigation.test/complete", mode: "full" },
       undefined,
       { cache: completeCache },
     );
@@ -807,24 +812,41 @@ describe.sequential("browserless fetch migrated from Organon", () => {
       fetchWebPage(
         {
           url: input.url,
-          full: true,
+          mode: "full",
           section_id: "7i",
         } as never,
         undefined,
         { cache },
       ),
-    ).rejects.toThrow("full and section_id cannot be used together");
+    ).rejects.toThrow('section_id is only valid with mode "section"');
     await expect(
       fetchWebPage({ url: input.url, tree: true } as never, undefined, {
         cache,
       }),
     ).rejects.toThrow("does not accept field tree");
     await expect(
+      fetchWebPage({ ...input, mode: "section" } as never, undefined, {
+        cache,
+      }),
+    ).rejects.toThrow('section_id is required when mode is "section"');
+    await expect(
+      fetchWebPage({ ...input, mode: "auto", section_id: "7i" }, undefined, {
+        cache,
+      }),
+    ).rejects.toThrow('section_id is only valid with mode "section"');
+    await expect(
+      fetchWebPage({ ...input, mode: "invalid" } as never, undefined, {
+        cache,
+      }),
+    ).rejects.toThrow(
+      'mode must be one of "auto", "full", "tree", or "section"',
+    );
+    await expect(
       fetchWebPage({ url: input.url, tree_threshold: 1 } as never, undefined, {
         cache,
       }),
     ).rejects.toThrow("does not accept field tree_threshold");
-    expect(cache.read).toHaveBeenCalledTimes(2);
+    expect(cache.read).toHaveBeenCalledTimes(3);
   });
 });
 

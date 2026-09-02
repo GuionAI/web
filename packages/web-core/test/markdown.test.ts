@@ -46,13 +46,15 @@ describe("Markdown navigation", () => {
       /\[([0-9A-Za-z]{2,3})\] ## Quote emphasis/,
     )?.[1];
     expect(quoteID).toBeDefined();
-    expect(renderMarkdown(source, { section_id: quoteID })).toEqual({
+    expect(
+      renderMarkdown(source, { mode: "section", section_id: quoteID }),
+    ).toEqual({
       mode: "section",
       content: "> ## Quote *emphasis*\n\n- ### List heading\n",
     });
   });
 
-  it("uses the fixed automatic tree policy and full/section navigation", () => {
+  it("uses the fixed automatic tree policy and explicit navigation modes", () => {
     const source =
       "# Test page\n\n## Install\nInstall content.\n\n### Details\nDetails content.\n\n## Next\nNext content.\n";
     const tree = renderMarkdown(`${source}${"x".repeat(5001)}`);
@@ -60,20 +62,22 @@ describe("Markdown navigation", () => {
     expect(tree.content).toContain("[7i] ## Install");
     expect(tree.content).toContain("[eD] ### Details");
 
-    expect(renderMarkdown(source, { section_id: "7i" })).toEqual({
+    expect(
+      renderMarkdown(source, { mode: "section", section_id: "7i" }),
+    ).toEqual({
       mode: "section",
       content:
         "## Install\nInstall content.\n\n### Details\nDetails content.\n",
     });
-    expect(() => renderMarkdown(source, { section_id: "missing" })).toThrow(
-      'section "missing" not found',
-    );
+    expect(() =>
+      renderMarkdown(source, { mode: "section", section_id: "missing" }),
+    ).toThrow('section "missing" not found');
     expect(renderMarkdown("plain content")).toEqual({
       content: "plain content",
       mode: "full",
     });
     const complete = "# H\n\n" + "x".repeat(30_001);
-    expect(renderMarkdown(complete, { full: true })).toEqual({
+    expect(renderMarkdown(complete, { mode: "full" })).toEqual({
       content: complete,
       mode: "full",
     });
@@ -88,7 +92,9 @@ describe("Markdown navigation", () => {
 
     expect(tree.mode).toBe("tree");
     expect(sectionID).toBeDefined();
-    expect(renderMarkdown(source, { section_id: sectionID })).toEqual({
+    expect(
+      renderMarkdown(source, { mode: "section", section_id: sectionID }),
+    ).toEqual({
       content: source,
       mode: "section",
     });
@@ -102,9 +108,35 @@ describe("Markdown navigation", () => {
     });
 
     const complete = "x".repeat(30_001);
-    expect(renderMarkdown(complete, { full: true })).toEqual({
+    expect(renderMarkdown(complete, { mode: "full" })).toEqual({
       content: complete,
       mode: "full",
     });
+  });
+
+  it("supports explicit tree mode, including documents without headings", () => {
+    expect(renderMarkdown("short content", { mode: "tree" })).toEqual({
+      content: "(no headings)\n",
+      mode: "tree",
+    });
+    expect(
+      renderMarkdown("# Heading\n\ncontent\n", { mode: "tree" }).mode,
+    ).toBe("tree");
+  });
+
+  it("requires section mode and rejects incompatible navigation fields", () => {
+    expect(() => renderMarkdown("# Heading\n")).not.toThrow();
+    expect(() => renderMarkdown("# Heading\n", { mode: "section" })).toThrow(
+      'section_id is required when mode is "section"',
+    );
+    expect(() =>
+      renderMarkdown("# Heading\n", { mode: "auto", section_id: "x" }),
+    ).toThrow('section_id is only valid with mode "section"');
+    expect(() =>
+      renderMarkdown("# Heading\n", { mode: "full", section_id: "x" }),
+    ).toThrow('section_id is only valid with mode "section"');
+    expect(() =>
+      renderMarkdown("# Heading\n", { mode: "invalid" as never }),
+    ).toThrow('mode must be one of "auto", "full", "tree", or "section"');
   });
 });

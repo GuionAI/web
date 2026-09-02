@@ -250,6 +250,11 @@ describe("web stdio MCP adapter", () => {
       enum: ["http", "browser"],
       default: "http",
     });
+    expect(fetchProperties.mode).toMatchObject({
+      enum: ["auto", "full", "tree", "section"],
+      default: "auto",
+    });
+    expect(fetchProperties.full).toBeUndefined();
     expect(fetchProperties.waitMs).toMatchObject({
       type: "integer",
       minimum: 0,
@@ -288,6 +293,8 @@ describe("web stdio MCP adapter", () => {
       name: "fetch",
       arguments: {
         url: "https://example.test/page",
+        mode: "section",
+        section_id: "intro",
         render: "browser",
         waitMs: 125,
       },
@@ -341,6 +348,8 @@ describe("web stdio MCP adapter", () => {
     expect(operations.fetch).toHaveBeenCalledWith(
       {
         url: "https://example.test/page",
+        mode: "section",
+        section_id: "intro",
         render: "browser",
         waitMs: 125,
       },
@@ -390,6 +399,33 @@ describe("web stdio MCP adapter", () => {
         render: "browser",
         waitMs: 1.5,
       },
+    ]) {
+      const result = await client.callTool({
+        name: "fetch",
+        arguments: arguments_,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.content).toMatchObject([
+        {
+          type: "text",
+          text: expect.stringContaining("Input validation error"),
+        },
+      ]);
+    }
+    expect(operations.fetch).not.toHaveBeenCalled();
+  });
+
+  it("validates navigation modes before invoking the core", async () => {
+    const { client, operations } = await connect();
+    await client.listTools();
+    for (const arguments_ of [
+      { url: "https://example.test/page", mode: "section" },
+      { url: "https://example.test/page", mode: "auto", section_id: "intro" },
+      { url: "https://example.test/page", mode: "full", section_id: "intro" },
+      { url: "https://example.test/page", mode: "tree", section_id: "intro" },
+      { url: "https://example.test/page", section_id: "intro" },
+      { url: "https://example.test/page", mode: "invalid" },
+      { url: "https://example.test/page", full: true },
     ]) {
       const result = await client.callTool({
         name: "fetch",

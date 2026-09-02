@@ -60,6 +60,8 @@ export {
 export {
   renderMarkdown,
   truncateContent,
+  FETCH_MODES,
+  type FetchMode,
   type MarkdownResult,
   type MarkdownNavigationOptions,
 } from "./markdown.js";

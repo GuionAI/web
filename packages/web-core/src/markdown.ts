@@ -18,9 +18,12 @@ export type MarkdownResult = {
   mode: "full" | "tree" | "section";
 };
 
+export const FETCH_MODES = ["auto", "full", "tree", "section"] as const;
+export type FetchMode = (typeof FETCH_MODES)[number];
+
 export type MarkdownNavigationOptions = {
+  mode?: FetchMode;
   section_id?: string;
-  full?: boolean;
 };
 
 const DEFAULT_TREE_THRESHOLD = 5000;
@@ -35,28 +38,54 @@ export function renderMarkdown(
   source: string,
   options: MarkdownNavigationOptions = {},
 ): MarkdownResult {
+  validateNavigationOptions(options);
   const headings = assignIds(parseHeadings(source));
+  const mode = options.mode ?? "auto";
   const section = options.section_id?.trim();
-  if (options.full === true && section !== undefined)
-    throw new Error("full and section_id cannot be used together");
-  if (section) {
+  if (mode === "section") {
+    if (!section)
+      throw new Error('section_id is required when mode is "section"');
     return {
       content: extractSection(source, headings, section),
       mode: "section",
     };
   }
+  if (section !== undefined)
+    throw new Error('section_id is only valid with mode "section"');
+
+  if (mode === "tree") return { content: renderTree(source, headings), mode };
+
+  if (mode === "full")
+    return {
+      content: source,
+      mode: "full",
+    };
 
   const charCount = Array.from(source).length;
-  if (
-    !options.full &&
-    charCount > DEFAULT_TREE_THRESHOLD &&
-    headings.length > 0
-  )
+  if (charCount > DEFAULT_TREE_THRESHOLD && headings.length > 0)
     return { content: renderTree(source, headings), mode: "tree" };
   return {
-    content: options.full ? source : truncateContent(source),
+    content: truncateContent(source),
     mode: "full",
   };
+}
+
+function validateNavigationOptions(options: object): void {
+  for (const field of Object.keys(options)) {
+    if (field !== "mode" && field !== "section_id")
+      throw new Error(`navigation options do not accept field ${field}`);
+  }
+
+  const mode = (options as { mode?: unknown }).mode;
+  if (mode !== undefined && !FETCH_MODES.includes(mode as FetchMode))
+    throw new Error('mode must be one of "auto", "full", "tree", or "section"');
+
+  const section = (options as { section_id?: unknown }).section_id;
+  if (
+    section !== undefined &&
+    (typeof section !== "string" || section.trim() === "")
+  )
+    throw new Error("section_id must be a non-empty string");
 }
 
 export function truncateContent(content: string): string {
@@ -194,7 +223,7 @@ function renderTree(source: string, headings: Heading[]): string {
           `└── [${heading.id}] ${"#".repeat(heading.level)} ${heading.text}  (${formatNumber(sectionCharCount(source, headings, index))} chars)\n`,
       )
       .join("");
-    return `${header}${tree}\nUse section_id to read a section, or full: true to read everything.\n`;
+    return `${header}${tree}\nUse mode: "section" with section_id to read a section, or mode: "full" to read everything.\n`;
   }
 
   const nodes = bodyHeadings.map((heading) => {
@@ -223,7 +252,7 @@ function renderTree(source: string, headings: Heading[]): string {
       hasMore.delete(depth);
   });
 
-  return `${header}${tree}\nUse section_id to read a section, or full: true to read everything.\n`;
+  return `${header}${tree}\nUse mode: "section" with section_id to read a section, or mode: "full" to read everything.\n`;
 }
 
 function sectionCharCount(
