@@ -114,10 +114,11 @@ web sgraph --count 10 -- "repo:^github\\.com/nodejs/node$ AbortSignal"
 ```
 
 Use `--` before a search or Sourcegraph query that begins with a hyphen. `fetch`
-supports `--full` and `--section`; long extracted documents automatically return
-a heading tree so a later request can retrieve a stable `section_id`. `--full`
-returns the complete extracted Markdown, and `--full` cannot be combined with
-`--section`. `links` lists up to 100 unique HTTP(S) anchors from the original
+supports `--full` and `--section`; long extracted documents with navigable
+headings automatically return a heading tree so a later request can retrieve a
+stable `section_id`. A headingless long document uses the normal bounded
+response. `--full` returns the complete extracted Markdown, and `--full` cannot
+be combined with `--section`. `links` lists up to 100 unique HTTP(S) anchors from the original
 page DOM.
 
 ## MCP

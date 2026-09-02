@@ -205,7 +205,7 @@ const SEARCH_PROMPT_GUIDELINES = [
   "Use web_search to search the web for current facts.",
 ];
 const FETCH_PROMPT_GUIDELINES = [
-  "Use web_fetch to read a web page; long documents return a navigation tree automatically, so follow up with full: true or a returned section_id.",
+  "Use web_fetch to read a web page; long documents with navigable headings return a navigation tree automatically, so follow up with full: true or a returned section_id. Headingless long documents use the normal bounded response.",
   'web_fetch uses HTTP fetching by default; set render: "http" explicitly when desired.',
   'For a client-rendered or SPA page, or after javascript_rendering_may_be_required, retry explicitly with render: "browser" and waitMs: 2000 only when the host provides browser capability. Increase waitMs explicitly or abandon an incomplete page; there is no automatic fallback.',
   "Never send waitMs with HTTP rendering. The browser is a host capability, not a package dependency.",
@@ -435,7 +435,7 @@ export function webFetchTool(dependencies: WebToolDependencies = {}) {
     name: "web_fetch",
     label: "Web fetch",
     description:
-      "Fetch and read an HTTP or HTTPS web page as Markdown, with HTTP rendering by default or explicit browser rendering for client-rendered pages. Browser rendering requires waitMs 0 through 30000. Long documents return a navigation tree unless full or section_id is requested. Text output is limited to 2,000 lines or 50KB; truncated output is saved to a temporary file.",
+      "Fetch and read an HTTP or HTTPS web page as Markdown, with HTTP rendering by default or explicit browser rendering for client-rendered pages. Browser rendering requires waitMs 0 through 30000. Long documents with navigable headings return a navigation tree unless full or section_id is requested; headingless long documents use the normal bounded response. Text output is limited to 2,000 lines or 50KB; truncated output is saved to a temporary file.",
     promptSnippet: "Fetch a web page with web_fetch",
     promptGuidelines: FETCH_PROMPT_GUIDELINES,
     parameters: webFetchSchema,

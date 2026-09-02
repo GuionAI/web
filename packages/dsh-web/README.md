@@ -43,9 +43,10 @@ so it includes navigation and other links that readable-content extraction drops
 It uses the same HTTP default and explicit `render: "browser"` / required
 `waitMs` contract as `web_fetch`.
 
-Long `web_fetch` documents return a navigation tree automatically. Use
-`full: true` for complete Markdown or pass a returned `section_id` to continue
-with one section; those fields are mutually exclusive.
+Long `web_fetch` documents with navigable headings return a navigation tree
+automatically. A headingless long document uses the normal bounded response.
+Use `full: true` for complete Markdown or pass a returned `section_id` to
+continue with one section; those fields are mutually exclusive.
 
 Rendered requests are bounded and constrained to the requested hostname,
 `*.<requested-hostname>` (the target and its subdomains), and this fixed common
