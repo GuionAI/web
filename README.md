@@ -21,9 +21,10 @@ npx @guionai/web --help
 ```
 
 Search needs one provider credential for Exa or Brave. If both are present, Exa
-is selected by default; select a provider explicitly with `--provider exa` or
-`--provider brave`. The DSH Web integration also supports the credential-free
-`kepos-bridge` provider through its live settings card.
+is selected by default; select a provider explicitly with `--provider exa`,
+`--provider brave`, or `--provider kepos-bridge`. Kepos Bridge uses the bundled
+default route unless it runs in DSH, whose live settings card can override the
+route.
 Context7 works anonymously when its key is absent.
 
 ```bash
@@ -45,6 +46,7 @@ document on stdout, which is useful for automation.
 
 ```bash
 web search --provider exa -- "Node AbortSignal"
+web search --provider kepos-bridge -- "Node AbortSignal"
 web fetch https://example.com/article --tree
 web fetch https://example.com/article --section introduction
 web links https://example.com/article --limit 50
@@ -66,6 +68,7 @@ Run the stdio server with the same credential environment:
 web mcp
 # Pin search selection for the lifetime of this MCP process:
 web mcp --provider brave
+web mcp --provider kepos-bridge
 ```
 
 The server exposes six read-only tools: `search`, `fetch`, `links`, `docs_resolve`,
@@ -89,6 +92,10 @@ direct fetch by default and can explicitly use `render: "agent-browser"` with
 an integer `waitMs` when its host provides that optional executable.
 `web_links` uses the same explicit rendering contract and lists HTTP(S) anchors
 from the original page DOM.
+
+Set `WEB_SEARCH_PROVIDER=kepos-bridge` before starting Pi to select the
+credential-free Kepos Bridge provider. Pi uses the bundled default Bridge route;
+only DSH exposes a route setting.
 
 ## DSH
 

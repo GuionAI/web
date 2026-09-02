@@ -246,6 +246,10 @@ describe("web stdio MCP adapter", () => {
       .properties! as Record<string, unknown>;
     const sgraphProperties = byName.source_search!.inputSchema
       .properties! as Record<string, unknown>;
+    const searchProperties = byName.search!.outputSchema!.properties! as Record<
+      string,
+      unknown
+    >;
     expect(fetchProperties.tree_threshold).toMatchObject({ default: 5000 });
     expect(fetchProperties.render).toMatchObject({
       enum: ["fetch", "agent-browser"],
@@ -271,6 +275,10 @@ describe("web stdio MCP adapter", () => {
       count: { default: 10 },
       context: { default: 10 },
       timeout: { default: 0 },
+    });
+    expect(searchProperties.provider).toEqual({
+      type: "string",
+      enum: ["Exa", "Brave", "Kepos Bridge"],
     });
   });
 
@@ -555,18 +563,18 @@ describe("web stdio MCP adapter", () => {
   });
 
   it("pins the selected provider for every search over a server lifetime", async () => {
-    const { client, operations } = await connect(webService(), "exa");
+    const { client, operations } = await connect(webService(), "kepos-bridge");
 
     await client.callTool({ name: "search", arguments: { query: "first" } });
     await client.callTool({ name: "search", arguments: { query: "second" } });
 
     expect(operations.search).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ provider: "exa" }),
+      expect.objectContaining({ provider: "kepos-bridge" }),
     );
     expect(operations.search).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ provider: "exa" }),
+      expect.objectContaining({ provider: "kepos-bridge" }),
     );
   });
 });

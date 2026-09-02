@@ -354,6 +354,28 @@ describe("pi-web extension", () => {
     );
   });
 
+  it("pins an explicitly configured Kepos provider for every search", async () => {
+    const search = vi.fn(async () => ({
+      provider: "Kepos Bridge" as const,
+      results: [],
+    }));
+    const tool = webSearchTool({
+      operations: operations({ search }),
+      provider: "kepos-bridge",
+    });
+
+    await call(tool, { queries: ["one", "two"] });
+
+    expect(search).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ provider: "kepos-bridge", query: "one" }),
+    );
+    expect(search).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ provider: "kepos-bridge", query: "two" }),
+    );
+  });
+
   it("delegates every capability in-process and propagates caller cancellation", async () => {
     const abortable = <T>(signal: AbortSignal | undefined) =>
       new Promise<T>((_resolve, reject) => {
