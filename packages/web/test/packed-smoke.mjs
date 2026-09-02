@@ -174,11 +174,12 @@ else console.log(JSON.stringify({ success: true, data: {} }));
 
     const mcpFetch = await client.callTool({
       name: "fetch",
-      arguments: { url: `http://127.0.0.1:${port}/page`, full: true },
+      arguments: { url: `http://127.0.0.1:${port}/page`, mode: "full" },
     });
     if (
       mcpFetch.isError ||
       mcpFetch.structuredContent?.mode !== "full" ||
+      mcpFetch.structuredContent?.truncated !== false ||
       mcpFetch.structuredContent?.content !== "Packed fetch fixture.\n"
     ) {
       throw new Error("packed MCP stdio could not fetch the local fixture");
@@ -198,12 +199,13 @@ else console.log(JSON.stringify({ success: true, data: {} }));
 
     const result = await execFileAsync(
       binary,
-      ["fetch", `http://127.0.0.1:${port}/page`, "--full", "--json"],
+      ["fetch", `http://127.0.0.1:${port}/page`, "--mode", "full", "--json"],
       { cwd: root },
     );
     const fetched = JSON.parse(result.stdout);
     if (
       fetched.mode !== "full" ||
+      fetched.truncated !== false ||
       fetched.content !== "Packed fetch fixture.\n"
     ) {
       throw new Error("installed web CLI could not fetch the local fixture");
@@ -231,7 +233,8 @@ else console.log(JSON.stringify({ success: true, data: {} }));
       "https://93.184.216.34/rendered",
       "--render=browser",
       "--wait=0",
-      "--full",
+      "--mode",
+      "full",
       "--json",
     ],
     { cwd: root, env: fakeEnvironment },

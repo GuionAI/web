@@ -79,7 +79,7 @@ are generated into `openapi.yaml` from the same route definitions:
 | Route        | Request                                                   | Purpose                                                         |
 | ------------ | --------------------------------------------------------- | --------------------------------------------------------------- |
 | `/v1/search` | `{ "query": "..." }`                                      | Server-selected search: Bridge→Exa by default, or DeepSeek only |
-| `/v1/fetch`  | `{ "url", "section_id?", "full?", "render?", "waitMs?" }` | Fetch Markdown                                                  |
+| `/v1/fetch`  | `{ "url", "mode?", "section_id?", "render?", "waitMs?" }` | Fetch Markdown                                                  |
 | `/v1/links`  | `{ "url", "limit?", "render?", "waitMs?" }`               | List page HTTP(S) links                                         |
 
 The complete human-readable contract is in the [HTTP service reference](docs/http-service.md).
@@ -122,6 +122,9 @@ web search --provider deepseek -- "Node AbortSignal"
 web search --provider kepos-bridge -- "Node AbortSignal"
 web fetch https://example.com/article
 web fetch https://example.com/article --section introduction
+web fetch https://example.com/article --mode auto --section introduction
+web fetch https://example.com/article --mode tree
+web fetch https://example.com/article --mode full
 web links https://example.com/article --limit 50
 web docs resolve react
 web docs fetch /facebook/react --topic hooks --tokens 2000
@@ -129,12 +132,18 @@ web sgraph --count 10 -- "repo:^github\\.com/nodejs/node$ AbortSignal"
 ```
 
 Use `--` before a search or Sourcegraph query that begins with a hyphen. `fetch`
-supports `--full` and `--section`; long extracted documents with navigable
+supports `--mode auto|full|tree`; omitted mode means `auto`. `--section` may be
+used with omitted mode or `--mode auto` to retrieve a section, and is rejected
+with `--mode full` or `--mode tree`. Long extracted documents with navigable
 headings automatically return a heading tree so a later request can retrieve a
-stable `section_id`. A headingless long document uses the normal bounded
-response. `--full` returns the complete extracted Markdown, and `--full` cannot
-be combined with `--section`. `links` lists up to 100 unique HTTP(S) anchors from the original
-page DOM.
+stable `section_id`. Ordinary automatic document results report `mode: "auto"`;
+heading-tree, explicit full-document, and section results report `"tree"`,
+`"full"`, and `"section"` respectively. A headingless long document uses the
+normal bounded automatic response. `truncated` is true only when that response
+is cut by the content-length limit. `mode: "full"` returns the complete
+extracted Markdown, while `mode: "tree"` always returns the heading-tree
+representation, including the explicit no-headings result. `links` lists up to
+100 unique HTTP(S) anchors from the original page DOM.
 
 ## MCP
 
@@ -153,6 +162,11 @@ The server exposes six read-only tools: `search`, `fetch`, `links`, `docs_resolv
 messages; diagnostics go to stderr. For a client-rendered page, explicitly call
 `fetch` or `links` with `render: "browser"` and an integer `waitMs`; this optional
 retry requires a host-installed executable and never happens automatically.
+The `fetch` tool accepts input `mode: "auto" | "full" | "tree"` (default
+`"auto"`). Pass a returned `section_id` with omitted mode or `mode: "auto"`
+to retrieve that section; `mode: "full"` and `mode: "tree"` reject
+`section_id`. Results include `mode: "auto" | "full" | "tree" | "section"`
+and `truncated`, which is true only when content was cut by the length limit.
 
 ## Pi
 
@@ -167,6 +181,10 @@ the bundled core in-process. Pi and TypeBox are peer dependencies supplied by
 the host; no CLI executable or MCP configuration is required. `web_fetch` uses
 HTTP rendering by default and can explicitly use `render: "browser"` with
 an integer `waitMs` when its host provides that optional executable.
+Its navigation input is `mode: "auto" | "full" | "tree"` (default `"auto"`);
+`section_id` with omitted/`"auto"` mode retrieves a section, while full/tree
+reject it. Results report `mode: "auto" | "full" | "tree" | "section"` and a
+`truncated` flag that only indicates content cut by the length limit.
 `web_links` uses the same explicit rendering contract and lists HTTP(S) anchors
 from the original page DOM.
 
@@ -196,6 +214,10 @@ also run in-process. The host DSH packages and React are peers supplied by DSH.
 `web_fetch` uses HTTP rendering by default and can explicitly use
 `render: "browser"` with an integer `waitMs` on a host that supplies the
 optional executable.
+Its navigation input uses the same `mode` and `section_id` contract as the
+other adapters: input mode is `auto|full|tree` (default `auto`), and omitted or
+`auto` mode plus `section_id` retrieves a section. Results report
+`auto|full|tree|section` and `truncated`.
 `web_links` uses the same explicit rendering contract and lists HTTP(S) anchors
 from the original page DOM.
 

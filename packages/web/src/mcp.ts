@@ -9,9 +9,11 @@ import { Command } from "commander";
 
 import {
   DEFAULT_LINK_LIMIT,
+  FETCH_MODES,
   FetchCapabilityError,
   MAX_LINK_LIMIT,
   RENDER_REPORT_URL,
+  type FetchMode,
   type FetchErrorDetails,
   type WebCredentials,
   type WebOperations,
@@ -20,8 +22,8 @@ import {
 type SearchToolInput = { query: string };
 type FetchToolInput = {
   url: string;
+  mode?: FetchMode;
   section_id?: string;
-  full?: boolean;
   render?: "http" | "browser";
   waitMs?: number;
 };
@@ -61,14 +63,18 @@ const fetchInputSchema = schema<FetchToolInput>({
   additionalProperties: false,
   properties: {
     url: { type: "string", description: "HTTP or HTTPS URL to fetch" },
+    mode: {
+      type: "string",
+      enum: [...FETCH_MODES],
+      default: "auto",
+      description: "navigation mode: auto (default), full, or tree",
+    },
     section_id: {
       type: "string",
       minLength: 1,
-      description: "optional heading section ID to return",
-    },
-    full: {
-      type: "boolean",
-      description: "return full content without automatic tree mode",
+      pattern: "\\S",
+      description:
+        "heading section ID; retrieves a section with omitted/auto mode",
     },
     render: {
       type: "string",
@@ -96,10 +102,20 @@ const fetchInputSchema = schema<FetchToolInput>({
   ],
   allOf: [
     {
-      not: {
-        required: ["section_id", "full"],
-        properties: { full: { const: true } },
-      },
+      oneOf: [
+        {
+          required: ["mode"],
+          properties: { mode: { const: "auto" } },
+        },
+        {
+          required: ["mode"],
+          properties: { mode: { enum: ["full", "tree"] } },
+          not: { required: ["section_id"] },
+        },
+        {
+          not: { required: ["mode"] },
+        },
+      ],
     },
   ],
 });
@@ -213,10 +229,11 @@ const fetchOutputSchema = schema({
   type: "object",
   properties: {
     url: { type: "string" },
-    mode: { type: "string", enum: ["full", "tree", "section"] },
+    mode: { type: "string", enum: ["auto", "full", "tree", "section"] },
     content: { type: "string" },
+    truncated: { type: "boolean" },
   },
-  required: ["url", "mode", "content"],
+  required: ["url", "mode", "content", "truncated"],
 });
 const linksOutputSchema = schema({
   type: "object",
@@ -333,18 +350,18 @@ export function createMcpServer(dependencies: McpDependencies): McpServer {
     "fetch",
     toolConfig(
       "Fetch a web page",
-      "Use the default HTTP renderer for static, SSR, and pre-rendered pages. For client-rendered or SPA pages, set render: browser with required waitMs when the host provides browser capability; there is no automatic fallback.",
+      "Use the default HTTP renderer for static, SSR, and pre-rendered pages. Input mode selects auto, full, or tree navigation; section_id with omitted/auto mode retrieves a section. For client-rendered or SPA pages, set render: browser with required waitMs when the host provides browser capability; there is no automatic fallback.",
       fetchInputSchema,
       fetchOutputSchema,
     ),
-    async ({ url, section_id, full, render, waitMs }, context) =>
+    async ({ url, mode, section_id, render, waitMs }, context) =>
       runTool(
         () =>
           dependencies.operations.fetch(
             {
               url,
+              ...(mode !== undefined ? { mode } : {}),
               ...(section_id !== undefined ? { section_id } : {}),
-              ...(full !== undefined ? { full } : {}),
               ...(render !== undefined ? { render } : {}),
               ...(waitMs !== undefined ? { waitMs } : {}),
             },

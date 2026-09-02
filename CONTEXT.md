@@ -39,10 +39,14 @@ _Avoid_: Backend-specific renderer labels, automatic fallback
 **Page Navigation**:
 The shared page-reading module owns its fixed 5,000-character policy. A long,
 unsectioned request with navigable headings returns a navigation tree; a
-headingless long document uses the normal bounded response. `full: true`
-returns complete Markdown, and a tree's `section_id` retrieves one section.
-`full: true` and `section_id` are mutually exclusive.
-_Avoid_: Caller-selected tree thresholds, public `tree` controls
+headingless long document uses the normal bounded automatic response. The
+request `mode` is `auto` by default and may be `full` or `tree`; `section_id`
+is allowed with omitted or `auto` mode and retrieves one section. Full and tree
+reject `section_id`, and input mode `section` is removed. Ordinary automatic
+document results report `mode: "auto"`; full, tree, and section results report
+their corresponding modes. Every Fetch result includes `truncated`, which is
+true only when automatic content was cut by the content-length limit.
+_Avoid_: Caller-selected tree thresholds, legacy navigation booleans
 
 **Release Contract**:
 The versioned public distribution of Guion Web: its npm packages, GHCR container image, and the generated `openapi.yaml` attached to the matching GitHub Release.
@@ -53,6 +57,6 @@ The Hono-based `/v1` JSON API shipped by `web serve` and the GHCR image. It
 uses server-local credentials, Bridge Route, and optional DeepSeek provider
 configuration; clients do not select providers or submit a generic Bridge
 command. Its page-reading routes use
-the same `render: "http" | "browser"`, `full`, and `section_id` contract; the
+the same `render: "http" | "browser"`, `mode`, and `section_id` contract; the
 browser executable name appears only in operator setup.
 _Avoid_: Remote MCP, public service

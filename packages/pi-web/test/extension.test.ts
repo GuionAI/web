@@ -91,10 +91,31 @@ describe("pi-web extension", () => {
     ).rejects.toThrow(/does not accept query/);
   });
 
-  it("enforces the render/wait contract and forwards explicit browser retries", async () => {
+  it("enforces the render/wait and navigation contracts", async () => {
     expect(Value.Check(webFetchSchema, { url: "https://fixture.test" })).toBe(
       true,
     );
+    for (const mode of ["auto", "full", "tree"] as const) {
+      expect(
+        Value.Check(webFetchSchema, {
+          url: "https://fixture.test",
+          mode,
+        }),
+      ).toBe(true);
+    }
+    expect(
+      Value.Check(webFetchSchema, {
+        url: "https://fixture.test",
+        section_id: "intro",
+      }),
+    ).toBe(true);
+    expect(
+      Value.Check(webFetchSchema, {
+        url: "https://fixture.test",
+        mode: "auto",
+        section_id: "intro",
+      }),
+    ).toBe(true);
     expect(
       Value.Check(webFetchSchema, {
         url: "https://fixture.test",
@@ -138,33 +159,87 @@ describe("pi-web extension", () => {
     expect(
       Value.Check(webFetchSchema, {
         url: "https://fixture.test",
-        full: true,
+        mode: "full",
         section_id: "intro",
+      }),
+    ).toBe(false);
+    expect(
+      Value.Check(webFetchSchema, {
+        url: "https://fixture.test",
+        mode: "tree",
+        section_id: "intro",
+      }),
+    ).toBe(false);
+    expect(
+      Value.Check(webFetchSchema, {
+        url: "https://fixture.test",
+        full: true,
+      }),
+    ).toBe(false);
+    expect(
+      Value.Check(webFetchSchema, {
+        url: "https://fixture.test",
+        mode: "invalid",
+      }),
+    ).toBe(false);
+    expect(
+      Value.Check(webFetchSchema, {
+        url: "https://fixture.test",
+        mode: "section",
       }),
     ).toBe(false);
 
     const fetch = vi.fn(
-      async (input: { url: string; render?: string; waitMs?: number }) => ({
+      async (input: {
+        url: string;
+        mode?: string;
+        render?: string;
+        waitMs?: number;
+      }) => ({
         url: input.url,
         mode: "full" as const,
         content: "Rendered Markdown",
+        truncated: false,
       }),
     );
     const tool = webFetchTool({ operations: operations({ fetch }) });
     const result = await call(tool, {
       url: "https://fixture.test",
+      mode: "full",
       render: "browser",
       waitMs: 1250,
     });
     expect(fetch).toHaveBeenCalledWith(
       {
         url: "https://fixture.test",
+        mode: "full",
         render: "browser",
         waitMs: 1250,
       },
       undefined,
     );
     expect(result.content[0]?.text).toBe("Rendered Markdown");
+    expect(result.details).toMatchObject({ mode: "full", truncated: false });
+
+    await call(tool, {
+      url: "https://fixture.test",
+      section_id: "intro",
+    });
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      { url: "https://fixture.test", section_id: "intro" },
+      undefined,
+    );
+    await call(tool, {
+      url: "https://fixture.test",
+      mode: "auto",
+      section_id: "intro",
+    });
+    expect(fetch).toHaveBeenNthCalledWith(
+      3,
+      { url: "https://fixture.test", mode: "auto", section_id: "intro" },
+      undefined,
+    );
 
     await expect(
       call(tool, {
@@ -179,7 +254,10 @@ describe("pi-web extension", () => {
         waitMs: 0,
       }),
     ).rejects.toThrow("waitMs is only valid");
-    expect(fetch).toHaveBeenCalledTimes(1);
+    await expect(
+      call(tool, { url: "https://fixture.test", mode: "section" }),
+    ).rejects.toThrow(/mode.*auto.*full.*tree/);
+    expect(fetch).toHaveBeenCalledTimes(3);
 
     expect(Value.Check(webLinksSchema, { url: "https://fixture.test" })).toBe(
       true,
@@ -489,6 +567,7 @@ describe("pi-web extension", () => {
           url: "https://fixture.test",
           mode: "full",
           content,
+          truncated: false,
         }),
       }),
     });
@@ -503,7 +582,7 @@ describe("pi-web extension", () => {
       expect(details.url).toBe("https://fixture.test");
       expect(details.truncation.truncated).toBe(true);
       expect(result.content[0]?.text).toContain(
-        "Use web_fetch with full: true or a returned section_id to navigate the document.",
+        'Use web_fetch with mode: "full" for the complete document, or section_id with omitted/auto mode to navigate to a section.',
       );
       expect(await readFile(details.fullOutputPath, "utf8")).toBe(content);
     } finally {

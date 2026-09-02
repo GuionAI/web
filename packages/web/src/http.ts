@@ -1,6 +1,7 @@
 import {
   DEFAULT_LINK_LIMIT,
   DEFAULT_KEPOS_BRIDGE_ENDPOINT,
+  FETCH_MODES,
   FetchCapabilityError,
   isOperationAborted,
   isRequestTimeout,
@@ -73,8 +74,9 @@ const SearchResponseSchema = z
 const FetchResponseSchema = z
   .object({
     url: z.string(),
-    mode: z.enum(["full", "tree", "section"]),
+    mode: z.enum(["auto", "full", "tree", "section"]),
     content: z.string(),
+    truncated: z.boolean(),
   })
   .strict()
   .openapi("FetchResponse");
@@ -106,6 +108,9 @@ const HttpUrlSchema = z
 const FetchRequestSchema = z
   .object({
     url: HttpUrlSchema,
+    mode: z.enum(FETCH_MODES).default("auto").openapi({
+      description: 'Navigation mode: "auto" (default), "full", or "tree".',
+    }),
     section_id: z
       .string()
       .min(1)
@@ -114,16 +119,35 @@ const FetchRequestSchema = z
         "section_id must be a non-empty string",
       )
       .optional(),
-    full: z.boolean().default(false),
     render: z.enum(["http", "browser"]).default("http"),
     waitMs: z.number().int().min(0).max(30_000).optional(),
   })
   .strict()
-  .refine(
-    (input) => !(input.full && input.section_id !== undefined),
-    "full and section_id cannot be used together",
-  )
-  .openapi("FetchRequest");
+  .superRefine((input, context) => {
+    if (input.mode !== "auto" && input.section_id !== undefined) {
+      context.addIssue({
+        code: "custom",
+        message: 'section_id is only valid with mode "auto"',
+        path: ["section_id"],
+      });
+    }
+  })
+  .openapi("FetchRequest", {
+    oneOf: [
+      {
+        required: ["mode"],
+        properties: { mode: { const: "auto" } },
+      },
+      {
+        required: ["mode"],
+        properties: { mode: { enum: ["full", "tree"] } },
+        not: { required: ["section_id"] },
+      },
+      {
+        not: { required: ["mode"] },
+      },
+    ],
+  });
 
 const LinksRequestSchema = z
   .object({
@@ -179,7 +203,7 @@ const fetchRoute = createRoute({
   operationId: "fetch",
   summary: "Fetch a web page",
   description:
-    "Fetch through HTTP by default; browser rendering requires render=browser and waitMs.",
+    'Fetch through HTTP by default with auto navigation; use mode "full" or "tree" for explicit navigation. Supply section_id with omitted mode or mode "auto" to retrieve a section. Browser rendering requires render=browser and waitMs.',
   request: jsonRequest(FetchRequestSchema),
   responses: {
     200: jsonResponse(FetchResponseSchema, "Fetched page."),

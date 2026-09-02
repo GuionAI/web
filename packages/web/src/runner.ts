@@ -22,11 +22,27 @@ export async function runCli(
   output: CliOutput,
 ): Promise<number> {
   const program = createProgram({ ...dependencies, writeOut: output.stdout });
+  const fetchCommand = program.commands.find(
+    (command) => command.name() === "fetch",
+  );
+  fetchCommand?.exitOverride();
   program.configureOutput({ writeOut: output.stdout, writeErr: output.stderr });
+  fetchCommand?.configureOutput({
+    writeOut: output.stdout,
+    writeErr: output.stderr,
+  });
   try {
     await program.parseAsync(argv);
     return 0;
   } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      typeof error.code === "string" &&
+      error.code.startsWith("commander.")
+    )
+      return error.code === "commander.helpDisplayed" ? 0 : 1;
     output.stderr(formatCliError(error));
     return 1;
   }

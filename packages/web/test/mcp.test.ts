@@ -30,6 +30,7 @@ function webService(): WebOperations {
       url: "https://example.test/page",
       mode: "tree" as const,
       content: "# Page",
+      truncated: false,
     })),
     links: vi.fn(async (input) => ({
       url: input.url,
@@ -162,6 +163,7 @@ describe("web stdio MCP adapter", () => {
         url: "https://example.test/page",
         mode: "full",
         content: "Rendered through stdio",
+        truncated: false,
       });
     const connection = await connectStdio(operations);
 
@@ -246,10 +248,21 @@ describe("web stdio MCP adapter", () => {
       string,
       unknown
     >;
+    const fetchOutputProperties = byName.fetch!.outputSchema!
+      .properties as Record<string, unknown>;
     expect(fetchProperties.render).toMatchObject({
       enum: ["http", "browser"],
       default: "http",
     });
+    expect(fetchProperties.mode).toMatchObject({
+      enum: ["auto", "full", "tree"],
+      default: "auto",
+    });
+    expect(fetchProperties.full).toBeUndefined();
+    expect(fetchOutputProperties.mode).toMatchObject({
+      enum: ["auto", "full", "tree", "section"],
+    });
+    expect(fetchOutputProperties.truncated).toEqual({ type: "boolean" });
     expect(fetchProperties.waitMs).toMatchObject({
       type: "integer",
       minimum: 0,
@@ -288,6 +301,8 @@ describe("web stdio MCP adapter", () => {
       name: "fetch",
       arguments: {
         url: "https://example.test/page",
+        mode: "auto",
+        section_id: "intro",
         render: "browser",
         waitMs: 125,
       },
@@ -341,6 +356,8 @@ describe("web stdio MCP adapter", () => {
     expect(operations.fetch).toHaveBeenCalledWith(
       {
         url: "https://example.test/page",
+        mode: "auto",
+        section_id: "intro",
         render: "browser",
         waitMs: 125,
       },
@@ -406,6 +423,55 @@ describe("web stdio MCP adapter", () => {
     expect(operations.fetch).not.toHaveBeenCalled();
   });
 
+  it("validates navigation modes before invoking the core", async () => {
+    const { client, operations } = await connect();
+    await client.listTools();
+    for (const arguments_ of [
+      { url: "https://example.test/page", section_id: "intro" },
+      {
+        url: "https://example.test/page",
+        mode: "auto",
+        section_id: "intro",
+      },
+    ]) {
+      const result = await client.callTool({
+        name: "fetch",
+        arguments: arguments_,
+      });
+      expect(result.isError).not.toBe(true);
+    }
+    expect(operations.fetch).toHaveBeenNthCalledWith(
+      1,
+      { url: "https://example.test/page", section_id: "intro" },
+      expect.any(AbortSignal),
+    );
+    expect(operations.fetch).toHaveBeenNthCalledWith(
+      2,
+      { url: "https://example.test/page", mode: "auto", section_id: "intro" },
+      expect.any(AbortSignal),
+    );
+    for (const arguments_ of [
+      { url: "https://example.test/page", mode: "full", section_id: "intro" },
+      { url: "https://example.test/page", mode: "tree", section_id: "intro" },
+      { url: "https://example.test/page", mode: "section" },
+      { url: "https://example.test/page", mode: "invalid" },
+      { url: "https://example.test/page", full: true },
+    ]) {
+      const result = await client.callTool({
+        name: "fetch",
+        arguments: arguments_,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.content).toMatchObject([
+        {
+          type: "text",
+          text: expect.stringContaining("Input validation error"),
+        },
+      ]);
+    }
+    expect(operations.fetch).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps fetch capability details structured and recovers after a renderer failure", async () => {
     const operations = webService();
     vi.mocked(operations.fetch)
@@ -420,6 +486,7 @@ describe("web stdio MCP adapter", () => {
         url: "https://example.test/page",
         mode: "full",
         content: "Rendered page",
+        truncated: false,
       });
     const { client } = await connect(operations);
 

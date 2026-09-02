@@ -86,6 +86,11 @@ describe("DSH direct web tools", () => {
       "http",
       "browser",
     ]);
+    expect((definitions[0]!.parameters as any).properties.mode.enum).toEqual([
+      "auto",
+      "full",
+      "tree",
+    ]);
     expect((definitions[0]!.parameters as any).properties.waitMs.type).toBe(
       "integer",
     );
@@ -113,7 +118,12 @@ describe("DSH direct web tools", () => {
         operations: operations({
           fetch: async (input, abortSignal) => {
             calls.push({ kind: "fetch", input, abortSignal });
-            return { url: input.url, mode: "section", content: "selected" };
+            return {
+              url: input.url,
+              mode: "section",
+              content: "selected",
+              truncated: false,
+            };
           },
           links: async (input, abortSignal) => {
             calls.push({ kind: "links", input, abortSignal });
@@ -148,13 +158,21 @@ describe("DSH direct web tools", () => {
         fetch!,
         {
           url: "https://example.test",
+          mode: "auto",
           section_id: "install",
           render: "browser",
           waitMs: 2000,
         },
         controller.signal,
       ),
-    ).resolves.toMatchObject({ mode: "section" });
+    ).resolves.toMatchObject({ mode: "section", truncated: false });
+    await expect(
+      call(
+        fetch!,
+        { url: "https://example.test", section_id: "install" },
+        controller.signal,
+      ),
+    ).resolves.toMatchObject({ mode: "section", truncated: false });
     await expect(
       call(
         links!,
@@ -191,9 +209,18 @@ describe("DSH direct web tools", () => {
         kind: "fetch",
         input: {
           url: "https://example.test",
+          mode: "auto",
           section_id: "install",
           render: "browser",
           waitMs: 2000,
+        },
+        abortSignal: controller.signal,
+      },
+      {
+        kind: "fetch",
+        input: {
+          url: "https://example.test",
+          section_id: "install",
         },
         abortSignal: controller.signal,
       },
@@ -237,6 +264,22 @@ describe("DSH direct web tools", () => {
 
   it("preserves shared fetch validation, cancellation, and structured renderer failures", async () => {
     const fetch = createWebToolDefinitions(dependencies())[0]!;
+    await expect(
+      call(fetch, {
+        url: "https://example.test",
+        mode: "full",
+        section_id: "intro",
+      }),
+    ).rejects.toThrow('section_id is only valid with mode "auto"');
+    await expect(
+      call(fetch, { url: "https://example.test", full: true }),
+    ).rejects.toThrow(/does not accept field full/);
+    await expect(
+      call(fetch, { url: "https://example.test", mode: "invalid" }),
+    ).rejects.toThrow(/mode.*auto.*full.*tree/);
+    await expect(
+      call(fetch, { url: "https://example.test", mode: "section" }),
+    ).rejects.toThrow(/mode.*auto.*full.*tree/);
     await expect(
       call(fetch, {
         url: "https://example.test",
@@ -586,6 +629,7 @@ describe("DSH direct web tools", () => {
       url: input.url,
       mode: "full" as const,
       content: "fixture",
+      truncated: false,
     }));
     const [fetchTool] = createWebToolDefinitions(
       dependencies({ operations: operations({ fetch }) }),

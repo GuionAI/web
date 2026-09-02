@@ -56,6 +56,7 @@ describe("DSH settings client credential surface", () => {
       fetchDetails({
         render: "browser",
         waitMs: 2_000,
+        mode: "auto",
         section_id: "installation",
       }),
     ).toEqual([
@@ -63,13 +64,21 @@ describe("DSH settings client credential surface", () => {
       { label: "Wait", value: "2 s" },
       { label: "Result", value: "Section: installation" },
     ]);
+    expect(fetchDetails({ section_id: "installation" })).toEqual([
+      { label: "Backend", value: "HTTP rendered" },
+      { label: "Result", value: "Section: installation" },
+    ]);
     expect(fetchDetails({})).toEqual([
       { label: "Backend", value: "HTTP rendered" },
-      { label: "Result", value: "Adaptive document" },
+      { label: "Result", value: "Automatic navigation" },
     ]);
-    expect(fetchDetails({ full: true })).toEqual([
+    expect(fetchDetails({ mode: "full" })).toEqual([
       { label: "Backend", value: "HTTP rendered" },
       { label: "Result", value: "Full document" },
+    ]);
+    expect(fetchDetails({ mode: "tree" })).toEqual([
+      { label: "Backend", value: "HTTP rendered" },
+      { label: "Result", value: "Heading tree" },
     ]);
   });
 

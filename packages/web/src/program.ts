@@ -5,8 +5,10 @@ import { parseHttpPort, startHttpServer } from "./serve.js";
 import { DEFAULT_HTTP_HOST, DEFAULT_HTTP_PORT } from "./serve.js";
 
 import {
+  FETCH_MODES,
   formatSearchResults,
   type DocsLibrary,
+  type FetchMode,
   type LinksResult,
   type WebCredentials,
   type WebOperations,
@@ -243,8 +245,12 @@ function createFetchCommand(dependencies: ProgramDependencies): Command {
       "Required post-load wait for --render browser (0-30000)",
       Number,
     )
+    .option(
+      "--mode <mode>",
+      "Navigation mode: auto (default), full, or tree",
+      parseFetchMode,
+    )
     .option("-s, --section <id>", "Read one heading section")
-    .option("--full", "Return the complete extracted Markdown")
     .option("--json", "Output the structured result as JSON")
     .action(
       async (
@@ -252,19 +258,20 @@ function createFetchCommand(dependencies: ProgramDependencies): Command {
         options: {
           render?: "http" | "browser";
           wait?: number;
+          mode?: FetchMode;
           section?: string;
-          full?: boolean;
           json?: boolean;
         },
       ) => {
+        validateCliNavigation(options.mode, options.section);
         const input = {
           url,
           ...(options.render !== undefined ? { render: options.render } : {}),
           ...(options.wait !== undefined ? { waitMs: options.wait } : {}),
+          ...(options.mode !== undefined ? { mode: options.mode } : {}),
           ...(options.section !== undefined
             ? { section_id: options.section }
             : {}),
-          ...(options.full !== undefined ? { full: options.full } : {}),
         };
         const result = await dependencies.operations.fetch(input);
         if (options.json) {
@@ -274,6 +281,22 @@ function createFetchCommand(dependencies: ProgramDependencies): Command {
         writeOut(result.content);
       },
     );
+}
+
+function parseFetchMode(value: string): FetchMode {
+  if (!FETCH_MODES.includes(value as FetchMode))
+    throw new Error("--mode must be one of auto, full, or tree");
+  return value as FetchMode;
+}
+
+function validateCliNavigation(
+  mode: FetchMode | undefined,
+  section: string | undefined,
+): void {
+  if (section !== undefined && section.trim() === "")
+    throw new Error("--section must be a non-empty string");
+  if (section !== undefined && mode !== undefined && mode !== "auto")
+    throw new Error('--section is only valid with --mode "auto"');
 }
 
 function createLinksCommand(dependencies: ProgramDependencies): Command {

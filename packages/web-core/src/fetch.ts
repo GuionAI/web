@@ -9,7 +9,7 @@ import { spawn } from "node:child_process";
 import { Defuddle } from "defuddle/node";
 import { parseHTML } from "linkedom";
 
-import { renderMarkdown } from "./markdown.js";
+import { FETCH_MODES, renderMarkdown, type FetchMode } from "./markdown.js";
 import {
   boundedRequest,
   isOperationAborted,
@@ -45,16 +45,17 @@ export const RENDER_CDN_ALLOWLIST = [
 
 export type FetchInput = {
   url: string;
+  mode?: FetchMode;
   section_id?: string;
-  full?: boolean;
   render?: "http" | "browser";
   waitMs?: number;
 };
 
 export type FetchResult = {
   url: string;
-  mode: "full" | "tree" | "section";
+  mode: "auto" | "full" | "tree" | "section";
   content: string;
+  truncated: boolean;
 };
 
 export type LinksInput = {
@@ -126,17 +127,22 @@ export async function fetchWebPage(
   validateFetchFields(input);
   const url = validateURL(input.url);
   const render = validateRenderInput(input);
-  validateNavigationInput(input);
+  const mode = validateNavigationInput(input);
   const content =
     render === "browser"
       ? await renderPage(url, input.waitMs!, callerSignal, options)
       : await fetchCached(url, callerSignal, options);
   throwIfAborted(callerSignal);
   const rendered = renderMarkdown(content, {
+    mode,
     section_id: input.section_id,
-    full: input.full === true,
   });
-  return { url, mode: rendered.mode, content: rendered.content };
+  return {
+    url,
+    mode: rendered.mode,
+    content: rendered.content,
+    truncated: rendered.truncated,
+  };
 }
 
 /** Lists HTTP(S) links from the original or browser-rendered page DOM. */
@@ -182,11 +188,9 @@ function validateRenderInput(
 function validateFetchFields(input: FetchInput): void {
   validateKnownFields(
     input,
-    ["url", "section_id", "full", "render", "waitMs"],
+    ["url", "mode", "section_id", "render", "waitMs"],
     "fetch",
   );
-  if (typeof input.full !== "undefined" && typeof input.full !== "boolean")
-    throw new Error("full must be a boolean");
   if (typeof input.section_id !== "undefined") {
     if (typeof input.section_id !== "string" || input.section_id.trim() === "")
       throw new Error("section_id must be a non-empty string");
@@ -209,10 +213,14 @@ function validateKnownFields(
 }
 
 function validateNavigationInput(
-  input: Pick<FetchInput, "section_id" | "full">,
-): void {
-  if (input.full === true && input.section_id !== undefined)
-    throw new Error("full and section_id cannot be used together");
+  input: Pick<FetchInput, "mode" | "section_id">,
+): FetchMode {
+  const mode = input.mode ?? "auto";
+  if (!FETCH_MODES.includes(mode as FetchMode))
+    throw new Error('mode must be one of "auto", "full", or "tree"');
+  if (input.section_id !== undefined && mode !== "auto")
+    throw new Error('section_id is only valid with mode "auto"');
+  return mode;
 }
 
 function validateLinkLimit(limit: number | undefined): number {
