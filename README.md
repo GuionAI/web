@@ -62,35 +62,27 @@ docker run --rm -p 8787:8787 \
   ghcr.io/guionai/web:v0.1.0
 ```
 
-Every operation is a versioned JSON `POST` route. Request and response schemas
+Every HTTP operation is a versioned JSON `POST` route. Request and response schemas
 are generated into `openapi.yaml` from the same route definitions:
 
-| Route               | Request                                                                               | Purpose                                                  |
-| ------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| `/v1/search`        | `{ "query": "..." }`                                                                  | Kepos Bridge search with one Exa retry on Bridge failure |
-| `/v1/fetch`         | `{ "url", "tree?", "section_id?", "full?", "tree_threshold?", "render?", "waitMs?" }` | Fetch Markdown                                           |
-| `/v1/links`         | `{ "url", "limit?", "render?", "waitMs?" }`                                           | List page HTTP(S) links                                  |
-| `/v1/docs/resolve`  | `{ "query" }`                                                                         | Resolve a Context7 library                               |
-| `/v1/docs/fetch`    | `{ "library_id", "topic?", "tokens?" }`                                               | Fetch Context7 documentation                             |
-| `/v1/source-search` | `{ "query", "count?", "context?", "timeout?" }`                                       | Search public source through Sourcegraph                 |
-| `/v1/weather`       | `{ "location", "start?", "duration?" }`                                               | Typed Bridge weather lookup                              |
-| `/v1/sports`        | `{ "fn", "league", ... }`                                                             | Typed Bridge schedule or standings lookup                |
-| `/v1/finance`       | `{ "ticker", "type", "market?" }`                                                     | Typed Bridge quote or index lookup                       |
-| `/v1/time`          | `{ "utc_offset" }`                                                                    | Typed Bridge time lookup                                 |
+| Route        | Request                                                                               | Purpose                                                  |
+| ------------ | ------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `/v1/search` | `{ "query": "..." }`                                                                  | Kepos Bridge search with one Exa retry on Bridge failure |
+| `/v1/fetch`  | `{ "url", "tree?", "section_id?", "full?", "tree_threshold?", "render?", "waitMs?" }` | Fetch Markdown                                           |
 
-Weather, sports, finance, and time are separate Bridge-only operations; they do
-not fall back to Exa and there is no generic Bridge-command route. Search keeps
-a successful empty Bridge result, retries Exa exactly once for a non-cancellation
-Bridge failure, and reports the provider in its response. Invalid JSON bodies,
-unknown fields, and invalid typed values are rejected before an upstream call.
+Search keeps a successful empty Bridge result, retries Exa exactly once for a
+non-cancellation Bridge failure, and reports the provider in its response.
+Weather, sports, finance, and time are not exposed because the configured
+providers do not offer contract-equivalent official typed data APIs. Invalid JSON
+bodies, unknown fields, and invalid typed values are rejected before an upstream call.
 Upstream failures are bounded JSON errors and never include credentials or raw
 provider response bodies.
 Error responses use a stable `{ "code", "message", "details"? }` JSON shape;
 upstream failures use 502 (or 504 for an upstream timeout), while client
 cancellation is reported as 499.
 
-Fetch and Links use direct HTTP fetching when `render` is omitted (or set to
-`"fetch"`). Rendered fetching is explicit and requires both
+Fetch uses direct HTTP fetching when `render` is omitted (or set to `"fetch"`).
+Rendered fetching is explicit and requires both
 `render: "agent-browser"` and an integer `waitMs` from 0 through 30,000; direct
 fetch never silently switches backends. The container installs `agent-browser`
 with Debian Chromium (including Linux ARM64, where Chrome for Testing has no

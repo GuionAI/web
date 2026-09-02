@@ -9,18 +9,7 @@ import { describe, expect, it } from "vitest";
 import { generateOpenAPI } from "../src/generate-openapi.js";
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const expectedPaths = [
-  "/v1/docs/fetch",
-  "/v1/docs/resolve",
-  "/v1/fetch",
-  "/v1/finance",
-  "/v1/links",
-  "/v1/search",
-  "/v1/source-search",
-  "/v1/sports",
-  "/v1/time",
-  "/v1/weather",
-];
+const expectedPaths = ["/v1/fetch", "/v1/search"];
 
 describe("release OpenAPI artifact", () => {
   it("serializes and parses the versioned contract from a test-owned file", async () => {
