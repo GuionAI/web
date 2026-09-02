@@ -5,7 +5,7 @@
 - Repository: `guionai/web`
 - Branch: `http-web-service`
 - Fixed point: `9fff0766001f5ebcad91045c34958af72841da09`
-- Implementation commits: `bb4900a5dba9b5d71fdd64363ce860953b2dc098` (`feat(http): unify page-reading contract`) and `90de2fa9d77a6dc2ac8c34284f469e1d722e3d12` (`fix(http): repair navigation and renderer validation`)
+- Implementation commits: `bb4900a5dba9b5d71fdd64363ce860953b2dc098` (`feat(http): unify page-reading contract`), `90de2fa9d77a6dc2ac8c34284f469e1d722e3d12` (`fix(http): repair navigation and renderer validation`), and `19b63287601c5c7472cb85cf0dae1080513b212d` (`fix(core): guard automatic tree without headings`)
 - Delivery boundary: the complete `http-web-service` spec and tickets 01 and 02.
   Code review and deployment were excluded.
 
@@ -21,9 +21,11 @@ seam first, then every adapter, HTTP/OpenAPI contract, tests, and documentation.
   HTTP forbids `waitMs`. Capability errors suggest `render: "browser"` with
   `waitMs: 2000`.
 - Public `tree` and `tree_threshold` inputs were removed. The module owns the
-  fixed 5,000-character policy: non-full, unsectioned long content returns a
-  navigation tree, `full: true` returns complete extracted Markdown without the
-  Core 30,000-character truncation, and `section_id` retrieves one tree section.
+  fixed 5,000-character policy: non-full, unsectioned long content with
+  navigable headings returns a navigation tree, while headingless long content
+  uses the normal bounded response. `full: true` returns complete extracted
+  Markdown without the Core 30,000-character truncation, and `section_id`
+  retrieves one tree section.
 - `full: true` with `section_id` is rejected. Core validation also rejects
   unknown legacy fields and invalid navigation values.
 - Core tests use injected cache, HTTP, and browser seams; no live provider or
@@ -57,7 +59,8 @@ seam first, then every adapter, HTTP/OpenAPI contract, tests, and documentation.
 
 ## Review-fix batch
 
-The post-review repairs were applied together in `90de2fa`:
+The post-review repairs were applied in the scoped commits `90de2fa` and
+`19b6328`:
 
 - Core tree output for an H1-only long document emits its deterministic heading
   ID, and the behavior test uses that ID to retrieve the section.
@@ -65,6 +68,9 @@ The post-review repairs were applied together in `90de2fa`:
   the `agent-browser` name for operator implementation/setup wording.
 - Pi and DSH each own a local `validateRenderOptions` helper; no
   cross-adapter abstraction was added.
+- Core now enters automatic tree mode only when headings exist. A headingless
+  long document stays in bounded `mode: "full"`, while `full: true` still
+  returns the complete content; the Core behavior test covers both paths.
 
 ## Verification
 
@@ -88,6 +94,13 @@ guionai-web-http-smoke .` passed; a disposable container returned HTTP 400
 No live credentials were used. The Docker smoke used a disposable container
 and a non-secret placeholder startup key; it was stopped after verification.
 
+The final Core edge repair was additionally verified with:
+
+- `pnpm exec vitest run packages/web-core/test/markdown.test.ts` — 4 tests
+  passed.
+- `pnpm typecheck`, `pnpm format:check`, and explicit Prettier checks for the
+  changed Core source/test files and HTTP/CONTEXT documentation.
+
 The review-fix commit was additionally verified with:
 
 - `pnpm typecheck`.
@@ -106,15 +119,15 @@ The review-fix commit was additionally verified with:
 Against the fixed point, excluding generated `dist` output, lockfiles, and
 this report:
 
-- Product code: 324 additions and 254 deletions (578 changed lines) across
+- Product code: 328 additions and 254 deletions (582 changed lines) across
   Core, CLI, MCP, Pi, DSH, and HTTP.
-- Tests: 218 additions and 166 deletions (384 changed lines), including Core
+- Tests: 227 additions and 166 deletions (393 changed lines), including Core
   navigation/renderer seams, adapter forwarding/validation, and OpenAPI
   artifact parsing.
-- Documentation/configuration: 226 additions and 53 deletions (279 changed
+- Documentation/configuration: 229 additions and 53 deletions (282 changed
   lines), including the 154-line standalone HTTP reference and aligned README,
   ADR, package metadata, and DSH guide.
-- Total: 768 additions and 473 deletions (1,241 changed lines), within the
+- Total: 784 additions and 473 deletions (1,257 changed lines), within the
   spec estimate of 780–1,400 total changed lines. Product code is modestly
   above its 250–450 estimate because each owned adapter now performs explicit
   input normalization and legacy-field rejection at its boundary; the review
