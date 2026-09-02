@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { FetchCapabilityError } from "@guionai/web-core";
 import { createProgram } from "../src/program.js";
 import { runCli } from "../src/runner.js";
+import { credentialsFromEnvironment } from "../src/runtime.js";
 
 const result = {
   provider: "Brave" as const,
@@ -49,6 +50,12 @@ function setup() {
 }
 
 describe("web search Commander adapter", () => {
+  it("loads the DeepSeek key from the host environment without changing selection", () => {
+    expect(
+      credentialsFromEnvironment({ DEEPSEEK_API_KEY: "deepseek-key" }),
+    ).toMatchObject({ deepseekApiKey: "deepseek-key" });
+  });
+
   it("passes an explicit provider and writes concise human output to stdout", async () => {
     const { program, operations, output } = setup();
     await program.parseAsync(["search", "tree sitter", "--provider", "brave"], {
@@ -64,6 +71,20 @@ describe("web search Commander adapter", () => {
       stdout:
         "Found 1 search results:\n\n1. Result\n   URL: https://example.test\n   Summary: Fixture result\n\n",
       stderr: "",
+    });
+  });
+
+  it("passes explicit DeepSeek selection without adding request fields", async () => {
+    const { program, operations } = setup();
+    await program.parseAsync(
+      ["search", "deepseek query", "--provider", "deepseek", "--json"],
+      { from: "user" },
+    );
+
+    expect(operations.search).toHaveBeenCalledWith({
+      query: "deepseek query",
+      provider: "deepseek",
+      credentials: { braveApiKey: "fixture-key" },
     });
   });
 

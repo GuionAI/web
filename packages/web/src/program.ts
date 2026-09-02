@@ -74,7 +74,7 @@ function createSearchCommand(dependencies: ProgramDependencies): Command {
     .option("--json", "Output the structured result as JSON")
     .option(
       "--provider <provider>",
-      "Search provider: exa, brave, or kepos-bridge",
+      "Search provider: exa, brave, deepseek, or kepos-bridge",
     )
     .action(
       async (query: string, options: { json?: boolean; provider?: string }) => {

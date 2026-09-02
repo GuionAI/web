@@ -227,6 +227,7 @@ function environmentCredentials(): WebCredentials {
   return {
     exaApiKey: process.env.EXA_API_KEY,
     braveApiKey: process.env.BRAVE_API_KEY,
+    deepseekApiKey: process.env.DEEPSEEK_API_KEY,
     ...(Object.hasOwn(process.env, "CONTEXT7_API_KEY")
       ? { context7ApiKey: process.env.CONTEXT7_API_KEY }
       : {}),

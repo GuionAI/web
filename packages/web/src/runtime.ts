@@ -8,6 +8,7 @@ export function credentialsFromEnvironment(
   return {
     exaApiKey: environment.EXA_API_KEY,
     braveApiKey: environment.BRAVE_API_KEY,
+    deepseekApiKey: environment.DEEPSEEK_API_KEY,
     ...(Object.hasOwn(environment, "CONTEXT7_API_KEY")
       ? { context7ApiKey: environment.CONTEXT7_API_KEY }
       : {}),

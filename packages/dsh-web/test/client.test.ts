@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   BRAVE_CREDENTIAL_REF,
   CONTEXT7_CREDENTIAL_REF,
+  DEEPSEEK_CREDENTIAL_REF,
   EXA_CREDENTIAL_REF,
   SETTINGS_NAMESPACE,
 } from "../src/contract.js";
@@ -187,6 +188,7 @@ describe("DSH settings client credential surface", () => {
     const status = await describeCredentialStatus(fixture.credentials, [
       EXA_CREDENTIAL_REF,
       BRAVE_CREDENTIAL_REF,
+      DEEPSEEK_CREDENTIAL_REF,
       CONTEXT7_CREDENTIAL_REF,
     ]);
     expect(status).toEqual({
@@ -196,6 +198,11 @@ describe("DSH settings client credential surface", () => {
         writable: true,
       },
       [BRAVE_CREDENTIAL_REF]: {
+        configured: false,
+        source: "file",
+        writable: true,
+      },
+      [DEEPSEEK_CREDENTIAL_REF]: {
         configured: false,
         source: "file",
         writable: true,

@@ -189,7 +189,10 @@ const sgraphInputSchema = schema<SGraphToolInput>({
 const searchOutputSchema = schema({
   type: "object",
   properties: {
-    provider: { type: "string", enum: ["Exa", "Brave", "Kepos Bridge"] },
+    provider: {
+      type: "string",
+      enum: ["Exa", "Brave", "DeepSeek", "Kepos Bridge"],
+    },
     results: {
       type: "array",
       items: {
@@ -426,7 +429,7 @@ export function createMcpCommand(
     .description("Serve typed web tools over stdio MCP")
     .option(
       "--provider <provider>",
-      "Search provider: exa, brave, or kepos-bridge",
+      "Search provider: exa, brave, deepseek, or kepos-bridge",
     )
     .action((options: { provider?: string }) => {
       const provider = options.provider;
@@ -527,6 +530,7 @@ function redactError(error: unknown, credentials: WebCredentials): string {
   for (const secret of [
     credentials.exaApiKey,
     credentials.braveApiKey,
+    credentials.deepseekApiKey,
     credentials.context7ApiKey,
   ]) {
     if (secret) message = message.replaceAll(secret, "[redacted]");

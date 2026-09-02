@@ -379,6 +379,37 @@ describe("pi-web extension", () => {
     );
   });
 
+  it("forwards explicit DeepSeek selection for every batched query", async () => {
+    const search = vi.fn(async () => ({
+      provider: "DeepSeek" as const,
+      results: [],
+    }));
+    const tool = webSearchTool({
+      operations: operations({ search }),
+      provider: "deepseek",
+      credentials: () => ({ deepseekApiKey: "deepseek-secret" }),
+    });
+
+    await call(tool, { queries: ["one", "two"] });
+
+    expect(search).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        provider: "deepseek",
+        query: "one",
+        credentials: { deepseekApiKey: "deepseek-secret" },
+      }),
+    );
+    expect(search).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        provider: "deepseek",
+        query: "two",
+        credentials: { deepseekApiKey: "deepseek-secret" },
+      }),
+    );
+  });
+
   it("delegates every capability in-process and propagates caller cancellation", async () => {
     const abortable = <T>(signal: AbortSignal | undefined) =>
       new Promise<T>((_resolve, reject) => {

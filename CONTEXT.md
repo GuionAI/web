@@ -13,8 +13,13 @@ One of Guion Web's read-only capabilities: Search, Fetch, Links, Documentation R
 _Avoid_: Tool, endpoint
 
 **Search**:
-The general web-retrieval Research Operation. In the Personal Web Service, it uses Kepos Bridge first and transparently falls back to Exa only when the Bridge is unavailable; its response identifies the provider that supplied results.
-_Avoid_: Bridge search, provider-selected search
+The general web-retrieval Research Operation. CLI, MCP, Pi, and DSH can
+explicitly select Exa, Brave, DeepSeek, or Kepos Bridge. In the Personal Web
+Service, it uses Kepos Bridge first and transparently falls back to Exa only
+when the Bridge is unavailable unless the operator sets
+`WEB_SEARCH_PROVIDER=deepseek`; that server-local mode calls DeepSeek only and
+has no fallback. Its response identifies the provider that supplied results.
+_Avoid_: Bridge search, HTTP provider parameter
 
 **Bridge Data Operation**:
 A typed, Bridge-only lookup for weather, sports, finance, or time. It has no Exa fallback because Exa search is not an equivalent result source.
@@ -45,8 +50,9 @@ _Avoid_: Checked-in OpenAPI file, independently versioned schema
 
 **HTTP Service**:
 The Hono-based `/v1` JSON API shipped by `web serve` and the GHCR image. It
-uses server-local credentials and Bridge Route configuration; clients do not
-select providers or submit a generic Bridge command. Its page-reading routes use
+uses server-local credentials, Bridge Route, and optional DeepSeek provider
+configuration; clients do not select providers or submit a generic Bridge
+command. Its page-reading routes use
 the same `render: "http" | "browser"`, `full`, and `section_id` contract; the
 browser executable name appears only in operator setup.
 _Avoid_: Remote MCP, public service

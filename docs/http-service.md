@@ -21,10 +21,12 @@ Request:
 
 `query` is a non-empty string. The service chooses providers server-side; a
 caller cannot select a provider, supply credentials, or override the Bridge
-route. Search tries the server-local Kepos Bridge first. A successful empty
-Bridge result is returned as-is. If Bridge fails for a non-cancellation reason,
-the service retries Exa once. The service requires a non-empty `EXA_API_KEY`
-at startup because Exa is the fallback provider.
+route. With no `WEB_SEARCH_PROVIDER`, search tries the server-local Kepos
+Bridge first. A successful empty Bridge result is returned as-is. If Bridge
+fails for a non-cancellation reason, the service retries Exa once and requires
+a non-empty `EXA_API_KEY` at startup. Set the server-local
+`WEB_SEARCH_PROVIDER=deepseek` to require `DEEPSEEK_API_KEY` and call DeepSeek
+only; that path has no Bridge or Exa fallback.
 
 Response `200`:
 
@@ -42,7 +44,7 @@ Response `200`:
 }
 ```
 
-`provider` is `"Kepos Bridge"` or `"Exa"`; each result has string `title`,
+`provider` is `"Kepos Bridge"`, `"Exa"`, or `"DeepSeek"`; each result has string `title`,
 `link`, and `snippet` fields plus an integer `position`.
 
 ### `POST /v1/fetch`
@@ -147,8 +149,11 @@ response bodies.
 
 ## Configuration and OpenAPI
 
-Credentials and the optional `KEPOS_BRIDGE_ENDPOINT` are server-local
-environment variables. They are not accepted in request bodies. The route
+Credentials, the optional `KEPOS_BRIDGE_ENDPOINT`, and the optional
+server-local `WEB_SEARCH_PROVIDER=deepseek` selection are environment
+variables. They are not accepted in request bodies. DeepSeek performs one
+auxiliary model call per search; callers receive only normalized results and do
+not need to know the Messages/tool wire protocol. The route
 schemas in [`packages/web/src/http.ts`](../packages/web/src/http.ts) are the
 machine-readable source of truth. The build generates a version-matched
 OpenAPI 3.1 artifact at `packages/web/dist/openapi.yaml`; releases attach that

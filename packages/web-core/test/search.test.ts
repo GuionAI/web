@@ -7,6 +7,15 @@ import {
   selectProvider,
 } from "../src/index.js";
 
+const deepseekProtocol = {
+  apiVersion: "2023-06-01",
+  model: "deepseek-v4-flash",
+  maxTokens: 4096,
+  maxUses: 5,
+  toolType: "web_search_20250305",
+  toolName: "web_search",
+} as const;
+
 const exaFixture = {
   results: [
     {
@@ -106,6 +115,178 @@ describe("search providers migrated from Organon fixtures", () => {
     });
   });
 
+  it("sends the fixed Anthropic-compatible DeepSeek request and maps citations", async () => {
+    let url = "";
+    let headers: Headers | undefined;
+    let body: unknown;
+    const result = await search({
+      query: "deep sea robots",
+      provider: "deepseek",
+      credentials: { deepseekApiKey: "test-deepseek-key" },
+      endpoints: { deepseek: "http://fixture.test/anthropic/v1" },
+      fetch: async (receivedURL, init) => {
+        url = String(receivedURL);
+        headers = new Headers(init?.headers);
+        body = JSON.parse(String(init?.body));
+        return response({
+          id: "message_fixture",
+          content: [
+            {
+              type: "web_search_tool_result",
+              content: [
+                {
+                  type: "web_search_result",
+                  title: "One",
+                  url: "https://example.test/one",
+                },
+                {
+                  type: "web_search_result",
+                  title: "Duplicate",
+                  url: "https://example.test/one",
+                },
+                {
+                  type: "web_search_result",
+                  title: "Two",
+                  url: "https://example.test/two",
+                },
+              ],
+            },
+            {
+              type: "text",
+              text: "Sources",
+              citations: [
+                {
+                  type: "web_search_result_location",
+                  url: "https://example.test/one",
+                  cited_text: "first excerpt",
+                },
+                {
+                  url: "https://example.test/one",
+                  cited_text: "ignored duplicate excerpt",
+                },
+                {
+                  url: "https://example.test/two",
+                  cited_text: "second excerpt",
+                },
+              ],
+            },
+          ],
+        });
+      },
+    });
+
+    expect(url).toBe("http://fixture.test/anthropic/v1/messages");
+    expect(headers?.get("x-api-key")).toBe("test-deepseek-key");
+    expect(headers?.get("authorization")).toBe("Bearer test-deepseek-key");
+    expect(headers?.get("anthropic-version")).toBe(deepseekProtocol.apiVersion);
+    expect(body).toEqual({
+      model: deepseekProtocol.model,
+      max_tokens: deepseekProtocol.maxTokens,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Perform a web search for the query: deep sea robots",
+            },
+          ],
+        },
+      ],
+      tools: [
+        {
+          type: deepseekProtocol.toolType,
+          name: deepseekProtocol.toolName,
+          max_uses: deepseekProtocol.maxUses,
+        },
+      ],
+    });
+    expect(result).toEqual({
+      provider: "DeepSeek",
+      results: [
+        {
+          title: "One",
+          link: "https://example.test/one",
+          snippet: "first excerpt",
+          position: 1,
+        },
+        {
+          title: "Two",
+          link: "https://example.test/two",
+          snippet: "second excerpt",
+          position: 2,
+        },
+      ],
+    });
+  });
+
+  it("requires a structured DeepSeek result block and never parses prose", async () => {
+    await expect(
+      search({
+        query: "missing sources",
+        provider: "deepseek",
+        credentials: { deepseekApiKey: "key" },
+        fetch: async () =>
+          response({
+            content: [
+              {
+                type: "text",
+                text: "https://example.test/prose should not become a result",
+              },
+            ],
+          }),
+      }),
+    ).rejects.toThrow(/DeepSeek provider/);
+  });
+
+  it("keeps DeepSeek credentials out of status errors", async () => {
+    const secret = "deepseek-secret";
+    await expect(
+      search({
+        query: "secret-safe",
+        provider: "deepseek",
+        credentials: { deepseekApiKey: secret },
+        fetch: async () =>
+          new Response(`${secret} remote diagnostic`, { status: 401 }),
+      }),
+    ).rejects.toThrow("deepseek search: HTTP 401");
+    await expect(
+      search({
+        query: "secret-safe",
+        provider: "deepseek",
+        credentials: { deepseekApiKey: secret },
+        fetch: async () =>
+          new Response(`${secret} remote diagnostic`, { status: 401 }),
+      }),
+    ).rejects.not.toThrow(secret);
+  });
+
+  it("propagates caller cancellation without a provider fallback", async () => {
+    const controller = new AbortController();
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const pending = search({
+      query: "cancelled",
+      provider: "deepseek",
+      credentials: { deepseekApiKey: "key" },
+      signal: controller.signal,
+      fetch: async (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          started();
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    });
+    await startedPromise;
+    controller.abort();
+    await expect(pending).rejects.toThrow("Operation aborted");
+  });
+
   it("preserves explicit provider, fallback, and empty-key behavior", () => {
     expect(
       selectProvider(undefined, { exaApiKey: "exa", braveApiKey: "brave" }),
@@ -127,6 +308,15 @@ describe("search providers migrated from Organon fixtures", () => {
       "web search requires EXA_API_KEY or BRAVE_API_KEY",
     );
     expect(selectProvider("kepos-bridge", {})).toBe("kepos-bridge");
+    expect(selectProvider("deepseek", { deepseekApiKey: "deepseek" })).toBe(
+      "deepseek",
+    );
+    expect(() => selectProvider("deepseek", {})).toThrow(
+      "DEEPSEEK_API_KEY is required when --provider deepseek is selected",
+    );
+    expect(() =>
+      selectProvider(undefined, { deepseekApiKey: "deepseek" }),
+    ).toThrow("web search requires EXA_API_KEY or BRAVE_API_KEY");
   });
 
   it("sends one Kepos query, maps only usable text results, and honors maxResults", async () => {
