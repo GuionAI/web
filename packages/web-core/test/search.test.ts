@@ -2,16 +2,19 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_KEPOS_BRIDGE_ENDPOINT,
-  DEEPSEEK_DEFAULT_API_VERSION,
-  DEEPSEEK_DEFAULT_MAX_TOKENS,
-  DEEPSEEK_DEFAULT_MAX_USES,
-  DEEPSEEK_DEFAULT_MODEL,
-  DEEPSEEK_SEARCH_TOOL_NAME,
-  DEEPSEEK_SEARCH_TOOL_TYPE,
   formatSearchResults,
   search,
   selectProvider,
 } from "../src/index.js";
+
+const deepseekProtocol = {
+  apiVersion: "2023-06-01",
+  model: "deepseek-v4-flash",
+  maxTokens: 4096,
+  maxUses: 5,
+  toolType: "web_search_20250305",
+  toolName: "web_search",
+} as const;
 
 const exaFixture = {
   results: [
@@ -175,12 +178,10 @@ describe("search providers migrated from Organon fixtures", () => {
     expect(url).toBe("http://fixture.test/anthropic/v1/messages");
     expect(headers?.get("x-api-key")).toBe("test-deepseek-key");
     expect(headers?.get("authorization")).toBe("Bearer test-deepseek-key");
-    expect(headers?.get("anthropic-version")).toBe(
-      DEEPSEEK_DEFAULT_API_VERSION,
-    );
+    expect(headers?.get("anthropic-version")).toBe(deepseekProtocol.apiVersion);
     expect(body).toEqual({
-      model: DEEPSEEK_DEFAULT_MODEL,
-      max_tokens: DEEPSEEK_DEFAULT_MAX_TOKENS,
+      model: deepseekProtocol.model,
+      max_tokens: deepseekProtocol.maxTokens,
       messages: [
         {
           role: "user",
@@ -194,9 +195,9 @@ describe("search providers migrated from Organon fixtures", () => {
       ],
       tools: [
         {
-          type: DEEPSEEK_SEARCH_TOOL_TYPE,
-          name: DEEPSEEK_SEARCH_TOOL_NAME,
-          max_uses: DEEPSEEK_DEFAULT_MAX_USES,
+          type: deepseekProtocol.toolType,
+          name: deepseekProtocol.toolName,
+          max_uses: deepseekProtocol.maxUses,
         },
       ],
     });

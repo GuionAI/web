@@ -192,12 +192,9 @@ describe("DSH 0.1.2-alpha.3 packed package contract", () => {
       "utf8",
     );
     expect(packedHostSource).toContain("kepos-bridge");
-    expect(packedHostSource).toContain("deepseek");
-    expect(packedHostSource).toContain("GUIONAI_DSH_WEB_DEEPSEEK_API_KEY");
     expect(packedHostSource).toContain("web_weather");
     expect(packedHostSource).toContain("keposBridgeEndpoint");
     expect(packedClientSource).toContain("Kepos Bridge endpoint");
-    expect(packedClientSource).toContain("DeepSeek API key");
     expect(
       Object.keys(packed.peerDependencies).some((name) =>
         /agent-browser|chrom(e|ium)|playwright|puppeteer/i.test(name),

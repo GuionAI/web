@@ -106,14 +106,13 @@ export {
 const EXA_BASE_URL = "https://api.exa.ai";
 const BRAVE_BASE_URL = "https://api.search.brave.com/res/v1";
 /** DeepSeek's Anthropic-compatible API root. The provider appends /messages. */
-export const DEEPSEEK_DEFAULT_BASE_URL =
-  "https://api.deepseek.com/anthropic/v1";
-export const DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-flash";
-export const DEEPSEEK_DEFAULT_API_VERSION = "2023-06-01";
-export const DEEPSEEK_DEFAULT_MAX_TOKENS = 4096;
-export const DEEPSEEK_DEFAULT_MAX_USES = 5;
-export const DEEPSEEK_SEARCH_TOOL_TYPE = "web_search_20250305";
-export const DEEPSEEK_SEARCH_TOOL_NAME = "web_search";
+const DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com/anthropic/v1";
+const DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-flash";
+const DEEPSEEK_DEFAULT_API_VERSION = "2023-06-01";
+const DEEPSEEK_DEFAULT_MAX_TOKENS = 4096;
+const DEEPSEEK_DEFAULT_MAX_USES = 5;
+const DEEPSEEK_SEARCH_TOOL_TYPE = "web_search_20250305";
+const DEEPSEEK_SEARCH_TOOL_NAME = "web_search";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_RESULTS = 10;
 
