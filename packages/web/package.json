@@ -1,7 +1,7 @@
 {
   "name": "@guionai/web",
   "version": "0.1.0",
-  "description": "Web research CLI, stdio MCP server, and personal HTTP service with direct and optional agent-browser page-fetch backends.",
+  "description": "Web research CLI, stdio MCP server, and personal HTTP service with HTTP and optional browser page-rendering modes.",
   "homepage": "https://github.com/guionai/web#readme",
   "bugs": {
     "url": "https://github.com/guionai/web/issues"

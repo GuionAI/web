@@ -290,11 +290,11 @@ function toolSummary(
 export function fetchDetails(
   args: Record<string, unknown>,
 ): Array<{ label: string; value: string }> {
-  const browserRendered = args.render === "agent-browser";
+  const browserRendered = args.render === "browser";
   const details = [
     {
       label: "Backend",
-      value: browserRendered ? "Browser rendered" : "Direct fetch",
+      value: browserRendered ? "Browser rendered" : "HTTP rendered",
     },
   ];
   if (browserRendered && typeof args.waitMs === "number") {
@@ -313,7 +313,6 @@ function formatWait(waitMs: number): string {
 function fetchResultMode(args: Record<string, unknown>): string {
   if (typeof args.section_id === "string" && args.section_id !== "")
     return `Section: ${args.section_id}`;
-  if (args.tree === true) return "Heading tree";
   if (args.full === true) return "Full document";
   return "Adaptive document";
 }

@@ -215,7 +215,7 @@ if (command === "open" && args.some((value) => value.includes("/blocked"))) {
 
     const rendered = await fetchTool.execute("test", {
       url: "https://93.184.216.34/rendered",
-      render: "agent-browser",
+      render: "browser",
       waitMs: 0,
       full: true,
     });
@@ -248,7 +248,7 @@ if (command === "open" && args.some((value) => value.includes("/blocked"))) {
     try {
       await fetchTool.execute("test", {
         url: "https://93.184.216.34/blocked",
-        render: "agent-browser",
+        render: "browser",
         waitMs: 0,
       });
       throw new Error("blocked rendered fetch unexpectedly succeeded");

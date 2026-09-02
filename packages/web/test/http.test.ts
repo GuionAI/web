@@ -152,7 +152,7 @@ describe("personal HTTP service", () => {
 
     const result = await json(app, "/v1/fetch", {
       url: "https://example.test",
-      render: "agent-browser",
+      render: "browser",
       waitMs: 0,
     });
 
@@ -161,10 +161,8 @@ describe("personal HTTP service", () => {
     expect(ops.fetch).toHaveBeenCalledWith(
       expect.objectContaining({
         url: "https://example.test",
-        tree: false,
         full: false,
-        tree_threshold: 5000,
-        render: "agent-browser",
+        render: "browser",
         waitMs: 0,
       }),
       expect.any(AbortSignal),
@@ -183,7 +181,7 @@ describe("personal HTTP service", () => {
 
     const result = await json(app, "/v1/links", {
       url: "https://example.test",
-      render: "agent-browser",
+      render: "browser",
       waitMs: 0,
     });
 
@@ -195,7 +193,7 @@ describe("personal HTTP service", () => {
       {
         url: "https://example.test",
         limit: 100,
-        render: "agent-browser",
+        render: "browser",
         waitMs: 0,
       },
       expect.any(AbortSignal),
@@ -222,6 +220,23 @@ describe("personal HTTP service", () => {
         await json(app, "/v1/links", {
           url: "https://example.test",
           waitMs: 100,
+        })
+      ).response.status,
+    ).toBe(400);
+    expect(
+      (
+        await json(app, "/v1/fetch", {
+          url: "https://example.test",
+          full: true,
+          section_id: "intro",
+        })
+      ).response.status,
+    ).toBe(400);
+    expect(
+      (
+        await json(app, "/v1/fetch", {
+          url: "https://example.test",
+          tree: true,
         })
       ).response.status,
     ).toBe(400);
@@ -275,6 +290,10 @@ describe("personal HTTP service", () => {
       (document.components?.schemas as any).SearchResponse.properties.provider
         .enum,
     ).toEqual(["Exa", "Kepos Bridge"]);
+    const fetchRequest = (document.components?.schemas as any).FetchRequest;
+    expect(fetchRequest.properties.render.enum).toEqual(["http", "browser"]);
+    expect(fetchRequest.properties.tree).toBeUndefined();
+    expect(fetchRequest.properties.tree_threshold).toBeUndefined();
   });
 
   it("requires an Exa key and validates the server-local Bridge endpoint", () => {

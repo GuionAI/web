@@ -38,7 +38,7 @@ function formatCliError(error: unknown): string {
   if (error.code === "javascript_rendering_may_be_required") {
     return (
       "javascript_rendering_may_be_required: content may require JavaScript rendering\n" +
-      "Retry: web fetch <url> --render=agent-browser --wait=2000\n"
+      "Retry: web fetch <url> --render=browser --wait=2000\n"
     );
   }
   if (error.code === "render_domain_not_allowed") {

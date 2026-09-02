@@ -24,11 +24,11 @@ strings, and fragments are rejected and its path is used exactly as entered.
 
 The published package is a dual host/browser bundle. Its host and client
 artifacts, profile patch, and exact DSH `0.1.2-alpha.3` peer contract are included
-in the npm package. Search, direct page fetch, page-link discovery, optional agent-browser rendering,
+in the npm package. Search, HTTP page rendering, page-link discovery, optional browser rendering,
 Context7 documentation, and Sourcegraph all run in-process through the bundled
-Guion Web core. `web_fetch` has two page-fetch backends: direct fetch (the
-default) and explicit `render: "agent-browser"` with required `waitMs` (an
-integer from 0 through 30,000) for client-rendered pages through a host-installed
+Guion Web core. `web_fetch` has two page-rendering modes: HTTP (the default) and
+explicit `render: "browser"` with required `waitMs` (an integer from 0 through
+30,000) for client-rendered pages through a host-installed
 `agent-browser`
 executable. To enable that optional capability, install
 [agent-browser](https://github.com/vercel-labs/agent-browser) separately with
@@ -40,8 +40,12 @@ state or credentials.
 
 `web_links` lists up to 100 unique HTTP(S) anchors from the original page DOM,
 so it includes navigation and other links that readable-content extraction drops.
-It uses the same direct default and explicit `render: "agent-browser"` / required
+It uses the same HTTP default and explicit `render: "browser"` / required
 `waitMs` contract as `web_fetch`.
+
+Long `web_fetch` documents return a navigation tree automatically. Use
+`full: true` for complete Markdown or pass a returned `section_id` to continue
+with one section; those fields are mutually exclusive.
 
 Rendered requests are bounded and constrained to the requested hostname,
 `*.<requested-hostname>` (the target and its subdomains), and this fixed common
@@ -50,7 +54,7 @@ CDN list: `cdn.jsdelivr.net`, `unpkg.com`, `cdnjs.cloudflare.com`,
 The caller cannot widen the list. A redirect, API, frame, worker, socket, or
 other dependency on an unknown domain fails closed as
 `render_domain_not_allowed`; increasing `waitMs` will not help. For example,
-retry a shell with `render: "agent-browser", waitMs: 2000`, then explicitly
+retry a shell with `render: "browser", waitMs: 2000`, then explicitly
 retry with a longer wait such as `waitMs: 10000` or abandon the page. Report a
 likely missing first-party or common-CDN domain at
 https://github.com/guionai/web/issues/new, including the page URL and blocked

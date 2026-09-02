@@ -237,45 +237,36 @@ function createFetchCommand(dependencies: ProgramDependencies): Command {
   return new Command("fetch")
     .description("Fetch a static, SSR, or pre-rendered page as Markdown")
     .argument("<url>", "HTTP or HTTPS URL")
-    .option("--tree", "Show the heading tree")
-    .option(
-      "--render <backend>",
-      "Rendering backend: fetch (default) or agent-browser",
-    )
+    .option("--render <renderer>", "Rendering mode: http (default) or browser")
     .option(
       "--wait <milliseconds>",
-      "Required post-load wait for --render agent-browser (0-30000)",
+      "Required post-load wait for --render browser (0-30000)",
       Number,
     )
     .option("-s, --section <id>", "Read one heading section")
-    .option(
-      "--full",
-      "Return full content instead of automatic tree navigation",
-    )
-    .option("--tree-threshold <characters>", "Auto-tree threshold", Number)
+    .option("--full", "Return the complete extracted Markdown")
     .option("--json", "Output the structured result as JSON")
     .action(
       async (
         url: string,
         options: {
-          tree?: boolean;
-          render?: "fetch" | "agent-browser";
+          render?: "http" | "browser";
           wait?: number;
           section?: string;
           full?: boolean;
-          treeThreshold?: number;
           json?: boolean;
         },
       ) => {
-        const result = await dependencies.operations.fetch({
+        const input = {
           url,
-          tree: options.tree,
           ...(options.render !== undefined ? { render: options.render } : {}),
           ...(options.wait !== undefined ? { waitMs: options.wait } : {}),
-          section_id: options.section,
-          full: options.full,
-          tree_threshold: options.treeThreshold,
-        });
+          ...(options.section !== undefined
+            ? { section_id: options.section }
+            : {}),
+          ...(options.full !== undefined ? { full: options.full } : {}),
+        };
+        const result = await dependencies.operations.fetch(input);
         if (options.json) {
           writeOut(JSON.stringify(result) + "\n");
           return;
@@ -292,13 +283,10 @@ function createLinksCommand(dependencies: ProgramDependencies): Command {
     .description("List HTTP(S) links from a web page")
     .argument("<url>", "HTTP or HTTPS URL")
     .option("--limit <count>", "Maximum links to return (1-100)", Number)
-    .option(
-      "--render <backend>",
-      "Rendering backend: fetch (default) or agent-browser",
-    )
+    .option("--render <renderer>", "Rendering mode: http (default) or browser")
     .option(
       "--wait <milliseconds>",
-      "Required post-load wait for --render agent-browser (0-30000)",
+      "Required post-load wait for --render browser (0-30000)",
       Number,
     )
     .option("--json", "Output the structured result as JSON")
@@ -307,7 +295,7 @@ function createLinksCommand(dependencies: ProgramDependencies): Command {
         url: string,
         options: {
           limit?: number;
-          render?: "fetch" | "agent-browser";
+          render?: "http" | "browser";
           wait?: number;
           json?: boolean;
         },

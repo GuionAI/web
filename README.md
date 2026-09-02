@@ -3,10 +3,10 @@
 Guion Web is a Node.js web research toolkit. It provides Exa, Brave, or a
 managed Kepos Bridge search endpoint,
 Context7 library documentation lookup, Sourcegraph public code search, page-link
-discovery, and two page-fetch backends through a CLI, stdio MCP server, personal
-HTTP service, Pi extension, and DeepSeek Harness (DSH) integration: direct
-HTML-to-Markdown extraction and explicit `agent-browser` rendering for
-client-rendered pages on supported hosts.
+discovery, and two page-rendering modes through a CLI, stdio MCP server, personal
+HTTP service, Pi extension, and DeepSeek Harness (DSH) integration: HTTP
+HTML-to-Markdown extraction and explicit browser rendering for client-rendered
+pages on supported hosts.
 
 ## Install and configure
 
@@ -65,11 +65,13 @@ docker run --rm -p 8787:8787 \
 Every HTTP operation is a versioned JSON `POST` route. Request and response schemas
 are generated into `openapi.yaml` from the same route definitions:
 
-| Route        | Request                                                                               | Purpose                                                  |
-| ------------ | ------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| `/v1/search` | `{ "query": "..." }`                                                                  | Kepos Bridge search with one Exa retry on Bridge failure |
-| `/v1/fetch`  | `{ "url", "tree?", "section_id?", "full?", "tree_threshold?", "render?", "waitMs?" }` | Fetch Markdown                                           |
-| `/v1/links`  | `{ "url", "limit?", "render?", "waitMs?" }`                                           | List page HTTP(S) links                                  |
+| Route        | Request                                                   | Purpose                                                  |
+| ------------ | --------------------------------------------------------- | -------------------------------------------------------- |
+| `/v1/search` | `{ "query": "..." }`                                      | Kepos Bridge search with one Exa retry on Bridge failure |
+| `/v1/fetch`  | `{ "url", "section_id?", "full?", "render?", "waitMs?" }` | Fetch Markdown                                           |
+| `/v1/links`  | `{ "url", "limit?", "render?", "waitMs?" }`               | List page HTTP(S) links                                  |
+
+The complete human-readable contract is in the [HTTP service reference](docs/http-service.md).
 
 Search keeps a successful empty Bridge result, retries Exa exactly once for a
 non-cancellation Bridge failure, and reports the provider in its response.
@@ -82,13 +84,13 @@ Error responses use a stable `{ "code", "message", "details"? }` JSON shape;
 upstream failures use 502 (or 504 for an upstream timeout), while client
 cancellation is reported as 499.
 
-Fetch and Links use direct HTTP fetching when `render` is omitted (or set to
-`"fetch"`). Rendered fetching is explicit and requires both
-`render: "agent-browser"` and an integer `waitMs` from 0 through 30,000; direct
-fetch never silently switches backends. The container installs `agent-browser`
-with Debian Chromium (including Linux ARM64, where Chrome for Testing has no
-build), while credentials and Bridge configuration remain server-local
-environment variables.
+Fetch and Links use HTTP rendering when `render` is omitted (or set to
+`"http"`). Browser rendering is explicit and requires both `render: "browser"`
+and an integer `waitMs` from 0 through 30,000; HTTP rendering never silently
+switches backends. The container installs the `agent-browser` executable with
+Debian Chromium (including Linux ARM64, where Chrome for Testing has no build),
+while credentials and Bridge configuration remain server-local environment
+variables.
 
 This is a Personal Web Service: a single-trust-boundary deployment for its
 operator and agents. It is not hardened for public or multi-tenant exposure;
@@ -103,7 +105,7 @@ document on stdout, which is useful for automation.
 ```bash
 web search --provider exa -- "Node AbortSignal"
 web search --provider kepos-bridge -- "Node AbortSignal"
-web fetch https://example.com/article --tree
+web fetch https://example.com/article
 web fetch https://example.com/article --section introduction
 web links https://example.com/article --limit 50
 web docs resolve react
@@ -112,9 +114,11 @@ web sgraph --count 10 -- "repo:^github\\.com/nodejs/node$ AbortSignal"
 ```
 
 Use `--` before a search or Sourcegraph query that begins with a hyphen. `fetch`
-supports `--full`, `--tree`, and `--section`; long extracted documents default to
-a heading tree so a later request can retrieve a stable section ID. `links` lists
-up to 100 unique HTTP(S) anchors from the original page DOM.
+supports `--full` and `--section`; long extracted documents automatically return
+a heading tree so a later request can retrieve a stable `section_id`. `--full`
+returns the complete extracted Markdown, and `--full` cannot be combined with
+`--section`. `links` lists up to 100 unique HTTP(S) anchors from the original
+page DOM.
 
 ## MCP
 
@@ -130,7 +134,7 @@ web mcp --provider kepos-bridge
 The server exposes six read-only tools: `search`, `fetch`, `links`, `docs_resolve`,
 `docs_fetch`, and `source_search`. Its stdout is reserved for MCP protocol
 messages; diagnostics go to stderr. For a client-rendered page, explicitly call
-`fetch` or `links` with `render: "agent-browser"` and an integer `waitMs`; this optional
+`fetch` or `links` with `render: "browser"` and an integer `waitMs`; this optional
 retry requires a host-installed executable and never happens automatically.
 
 ## Pi
@@ -144,7 +148,7 @@ pi install npm:@guionai/pi-web
 It registers `web_search`, `web_fetch`, `web_links`, `web_docs`, and `web_source_search` and calls
 the bundled core in-process. Pi and TypeBox are peer dependencies supplied by
 the host; no CLI executable or MCP configuration is required. `web_fetch` uses
-direct fetch by default and can explicitly use `render: "agent-browser"` with
+HTTP rendering by default and can explicitly use `render: "browser"` with
 an integer `waitMs` when its host provides that optional executable.
 `web_links` uses the same explicit rendering contract and lists HTTP(S) anchors
 from the original page DOM.
@@ -169,37 +173,36 @@ credentials. Selecting Kepos Bridge additionally exposes `web_weather`,
 `web_sports`, `web_finance`, and `web_time`; these tools are removed when another
 provider is selected. Fetch, link discovery, documentation, and Sourcegraph tools
 also run in-process. The host DSH packages and React are peers supplied by DSH.
-`web_fetch` uses direct fetch by default and can explicitly use
-`render: "agent-browser"` with an integer `waitMs` on a host that supplies the
+`web_fetch` uses HTTP rendering by default and can explicitly use
+`render: "browser"` with an integer `waitMs` on a host that supplies the
 optional executable.
 `web_links` uses the same explicit rendering contract and lists HTTP(S) anchors
 from the original page DOM.
 
-## Page-fetch backends
+## Page-rendering modes
 
-`web fetch` has two backends. `fetch` (the default) uses Node `fetch`,
-`linkedom`, and Defuddle for direct HTML-to-Markdown extraction from static,
-SSR, and pre-rendered pages. `agent-browser` renders client-side pages through
-a separately installed host executable. Direct fetch is used by default; choose
-agent-browser explicitly when needed. The implementation never falls back
-automatically:
+`web fetch` has two renderers. `http` (the default) uses Node `fetch`, `linkedom`,
+and Defuddle for HTML-to-Markdown extraction from static, SSR, and pre-rendered
+pages. `browser` renders client-side pages through the separately installed
+host browser capability. HTTP rendering is used by default; choose browser
+explicitly when needed. The implementation never falls back automatically:
 
 ```bash
-web fetch https://example.com/app --render=agent-browser --wait=2000
+web fetch https://example.com/app --render=browser --wait=2000
 # If it is still incomplete, retry explicitly with more time, or abandon it:
-web fetch https://example.com/app --render=agent-browser --wait=10000
+web fetch https://example.com/app --render=browser --wait=10000
 ```
 
-`web links` uses the same direct or explicit browser-rendered source, but parses
+`web links` uses the same HTTP or explicit browser-rendered source, but parses
 the original DOM rather than Defuddle output so navigation and other links outside
 the readable article remain discoverable. It returns only HTTP(S) `a[href]`
 destinations, deduplicated and capped at 100 by default.
 
-`--wait` is mandatory with `--render=agent-browser`, including `--wait=0`, and
-accepts only an integer from 0 through 30,000 milliseconds. Direct `fetch`
-or `links` requests must not provide `--wait`. The same `render: "agent-browser"` and required
+`--wait` is mandatory with `--render=browser`, including `--wait=0`, and
+accepts only an integer from 0 through 30,000 milliseconds. HTTP `fetch`
+or `links` requests must not provide `--wait`. The same `render: "browser"` and required
 `waitMs` fields are available on the MCP `fetch`/`links`, Pi `web_fetch`/`web_links`, and DSH
-`web_fetch`/`web_links` tools. A direct-fetch failure may return the structured
+`web_fetch`/`web_links` tools. An HTTP-rendering failure may return the structured
 `javascript_rendering_may_be_required` hint with the 2,000 ms suggestion; the
 agent decides whether to retry with a longer wait or abandon the page.
 
@@ -215,7 +218,7 @@ agent-browser install
 `agent-browser install` manages its own browser runtime; Guion packages never
 run it, bundle it, or reuse browser credentials. A compatible executable must be
 directly runnable from `PATH` without a shell. The renderer is supported on
-macOS and Linux hosts. Direct fetch remains available, and the three npm
+macOS and Linux hosts. HTTP rendering remains available, and the three npm
 packages remain installable when `agent-browser` is absent.
 
 A rendered session is fresh and non-persistent. Before launch, the target must

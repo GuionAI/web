@@ -104,14 +104,23 @@ const HttpUrlSchema = z
 const FetchRequestSchema = z
   .object({
     url: HttpUrlSchema,
-    tree: z.boolean().default(false),
-    section_id: z.string().optional(),
+    section_id: z
+      .string()
+      .min(1)
+      .refine(
+        (value) => value.trim().length > 0,
+        "section_id must be a non-empty string",
+      )
+      .optional(),
     full: z.boolean().default(false),
-    tree_threshold: z.number().int().default(5000),
-    render: z.enum(["fetch", "agent-browser"]).default("fetch"),
+    render: z.enum(["http", "browser"]).default("http"),
     waitMs: z.number().int().min(0).max(30_000).optional(),
   })
   .strict()
+  .refine(
+    (input) => !(input.full && input.section_id !== undefined),
+    "full and section_id cannot be used together",
+  )
   .openapi("FetchRequest");
 
 const LinksRequestSchema = z
@@ -123,7 +132,7 @@ const LinksRequestSchema = z
       .min(1)
       .max(MAX_LINK_LIMIT)
       .default(DEFAULT_LINK_LIMIT),
-    render: z.enum(["fetch", "agent-browser"]).default("fetch"),
+    render: z.enum(["http", "browser"]).default("http"),
     waitMs: z.number().int().min(0).max(30_000).optional(),
   })
   .strict()
@@ -168,7 +177,7 @@ const fetchRoute = createRoute({
   operationId: "fetch",
   summary: "Fetch a web page",
   description:
-    "Fetch direct HTML by default; agent-browser rendering requires render=agent-browser and waitMs.",
+    "Fetch through HTTP by default; browser rendering requires render=browser and waitMs.",
   request: jsonRequest(FetchRequestSchema),
   responses: {
     200: jsonResponse(FetchResponseSchema, "Fetched page."),
@@ -182,7 +191,7 @@ const linksRoute = createRoute({
   operationId: "links",
   summary: "List page links",
   description:
-    "List HTTP(S) anchors using direct fetch by default or explicit agent-browser rendering.",
+    "List HTTP(S) anchors using HTTP rendering by default or explicit browser rendering.",
   request: jsonRequest(LinksRequestSchema),
   responses: {
     200: jsonResponse(LinksResponseSchema, "Page links."),
@@ -339,19 +348,19 @@ function isHttpURL(value: string): boolean {
 }
 
 function validateRenderFields(
-  render: "fetch" | "agent-browser" | undefined,
+  render: "http" | "browser" | undefined,
   waitMs: number | undefined,
 ): HttpError | undefined {
-  const selected = render ?? "fetch";
-  if (selected === "fetch" && waitMs !== undefined)
+  const selected = render ?? "http";
+  if (selected === "http" && waitMs !== undefined)
     return errorBody(
       "invalid_request",
-      "waitMs is only valid with render agent-browser",
+      "waitMs is only valid with render browser",
     );
-  if (selected === "agent-browser" && waitMs === undefined)
+  if (selected === "browser" && waitMs === undefined)
     return errorBody(
       "invalid_request",
-      "waitMs is required with render agent-browser",
+      "waitMs is required with render browser",
     );
   return undefined;
 }
@@ -477,10 +486,10 @@ function safeFetchDetails(
   if (typeof details.retryable === "boolean")
     safe.retryable = details.retryable;
   if (
-    details.suggestedArguments?.render === "agent-browser" &&
+    details.suggestedArguments?.render === "browser" &&
     details.suggestedArguments.waitMs === 2000
   ) {
-    safe.suggestedArguments = { render: "agent-browser", waitMs: 2000 };
+    safe.suggestedArguments = { render: "browser", waitMs: 2000 };
   }
   if (details.reportUrl === RENDER_REPORT_URL)
     safe.reportUrl = details.reportUrl;

@@ -213,7 +213,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
           code: "javascript_rendering_may_be_required",
           details: {
             retryableWithRender: true,
-            suggestedArguments: { render: "agent-browser", waitMs: 2000 },
+            suggestedArguments: { render: "browser", waitMs: 2000 },
           },
         });
         await expect(fetchPage({ url })).rejects.toThrow(
@@ -350,7 +350,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
       try {
         await expect(
           fetchWebPage(
-            { url: "https://render.test/page", render: "fetch" },
+            { url: "https://render.test/page", render: "http" },
             undefined,
             { cacheDirectory, fetch: directFetch, resolveHost },
           ),
@@ -367,7 +367,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
           fetchWebPage(
             {
               url: "https://render.test/page",
-              render: "agent-browser",
+              render: "browser",
               waitMs: 0,
               full: true,
             },
@@ -412,7 +412,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
         await fetchWebPage(
           {
             url: "https://render.test/page",
-            render: "agent-browser",
+            render: "browser",
             waitMs: 1,
           },
           undefined,
@@ -435,7 +435,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
           fetchWebLinks(
             {
               url: "https://render.test/page",
-              render: "agent-browser",
+              render: "browser",
               waitMs: 0,
             },
             undefined,
@@ -468,7 +468,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
           fetchWebLinks(
             {
               url: "https://render.test/start",
-              render: "agent-browser",
+              render: "browser",
               waitMs: 0,
             },
             undefined,
@@ -498,7 +498,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
       const pending = fetchWebPage(
         {
           url: "https://render.test/page",
-          render: "agent-browser",
+          render: "browser",
           waitMs: 30_000,
         },
         controller.signal,
@@ -520,7 +520,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
       const pending = fetchWebPage(
         {
           url: "https://ignore-term.test/page",
-          render: "agent-browser",
+          render: "browser",
           waitMs: 0,
         },
         controller.signal,
@@ -546,7 +546,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
       const failure = await fetchWebPage(
         {
           url: `https://user:${secret}@render.test/page`,
-          render: "agent-browser",
+          render: "browser",
           waitMs: 0,
         },
         undefined,
@@ -571,7 +571,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
         await expect(
           fetchWebPage({
             url: `https://[${address}]/page`,
-            render: "agent-browser",
+            render: "browser",
             waitMs: 0,
           }),
         ).rejects.toThrow("private or reserved");
@@ -583,7 +583,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
           fetchWebPage(
             {
               url: "https://resolved.test/page",
-              render: "agent-browser",
+              render: "browser",
               waitMs: 0,
             },
             undefined,
@@ -604,7 +604,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
         fetchWebPage(
           {
             url: "https://render.test/page",
-            render: "agent-browser",
+            render: "browser",
             waitMs: 0,
           },
           undefined,
@@ -629,7 +629,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
         fetchWebPage(
           {
             url: "https://blocked.test/page",
-            render: "agent-browser",
+            render: "browser",
             waitMs: 0,
           },
           undefined,
@@ -661,7 +661,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
     await expect(
       fetchWebPage({
         url: "https://render.test/page",
-        render: "agent-browser",
+        render: "browser",
       }),
     ).rejects.toThrow("waitMs is required");
     await expect(
@@ -670,7 +670,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
     await expect(
       fetchWebPage({
         url: "https://render.test/page",
-        render: "agent-browser",
+        render: "browser",
         waitMs: 30_001,
       }),
     ).rejects.toThrow("waitMs must be an integer");
@@ -680,7 +680,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
       await expect(
         fetchWebPage({
           url: "http://127.0.0.1/private",
-          render: "agent-browser",
+          render: "browser",
           waitMs: 0,
         }),
       ).rejects.toThrow("private or reserved");
@@ -690,7 +690,7 @@ describe.sequential("browserless fetch migrated from Organon", () => {
         fetchWebPage(
           {
             url: "https://blocked.test/page",
-            render: "agent-browser",
+            render: "browser",
             waitMs: 0,
           },
           undefined,
@@ -761,6 +761,70 @@ describe.sequential("browserless fetch migrated from Organon", () => {
     } finally {
       await close(server);
     }
+  });
+
+  it("owns automatic tree navigation, complete full extraction, and input validation", async () => {
+    const source =
+      "# Page\n\n## Install\nInstall content.\n\n## Next\nNext content.\n" +
+      "x".repeat(5_001);
+    const cache = {
+      prepare: vi.fn(async () => {}),
+      read: vi.fn(async () => source),
+      write: vi.fn(async () => {}),
+    };
+    const input = { url: "https://navigation.test/page" };
+
+    await expect(
+      fetchWebPage(input, undefined, { cache }),
+    ).resolves.toMatchObject({
+      mode: "tree",
+    });
+    await expect(
+      fetchWebPage({ ...input, section_id: "7i" }, undefined, { cache }),
+    ).resolves.toMatchObject({
+      mode: "section",
+      content: "## Install\nInstall content.\n",
+    });
+
+    const complete = "# Complete\n\n" + "x".repeat(30_001);
+    const completeCache = {
+      prepare: vi.fn(async () => {}),
+      read: vi.fn(async () => complete),
+      write: vi.fn(async () => {}),
+    };
+    const result = await fetchWebPage(
+      { url: "https://navigation.test/complete", full: true },
+      undefined,
+      { cache: completeCache },
+    );
+    expect(result).toEqual({
+      url: "https://navigation.test/complete",
+      mode: "full",
+      content: complete,
+    });
+
+    await expect(
+      fetchWebPage(
+        {
+          url: input.url,
+          full: true,
+          section_id: "7i",
+        } as never,
+        undefined,
+        { cache },
+      ),
+    ).rejects.toThrow("full and section_id cannot be used together");
+    await expect(
+      fetchWebPage({ url: input.url, tree: true } as never, undefined, {
+        cache,
+      }),
+    ).rejects.toThrow("does not accept field tree");
+    await expect(
+      fetchWebPage({ url: input.url, tree_threshold: 1 } as never, undefined, {
+        cache,
+      }),
+    ).rejects.toThrow("does not accept field tree_threshold");
+    expect(cache.read).toHaveBeenCalledTimes(2);
   });
 });
 

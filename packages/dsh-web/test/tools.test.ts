@@ -70,7 +70,7 @@ describe("DSH direct web tools", () => {
       definitions[0]!.isConcurrencySafe?.({ url: "https://example.test" }),
       definitions[1]!.isConcurrencySafe?.({
         url: "https://example.test",
-        render: "agent-browser",
+        render: "browser",
         waitMs: 0,
       }),
       definitions[2]!.isConcurrencySafe?.({
@@ -83,8 +83,8 @@ describe("DSH direct web tools", () => {
       false,
     );
     expect((definitions[0]!.parameters as any).properties.render.enum).toEqual([
-      "fetch",
-      "agent-browser",
+      "http",
+      "browser",
     ]);
     expect((definitions[0]!.parameters as any).properties.waitMs.type).toBe(
       "integer",
@@ -93,8 +93,8 @@ describe("DSH direct web tools", () => {
       100,
     );
     expect((definitions[1]!.parameters as any).properties.render.enum).toEqual([
-      "fetch",
-      "agent-browser",
+      "http",
+      "browser",
     ]);
     expect((definitions[2]!.parameters as any).properties.action.enum).toEqual([
       "resolve",
@@ -149,7 +149,7 @@ describe("DSH direct web tools", () => {
         {
           url: "https://example.test",
           section_id: "install",
-          render: "agent-browser",
+          render: "browser",
           waitMs: 2000,
         },
         controller.signal,
@@ -161,7 +161,7 @@ describe("DSH direct web tools", () => {
         {
           url: "https://example.test",
           limit: 25,
-          render: "agent-browser",
+          render: "browser",
           waitMs: 2000,
         },
         controller.signal,
@@ -191,11 +191,8 @@ describe("DSH direct web tools", () => {
         kind: "fetch",
         input: {
           url: "https://example.test",
-          tree: undefined,
           section_id: "install",
-          full: undefined,
-          tree_threshold: undefined,
-          render: "agent-browser",
+          render: "browser",
           waitMs: 2000,
         },
         abortSignal: controller.signal,
@@ -205,7 +202,7 @@ describe("DSH direct web tools", () => {
         input: {
           url: "https://example.test",
           limit: 25,
-          render: "agent-browser",
+          render: "browser",
           waitMs: 2000,
         },
         abortSignal: controller.signal,
@@ -243,7 +240,7 @@ describe("DSH direct web tools", () => {
     await expect(
       call(fetch, {
         url: "https://example.test",
-        render: "agent-browser",
+        render: "browser",
       }),
     ).rejects.toThrow("waitMs is required");
     await expect(
@@ -255,7 +252,7 @@ describe("DSH direct web tools", () => {
     await expect(
       call(fetch, {
         url: "https://example.test",
-        render: "agent-browser",
+        render: "browser",
         waitMs: 30_001,
       }),
     ).rejects.toThrow("waitMs must be an integer");
@@ -264,7 +261,7 @@ describe("DSH direct web tools", () => {
       "javascript_rendering_may_be_required",
       {
         retryableWithRender: true,
-        suggestedArguments: { render: "agent-browser", waitMs: 2000 },
+        suggestedArguments: { render: "browser", waitMs: 2000 },
       },
     );
     const allowlist = new FetchCapabilityError("render_domain_not_allowed", {
@@ -293,7 +290,7 @@ describe("DSH direct web tools", () => {
     )[0]!;
     const pending = call(
       cancel,
-      { url: "https://example.test", render: "fetch" },
+      { url: "https://example.test", render: "http" },
       controller.signal,
     );
     controller.abort();
@@ -312,13 +309,13 @@ describe("DSH direct web tools", () => {
     await expect(
       call(retryDefinition, {
         url: "https://example.test",
-        render: "fetch",
+        render: "http",
       }),
     ).rejects.toMatchObject({
       code: "javascript_rendering_may_be_required",
       details: {
         retryableWithRender: true,
-        suggestedArguments: { render: "agent-browser", waitMs: 2000 },
+        suggestedArguments: { render: "browser", waitMs: 2000 },
       },
     });
 
@@ -334,7 +331,7 @@ describe("DSH direct web tools", () => {
     await expect(
       call(allowlistDefinition, {
         url: "https://example.test",
-        render: "agent-browser",
+        render: "browser",
         waitMs: 0,
       }),
     ).rejects.toMatchObject({
@@ -396,13 +393,13 @@ describe("DSH direct web tools", () => {
     await expect(
       call(linksTool!, {
         url: "https://example.test",
-        render: "agent-browser",
+        render: "browser",
       }),
     ).rejects.toThrow("waitMs is required");
     await expect(
       call(linksTool!, {
         url: "https://example.test",
-        render: "agent-browser",
+        render: "browser",
         waitMs: -1,
       }),
     ).rejects.toThrow("waitMs must be an integer from 0 through 30000");

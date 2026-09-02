@@ -311,7 +311,7 @@ describe("DSH 0.1.2-alpha.3 packed package contract", () => {
       const rendered = await fetchTool.execute(
         {
           url: "https://93.184.216.34/rendered",
-          render: "agent-browser",
+          render: "browser",
           waitMs: 0,
           full: true,
         },
@@ -331,7 +331,7 @@ describe("DSH 0.1.2-alpha.3 packed package contract", () => {
         fetchTool.execute(
           {
             url: "https://93.184.216.34/blocked",
-            render: "agent-browser",
+            render: "browser",
             waitMs: 0,
           },
           { signal: new AbortController().signal },

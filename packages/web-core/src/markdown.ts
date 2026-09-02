@@ -18,6 +18,11 @@ export type MarkdownResult = {
   mode: "full" | "tree" | "section";
 };
 
+export type MarkdownNavigationOptions = {
+  section_id?: string;
+  full?: boolean;
+};
+
 const DEFAULT_TREE_THRESHOLD = 5000;
 const MAX_CONTENT_CHARS = 30_000;
 const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -28,13 +33,12 @@ const markdown = new MarkdownIt();
 
 export function renderMarkdown(
   source: string,
-  showTree: boolean,
-  sectionId: string | undefined,
-  full: boolean,
-  treeThreshold: number | undefined,
+  options: MarkdownNavigationOptions = {},
 ): MarkdownResult {
   const headings = assignIds(parseHeadings(source));
-  const section = sectionId?.trim();
+  const section = options.section_id?.trim();
+  if (options.full === true && section !== undefined)
+    throw new Error("full and section_id cannot be used together");
   if (section) {
     return {
       content: extractSection(source, headings, section),
@@ -42,15 +46,13 @@ export function renderMarkdown(
     };
   }
 
-  const threshold =
-    treeThreshold && treeThreshold > 0 ? treeThreshold : DEFAULT_TREE_THRESHOLD;
   const charCount = Array.from(source).length;
-  if (showTree || (!full && charCount > threshold)) {
-    if (headings.length > 0) {
-      return { content: renderTree(source, headings), mode: "tree" };
-    }
-  }
-  return { content: truncateContent(source), mode: "full" };
+  if (!options.full && charCount > DEFAULT_TREE_THRESHOLD)
+    return { content: renderTree(source, headings), mode: "tree" };
+  return {
+    content: options.full ? source : truncateContent(source),
+    mode: "full",
+  };
 }
 
 export function truncateContent(content: string): string {
@@ -182,7 +184,7 @@ function renderTree(source: string, headings: Heading[]): string {
     99,
   );
   if (bodyHeadings.length === 0) {
-    return `${header}(empty)\n\nUse -s <id> to read a section, or --full to read everything.\n`;
+    return `${header}(empty)\n\nUse section_id to read a section, or full: true to read everything.\n`;
   }
 
   const nodes = bodyHeadings.map((heading) => {
@@ -211,7 +213,7 @@ function renderTree(source: string, headings: Heading[]): string {
       hasMore.delete(depth);
   });
 
-  return `${header}${tree}\nUse -s <id> to read a section, or --full to read everything.\n`;
+  return `${header}${tree}\nUse section_id to read a section, or full: true to read everything.\n`;
 }
 
 function sectionCharCount(

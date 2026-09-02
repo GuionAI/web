@@ -17,22 +17,18 @@ import {
   type WebOperations,
 } from "@guionai/web-core";
 
-const DEFAULT_FETCH_TREE_THRESHOLD = 5000;
-
 type SearchToolInput = { query: string };
 type FetchToolInput = {
   url: string;
-  tree?: boolean;
   section_id?: string;
   full?: boolean;
-  tree_threshold?: number;
-  render?: "fetch" | "agent-browser";
+  render?: "http" | "browser";
   waitMs?: number;
 };
 type LinksToolInput = {
   url: string;
   limit?: number;
-  render?: "fetch" | "agent-browser";
+  render?: "http" | "browser";
   waitMs?: number;
 };
 type DocsResolveToolInput = { query: string };
@@ -65,43 +61,45 @@ const fetchInputSchema = schema<FetchToolInput>({
   additionalProperties: false,
   properties: {
     url: { type: "string", description: "HTTP or HTTPS URL to fetch" },
-    tree: { type: "boolean", description: "show the page heading tree" },
     section_id: {
       type: "string",
+      minLength: 1,
       description: "optional heading section ID to return",
     },
     full: {
       type: "boolean",
       description: "return full content without automatic tree mode",
     },
-    tree_threshold: {
-      type: "integer",
-      description: "automatic tree threshold; defaults to 5000",
-      default: DEFAULT_FETCH_TREE_THRESHOLD,
-    },
     render: {
       type: "string",
-      enum: ["fetch", "agent-browser"],
-      default: "fetch",
-      description: "optional page-fetch backend; direct fetch is the default",
+      enum: ["http", "browser"],
+      default: "http",
+      description: "optional page renderer; HTTP fetching is the default",
     },
     waitMs: {
       type: "integer",
       minimum: 0,
       maximum: 30_000,
-      description:
-        "required post-load wait for agent-browser rendering (0-30000)",
+      description: "required post-load wait for browser rendering (0-30000)",
     },
   },
   required: ["url"],
   oneOf: [
     {
-      properties: { render: { enum: ["fetch"] } },
+      properties: { render: { enum: ["http"] } },
       not: { required: ["waitMs"] },
     },
     {
-      properties: { render: { const: "agent-browser" } },
+      properties: { render: { const: "browser" } },
       required: ["render", "waitMs"],
+    },
+  ],
+  allOf: [
+    {
+      not: {
+        required: ["section_id", "full"],
+        properties: { full: { const: true } },
+      },
     },
   ],
 });
@@ -119,26 +117,25 @@ const linksInputSchema = schema<LinksToolInput>({
     },
     render: {
       type: "string",
-      enum: ["fetch", "agent-browser"],
-      default: "fetch",
-      description: "optional page-fetch backend; direct fetch is the default",
+      enum: ["http", "browser"],
+      default: "http",
+      description: "optional page renderer; HTTP fetching is the default",
     },
     waitMs: {
       type: "integer",
       minimum: 0,
       maximum: 30_000,
-      description:
-        "required post-load wait for agent-browser rendering (0-30000)",
+      description: "required post-load wait for browser rendering (0-30000)",
     },
   },
   required: ["url"],
   oneOf: [
     {
-      properties: { render: { enum: ["fetch"] } },
+      properties: { render: { enum: ["http"] } },
       not: { required: ["waitMs"] },
     },
     {
-      properties: { render: { const: "agent-browser" } },
+      properties: { render: { const: "browser" } },
       required: ["render", "waitMs"],
     },
   ],
@@ -309,7 +306,7 @@ export function createMcpServer(dependencies: McpDependencies): McpServer {
     "links",
     toolConfig(
       "List page links",
-      "List HTTP or HTTPS links from a static page or explicit agent-browser rendering.",
+      "List HTTP or HTTPS links from an HTTP or browser-rendered page.",
       linksInputSchema,
       linksOutputSchema,
     ),
@@ -333,23 +330,18 @@ export function createMcpServer(dependencies: McpDependencies): McpServer {
     "fetch",
     toolConfig(
       "Fetch a web page",
-      "Use direct fetch (omit render or set render: fetch) for static, SSR, and pre-rendered pages. For client-rendered or SPA pages, set render: agent-browser with required waitMs on a host that has agent-browser installed; there is no automatic fallback.",
+      "Use the default HTTP renderer for static, SSR, and pre-rendered pages. For client-rendered or SPA pages, set render: browser with required waitMs when the host provides browser capability; there is no automatic fallback.",
       fetchInputSchema,
       fetchOutputSchema,
     ),
-    async (
-      { url, tree, section_id, full, tree_threshold, render, waitMs },
-      context,
-    ) =>
+    async ({ url, section_id, full, render, waitMs }, context) =>
       runTool(
         () =>
           dependencies.operations.fetch(
             {
               url,
-              tree: tree ?? false,
-              section_id,
-              full: full ?? false,
-              tree_threshold: tree_threshold ?? DEFAULT_FETCH_TREE_THRESHOLD,
+              ...(section_id !== undefined ? { section_id } : {}),
+              ...(full !== undefined ? { full } : {}),
               ...(render !== undefined ? { render } : {}),
               ...(waitMs !== undefined ? { waitMs } : {}),
             },
@@ -506,10 +498,10 @@ function safeFetchErrorDetails(details: FetchErrorDetails): FetchErrorDetails {
   if (typeof details.retryable === "boolean")
     safe.retryable = details.retryable;
   if (
-    details.suggestedArguments?.render === "agent-browser" &&
+    details.suggestedArguments?.render === "browser" &&
     details.suggestedArguments.waitMs === 2000
   ) {
-    safe.suggestedArguments = { render: "agent-browser", waitMs: 2000 };
+    safe.suggestedArguments = { render: "browser", waitMs: 2000 };
   }
   if (details.reportUrl === RENDER_REPORT_URL)
     safe.reportUrl = details.reportUrl;

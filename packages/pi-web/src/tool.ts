@@ -16,8 +16,6 @@ import { Type, type Static, type TSchema } from "typebox";
 
 import { modelTextResult } from "./model-text.js";
 
-const DEFAULT_TREE_THRESHOLD = 5000;
-
 export const webSearchSchema = Type.Object(
   {
     queries: Type.Array(
@@ -38,32 +36,27 @@ export const webSearchSchema = Type.Object(
 
 const fetchNavigationProperties = {
   url: Type.String({ description: "HTTP or HTTPS URL to fetch" }),
-  tree: Type.Optional(
-    Type.Boolean({ description: "Show the page heading tree" }),
-  ),
   section_id: Type.Optional(
-    Type.String({ description: "Optional heading section ID to return" }),
+    Type.String({
+      description: "Optional heading section ID to return",
+      minLength: 1,
+      pattern: "\\S",
+    }),
   ),
   full: Type.Optional(
     Type.Boolean({
       description: "Return full content without automatic tree mode",
     }),
   ),
-  tree_threshold: Type.Optional(
-    Type.Integer({
-      description: `Automatic tree threshold; defaults to ${DEFAULT_TREE_THRESHOLD}`,
-      default: DEFAULT_TREE_THRESHOLD,
-    }),
-  ),
 };
 
-export const webFetchSchema = Type.Union([
+const webFetchBaseSchema = Type.Union([
   Type.Object(
     {
       ...fetchNavigationProperties,
       render: Type.Optional(
-        StringEnum(["fetch"] as const, {
-          description: "Use direct HTTP fetching (the default)",
+        StringEnum(["http"] as const, {
+          description: "Use HTTP fetching (the default)",
         }),
       ),
     },
@@ -72,8 +65,8 @@ export const webFetchSchema = Type.Union([
   Type.Object(
     {
       ...fetchNavigationProperties,
-      render: StringEnum(["agent-browser"] as const, {
-        description: "Render the page through the host-installed agent-browser",
+      render: StringEnum(["browser"] as const, {
+        description: "Render the page through the host-installed browser",
       }),
       waitMs: Type.Integer({
         description: "Additional post-load wait in milliseconds",
@@ -84,6 +77,22 @@ export const webFetchSchema = Type.Union([
     { additionalProperties: false },
   ),
 ]);
+
+export const webFetchSchema = {
+  ...webFetchBaseSchema,
+  allOf: [
+    {
+      not: {
+        type: "object",
+        required: ["full", "section_id"],
+        properties: {
+          full: { const: true },
+          section_id: { type: "string" },
+        },
+      },
+    },
+  ],
+} as typeof webFetchBaseSchema;
 
 const linksProperties = {
   url: Type.String({ description: "HTTP or HTTPS URL to inspect" }),
@@ -102,8 +111,8 @@ export const webLinksSchema = Type.Union([
     {
       ...linksProperties,
       render: Type.Optional(
-        StringEnum(["fetch"] as const, {
-          description: "Use direct HTTP fetching (the default)",
+        StringEnum(["http"] as const, {
+          description: "Use HTTP fetching (the default)",
         }),
       ),
     },
@@ -112,8 +121,8 @@ export const webLinksSchema = Type.Union([
   Type.Object(
     {
       ...linksProperties,
-      render: StringEnum(["agent-browser"] as const, {
-        description: "Render the page through the host-installed agent-browser",
+      render: StringEnum(["browser"] as const, {
+        description: "Render the page through the host-installed browser",
       }),
       waitMs: Type.Integer({
         description: "Additional post-load wait in milliseconds",
@@ -196,15 +205,15 @@ const SEARCH_PROMPT_GUIDELINES = [
   "Use web_search to search the web for current facts.",
 ];
 const FETCH_PROMPT_GUIDELINES = [
-  "Use web_fetch to read a web page; large pages are truncated with a continuation notice, so follow up with tree or section_id to navigate.",
-  'web_fetch has two backends: omit render or use render: "fetch" for direct HTML-to-Markdown (the default for static, SSR, and pre-rendered pages).',
-  'For a client-rendered or SPA page, or after javascript_rendering_may_be_required, retry explicitly with render: "agent-browser" and waitMs: 2000 only when the host has agent-browser installed. Increase waitMs explicitly or abandon an incomplete page; there is no automatic fallback.',
-  "Never send waitMs with direct fetch. agent-browser is a host capability, not a package dependency.",
+  "Use web_fetch to read a web page; long documents return a navigation tree automatically, so follow up with full: true or a returned section_id.",
+  'web_fetch uses HTTP fetching by default; set render: "http" explicitly when desired.',
+  'For a client-rendered or SPA page, or after javascript_rendering_may_be_required, retry explicitly with render: "browser" and waitMs: 2000 only when the host provides browser capability. Increase waitMs explicitly or abandon an incomplete page; there is no automatic fallback.',
+  "Never send waitMs with HTTP rendering. The browser is a host capability, not a package dependency.",
 ];
 const LINKS_PROMPT_GUIDELINES = [
   "Use web_links to discover HTTP(S) destinations from a page, including navigation and links outside the readable article body.",
-  'Use direct fetch by default. For a client-rendered or SPA page, explicitly use render: "agent-browser" with waitMs; there is no automatic fallback.',
-  "Never send waitMs with direct fetch. agent-browser is a host capability, not a package dependency.",
+  'Use HTTP rendering by default. For a client-rendered or SPA page, explicitly use render: "browser" with waitMs; there is no automatic fallback.',
+  "Never send waitMs with HTTP rendering. The browser is a host capability, not a package dependency.",
 ];
 const DOCS_PROMPT_GUIDELINES = [
   "Use web_docs with action resolve, then action fetch, to read library documentation instead of fetching documentation sites page by page.",
@@ -261,17 +270,21 @@ function requireQueries(input: unknown): string[] {
 
 function normalizeFetch(input: unknown): WebFetchInput {
   if (!isRecord(input)) throw new Error("web_fetch input must be an object");
+  for (const field of Object.keys(input)) {
+    if (!["url", "section_id", "full", "render", "waitMs"].includes(field))
+      throw new Error(`web_fetch input does not accept field ${field}`);
+  }
   const url = requireString(input, "url");
   const render = input.render;
   const waitMs = input.waitMs;
-  if (render !== undefined && render !== "fetch" && render !== "agent-browser")
-    throw new Error('render must be "fetch" or "agent-browser"');
-  if (render !== "agent-browser") {
+  if (render !== undefined && render !== "http" && render !== "browser")
+    throw new Error('render must be "http" or "browser"');
+  if (render !== "browser") {
     if (waitMs !== undefined)
-      throw new Error("waitMs is only valid with render agent-browser");
+      throw new Error("waitMs is only valid with render browser");
   } else {
     if (waitMs === undefined)
-      throw new Error("waitMs is required with render agent-browser");
+      throw new Error("waitMs is required with render browser");
     if (
       typeof waitMs !== "number" ||
       !Number.isInteger(waitMs) ||
@@ -280,34 +293,44 @@ function normalizeFetch(input: unknown): WebFetchInput {
     )
       throw new Error("waitMs must be an integer from 0 through 30000");
   }
+  if (input.full !== undefined && typeof input.full !== "boolean")
+    throw new Error("full must be a boolean");
+  if (input.section_id !== undefined) {
+    if (typeof input.section_id !== "string" || input.section_id.trim() === "")
+      throw new Error("section_id must be a non-empty string");
+  }
+  if (input.full === true && input.section_id !== undefined)
+    throw new Error("full and section_id cannot be used together");
   const typed = input as unknown as WebFetchInput;
   const navigation = {
     url,
-    tree: typed.tree,
-    section_id: typed.section_id,
-    full: typed.full,
-    tree_threshold: typed.tree_threshold,
+    ...(typed.section_id === undefined ? {} : { section_id: typed.section_id }),
+    ...(typed.full === undefined ? {} : { full: typed.full }),
   };
-  if (render === "agent-browser")
+  if (render === "browser")
     return { ...navigation, render, waitMs: waitMs as number };
-  if (render === "fetch") return { ...navigation, render };
+  if (render === "http") return { ...navigation, render };
   return navigation;
 }
 
 function normalizeLinks(input: unknown): WebLinksInput {
   if (!isRecord(input)) throw new Error("web_links input must be an object");
+  for (const field of Object.keys(input)) {
+    if (!["url", "limit", "render", "waitMs"].includes(field))
+      throw new Error(`web_links input does not accept field ${field}`);
+  }
   const url = requireString(input, "url");
   const render = input.render;
   const waitMs = input.waitMs;
   const limit = input.limit;
-  if (render !== undefined && render !== "fetch" && render !== "agent-browser")
-    throw new Error('render must be "fetch" or "agent-browser"');
-  if (render !== "agent-browser") {
+  if (render !== undefined && render !== "http" && render !== "browser")
+    throw new Error('render must be "http" or "browser"');
+  if (render !== "browser") {
     if (waitMs !== undefined)
-      throw new Error("waitMs is only valid with render agent-browser");
+      throw new Error("waitMs is only valid with render browser");
   } else {
     if (waitMs === undefined)
-      throw new Error("waitMs is required with render agent-browser");
+      throw new Error("waitMs is required with render browser");
     if (
       typeof waitMs !== "number" ||
       !Number.isInteger(waitMs) ||
@@ -327,10 +350,13 @@ function normalizeLinks(input: unknown): WebLinksInput {
       `limit must be an integer from 1 through ${MAX_LINK_LIMIT}`,
     );
   const typed = input as unknown as WebLinksInput;
-  const result = { url, limit: typed.limit };
-  if (render === "agent-browser")
+  const result = {
+    url,
+    ...(typed.limit === undefined ? {} : { limit: typed.limit }),
+  };
+  if (render === "browser")
     return { ...result, render, waitMs: waitMs as number };
-  if (render === "fetch") return { ...result, render };
+  if (render === "http") return { ...result, render };
   return result;
 }
 
@@ -419,14 +445,14 @@ export function webFetchTool(dependencies: WebToolDependencies = {}) {
     name: "web_fetch",
     label: "Web fetch",
     description:
-      "Fetch and read an HTTP or HTTPS web page as Markdown, with direct fetch or explicit agent-browser rendering for client-rendered pages. Rendered fetch requires waitMs 0 through 30000. Text output is limited to 2,000 lines or 50KB; truncated output is saved to a temporary file.",
+      "Fetch and read an HTTP or HTTPS web page as Markdown, with HTTP rendering by default or explicit browser rendering for client-rendered pages. Browser rendering requires waitMs 0 through 30000. Long documents return a navigation tree unless full or section_id is requested. Text output is limited to 2,000 lines or 50KB; truncated output is saved to a temporary file.",
     promptSnippet: "Fetch a web page with web_fetch",
     promptGuidelines: FETCH_PROMPT_GUIDELINES,
     parameters: webFetchSchema,
     execute: async (params, signal) => {
       const data = await operations.fetch(normalizeFetch(params), signal);
       return modelTextResult(data, data.content, {
-        hint: "Use web_fetch with tree or section_id to navigate the document.",
+        hint: "Use web_fetch with full: true or a returned section_id to navigate the document.",
       });
     },
   });
@@ -438,7 +464,7 @@ export function webLinksTool(dependencies: WebToolDependencies = {}) {
     name: "web_links",
     label: "Web links",
     description:
-      "List HTTP(S) links from a web page, with direct fetch or explicit agent-browser rendering for client-rendered pages.",
+      "List HTTP(S) links from a web page, with HTTP rendering by default or explicit browser rendering for client-rendered pages.",
     promptSnippet: "List links from a web page with web_links",
     promptGuidelines: LINKS_PROMPT_GUIDELINES,
     parameters: webLinksSchema,

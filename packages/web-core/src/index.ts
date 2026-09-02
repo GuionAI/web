@@ -61,6 +61,7 @@ export {
   renderMarkdown,
   truncateContent,
   type MarkdownResult,
+  type MarkdownNavigationOptions,
 } from "./markdown.js";
 export {
   DEFAULT_MAX_BYTES,
