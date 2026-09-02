@@ -72,7 +72,7 @@ const SearchResultSchema = z
 
 const SearchResponseSchema = z
   .object({
-    provider: z.enum(["Exa", "Brave", "Kepos Bridge"]),
+    provider: z.enum(["Exa", "Kepos Bridge"]),
     results: z.array(SearchResultSchema),
   })
   .strict()
@@ -523,9 +523,6 @@ export function createHttpApp(
   );
   return app;
 }
-
-/** Alias retained for callers that refer to the service as an HTTP app. */
-export const createHttpService = createHttpApp;
 
 /** Builds the OpenAPI 3.1 document from the registered route schemas. */
 export function createHttpOpenAPIDocument(version = "0.1.0") {

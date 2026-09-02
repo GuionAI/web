@@ -340,6 +340,48 @@ describe("personal HTTP service", () => {
     expect(await malformed.json()).toMatchObject({ code: "invalid_request" });
   });
 
+  it.each([
+    {
+      path: "/v1/links",
+      body: { url: "not-an-http-url" },
+    },
+    {
+      path: "/v1/docs/resolve",
+      body: { query: "" },
+    },
+    {
+      path: "/v1/docs/fetch",
+      body: { library_id: "", tokens: -1 },
+    },
+    {
+      path: "/v1/source-search",
+      body: { query: "", count: 10 },
+    },
+    {
+      path: "/v1/sports",
+      body: { fn: "schedule", league: "not-a-league" },
+    },
+    {
+      path: "/v1/finance",
+      body: { ticker: "", type: "equity" },
+    },
+    {
+      path: "/v1/time",
+      body: { utc_offset: "UTC" },
+    },
+  ])(
+    "rejects invalid $path bodies before any operation call",
+    async ({ path, body }) => {
+      const ops = operations();
+      const app = createHttpApp({ ...dependencies(), operations: ops });
+      const result = await json(app, path, body);
+      expect(result.response.status).toBe(400);
+      expect(result.body).toMatchObject({ code: "invalid_request" });
+      for (const operation of Object.values(ops))
+        expect(operation).not.toHaveBeenCalled();
+    },
+  );
+
   it("exposes all typed routes in a generated OpenAPI 3.1 document", () => {
     const document = createHttpOpenAPIDocument("1.2.3");
     expect(document.openapi).toBe("3.1.0");
@@ -359,6 +401,10 @@ describe("personal HTTP service", () => {
     expect(
       Object.keys(document.paths ?? {}).some((path) => path.includes("bridge")),
     ).toBe(false);
+    expect(
+      (document.components?.schemas as any).SearchResponse.properties.provider
+        .enum,
+    ).toEqual(["Exa", "Kepos Bridge"]);
   });
 
   it("requires an Exa key and validates the server-local Bridge endpoint", () => {
