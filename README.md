@@ -115,6 +115,7 @@ deferred in `.scratch/defered/public-http-service-security.md`.
 
 `web` has human-readable output by default. Add `--json` for exactly one JSON
 document on stdout, which is useful for automation.
+Run `web --version` (or `web -V`) to print the installed package version.
 
 ```bash
 web search --provider exa -- "Node AbortSignal"

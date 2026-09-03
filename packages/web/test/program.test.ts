@@ -1,9 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { FetchCapabilityError } from "@guionai/web-core";
 import { createProgram } from "../src/program.js";
 import { runCli } from "../src/runner.js";
 import { credentialsFromEnvironment } from "../src/runtime.js";
+
+const packageManifest = JSON.parse(
+  readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"),
+    "utf8",
+  ),
+) as { version: string };
 
 const result = {
   provider: "Brave" as const,
@@ -51,6 +61,35 @@ function setup() {
 }
 
 describe("web search Commander adapter", () => {
+  it.each(["--version", "-V"])(
+    "reports the embedded package version for %s without invoking operations",
+    async (flag) => {
+      const operations = setup().operations;
+      const credentials = vi.fn(() => ({ braveApiKey: "fixture-key" }));
+      let stdout = "";
+      const program = createProgram({
+        operations,
+        credentials,
+        writeOut: (text) => {
+          stdout += text;
+        },
+      });
+      program.exitOverride();
+
+      await expect(
+        program.parseAsync([flag], { from: "user" }),
+      ).rejects.toMatchObject({
+        code: "commander.version",
+        exitCode: 0,
+      });
+
+      expect(stdout).toBe(`${packageManifest.version}\n`);
+      expect(credentials).not.toHaveBeenCalled();
+      expect(operations.search).not.toHaveBeenCalled();
+      expect(operations.fetch).not.toHaveBeenCalled();
+    },
+  );
+
   it("loads the DeepSeek key from the host environment without changing selection", () => {
     expect(
       credentialsFromEnvironment({ DEEPSEEK_API_KEY: "deepseek-key" }),

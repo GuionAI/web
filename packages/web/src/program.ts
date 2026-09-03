@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { createMcpCommand } from "./mcp.js";
 import { parseHttpPort, startHttpServer } from "./serve.js";
 import { DEFAULT_HTTP_HOST, DEFAULT_HTTP_PORT } from "./serve.js";
+import { WEB_PACKAGE_VERSION } from "./version.js";
 
 import {
   FETCH_MODES,
@@ -22,9 +23,12 @@ export type ProgramDependencies = {
 
 export function createProgram(dependencies: ProgramDependencies): Command {
   const program = new Command();
+  if (dependencies.writeOut)
+    program.configureOutput({ writeOut: dependencies.writeOut });
   program
     .name("web")
     .description("Search the web and fetch web pages")
+    .version(WEB_PACKAGE_VERSION)
     .showSuggestionAfterError(false)
     .showHelpAfterError(false)
     .addCommand(createSearchCommand(dependencies))
