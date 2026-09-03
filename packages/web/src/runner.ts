@@ -22,6 +22,7 @@ export async function runCli(
   output: CliOutput,
 ): Promise<number> {
   const program = createProgram({ ...dependencies, writeOut: output.stdout });
+  program.exitOverride();
   const fetchCommand = program.commands.find(
     (command) => command.name() === "fetch",
   );
@@ -42,7 +43,10 @@ export async function runCli(
       typeof error.code === "string" &&
       error.code.startsWith("commander.")
     )
-      return error.code === "commander.helpDisplayed" ? 0 : 1;
+      return error.code === "commander.helpDisplayed" ||
+        error.code === "commander.version"
+        ? 0
+        : 1;
     output.stderr(formatCliError(error));
     return 1;
   }

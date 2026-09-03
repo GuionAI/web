@@ -1,4 +1,14 @@
+import { readFileSync } from "node:fs";
 import { defineConfig } from "tsup";
+
+const packageManifest = JSON.parse(
+  readFileSync(new URL("./package.json", import.meta.url), "utf8"),
+) as { version?: unknown };
+if (
+  typeof packageManifest.version !== "string" ||
+  packageManifest.version.length === 0
+)
+  throw new Error("package version is required to build the Web CLI");
 
 export default defineConfig({
   entry: { cli: "src/cli.ts", "generate-openapi": "src/generate-openapi.ts" },
@@ -8,6 +18,9 @@ export default defineConfig({
   bundle: true,
   clean: true,
   dts: true,
+  define: {
+    __WEB_PACKAGE_VERSION__: JSON.stringify(packageManifest.version),
+  },
   noExternal: [
     "@guionai/web-core",
     "@modelcontextprotocol/server",

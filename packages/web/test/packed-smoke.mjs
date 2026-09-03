@@ -111,6 +111,25 @@ try {
     );
 
   const binary = join(root, "node_modules", ".bin", "web");
+  const packedVersion = installedManifest.version;
+  if (typeof packedVersion !== "string" || packedVersion.length === 0)
+    throw new Error("packed web package does not expose a version");
+  for (const flag of ["--version", "-V"]) {
+    const version = await execFileAsync(binary, [flag], { cwd: root });
+    if (version.stdout !== `${packedVersion}\n` || version.stderr !== "")
+      throw new Error(`installed web CLI did not report ${packedVersion}`);
+  }
+  await writeFile(
+    join(root, "node_modules", "@guionai", "web", "package.json"),
+    JSON.stringify({ ...installedManifest, version: "9.9.9-test-mutated" }),
+  );
+  for (const flag of ["--version", "-V"]) {
+    const version = await execFileAsync(binary, [flag], { cwd: root });
+    if (version.stdout !== `${packedVersion}\n` || version.stderr !== "")
+      throw new Error(
+        `installed web CLI consulted its mutated manifest for ${flag}`,
+      );
+  }
   const help = await execFileAsync(binary, ["--help"], { cwd: root });
   if (!help.stdout.includes("Search the web") || !help.stdout.includes("mcp"))
     throw new Error("installed web CLI did not start with its MCP command");
