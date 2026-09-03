@@ -76,11 +76,11 @@ docker run --rm -p 8787:8787 \
 Every HTTP operation is a versioned JSON `POST` route. Request and response schemas
 are generated into `openapi.yaml` from the same route definitions:
 
-| Route        | Request                                                   | Purpose                                                         |
-| ------------ | --------------------------------------------------------- | --------------------------------------------------------------- |
-| `/v1/search` | `{ "query": "..." }`                                      | Server-selected search: Bridge→Exa by default, or DeepSeek only |
-| `/v1/fetch`  | `{ "url", "mode?", "section_id?", "render?", "waitMs?" }` | Fetch Markdown                                                  |
-| `/v1/links`  | `{ "url", "limit?", "render?", "waitMs?" }`               | List page HTTP(S) links                                         |
+| Route                | Request                                                   | Purpose                                                         |
+| -------------------- | --------------------------------------------------------- | --------------------------------------------------------------- |
+| `/api/v1/web/search` | `{ "query": "..." }`                                      | Server-selected search: Bridge→Exa by default, or DeepSeek only |
+| `/api/v1/web/fetch`  | `{ "url", "mode?", "section_id?", "render?", "waitMs?" }` | Fetch Markdown                                                  |
+| `/api/v1/web/links`  | `{ "url", "limit?", "render?", "waitMs?" }`               | List page HTTP(S) links                                         |
 
 The complete human-readable contract is in the [HTTP service reference](docs/http-service.md).
 
