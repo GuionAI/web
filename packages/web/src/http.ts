@@ -185,7 +185,7 @@ const commonResponses = {
 
 const searchRoute = createRoute({
   method: "post",
-  path: "/v1/search",
+  path: "/api/v1/web/search",
   operationId: "search",
   summary: "Search the web",
   description:
@@ -199,7 +199,7 @@ const searchRoute = createRoute({
 
 const fetchRoute = createRoute({
   method: "post",
-  path: "/v1/fetch",
+  path: "/api/v1/web/fetch",
   operationId: "fetch",
   summary: "Fetch a web page",
   description:
@@ -213,7 +213,7 @@ const fetchRoute = createRoute({
 
 const linksRoute = createRoute({
   method: "post",
-  path: "/v1/links",
+  path: "/api/v1/web/links",
   operationId: "links",
   summary: "List page links",
   description:

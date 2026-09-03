@@ -53,10 +53,16 @@ The versioned public distribution of Guion Web: its npm packages, GHCR container
 _Avoid_: Checked-in OpenAPI file, independently versioned schema
 
 **HTTP Service**:
-The Hono-based `/v1` JSON API shipped by `web serve` and the GHCR image. It
+The Hono-based `/api/v1/web` JSON API shipped by `web serve` and the GHCR image. It
 uses server-local credentials, Bridge Route, and optional DeepSeek provider
 configuration; clients do not select providers or submit a generic Bridge
 command. Its page-reading routes use
 the same `render: "http" | "browser"`, `mode`, and `section_id` contract; the
 browser executable name appears only in operator setup.
 _Avoid_: Remote MCP, public service
+
+**Gateway Web API prefix**:
+The `/api/v1/web` versioned path namespace for the HTTP Service's research
+operations when exposed through FlickNote Gateway. It identifies Guion Web as
+the owning service without changing its operation contracts.
+_Avoid_: Bare `/v1` API, generic web route

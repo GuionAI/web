@@ -1,7 +1,7 @@
 # Guion Web personal HTTP service
 
 The personal service is a single-trust-boundary JSON API. It exposes exactly
-three `POST` routes: `/v1/search`, `/v1/fetch`, and `/v1/links`. It is intended
+three `POST` routes: `/api/v1/web/search`, `/api/v1/web/fetch`, and `/api/v1/web/links`. It is intended
 for an operator and trusted agents, not for public or multi-tenant traffic.
 
 ## Calling the service
@@ -11,7 +11,7 @@ responses are JSON and preserve the shared Guion page-reading vocabulary.
 Unknown fields, malformed JSON, missing required fields, and values outside the
 constraints below are rejected before an operation is called.
 
-### `POST /v1/search`
+### `POST /api/v1/web/search`
 
 Request:
 
@@ -47,7 +47,7 @@ Response `200`:
 `provider` is `"Kepos Bridge"`, `"Exa"`, or `"DeepSeek"`; each result has string `title`,
 `link`, and `snippet` fields plus an integer `position`.
 
-### `POST /v1/fetch`
+### `POST /api/v1/web/fetch`
 
 Request:
 
@@ -98,7 +98,7 @@ Response `200`:
 }
 ```
 
-### `POST /v1/links`
+### `POST /api/v1/web/links`
 
 Request:
 

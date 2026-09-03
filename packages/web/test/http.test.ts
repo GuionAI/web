@@ -67,7 +67,7 @@ describe("personal HTTP service", () => {
     const ops = operations();
     const app = createHttpApp({ ...dependencies(), operations: ops });
 
-    const result = await json(app, "/v1/search", { query: "empty" });
+    const result = await json(app, "/api/v1/web/search", { query: "empty" });
 
     expect(result.response.status).toBe(200);
     expect(result.body).toEqual({ provider: "Kepos Bridge", results: [] });
@@ -91,7 +91,7 @@ describe("personal HTTP service", () => {
     });
     const app = createHttpApp({ ...dependencies(), operations: ops });
 
-    const result = await json(app, "/v1/search", { query: "fallback" });
+    const result = await json(app, "/api/v1/web/search", { query: "fallback" });
 
     expect(result.response.status).toBe(200);
     expect(result.body).toEqual({ provider: "Exa", results: [] });
@@ -112,7 +112,7 @@ describe("personal HTTP service", () => {
     });
     const app = createHttpApp({ ...dependencies(), operations: ops });
 
-    const response = await app.request("/v1/search", {
+    const response = await app.request("/api/v1/web/search", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ query: "cancel" }),
@@ -132,7 +132,7 @@ describe("personal HTTP service", () => {
     });
     const app = createHttpApp({ ...dependencies(), operations: ops });
 
-    const result = await json(app, "/v1/search", { query: "timeout" });
+    const result = await json(app, "/api/v1/web/search", { query: "timeout" });
 
     expect(result.response.status).toBe(504);
     expect(result.body).toEqual({
@@ -155,7 +155,7 @@ describe("personal HTTP service", () => {
       environment: { WEB_SEARCH_PROVIDER: "deepseek" },
     });
 
-    const result = await json(app, "/v1/search", { query: "selected" });
+    const result = await json(app, "/api/v1/web/search", { query: "selected" });
 
     expect(result.response.status).toBe(200);
     expect(result.body).toEqual({ provider: "DeepSeek", results: [] });
@@ -181,7 +181,7 @@ describe("personal HTTP service", () => {
       environment: { WEB_SEARCH_PROVIDER: "deepseek" },
     });
 
-    const result = await json(app, "/v1/search", { query: "failure" });
+    const result = await json(app, "/api/v1/web/search", { query: "failure" });
 
     expect(result.response.status).toBe(502);
     expect(result.body).toEqual({
@@ -218,7 +218,7 @@ describe("personal HTTP service", () => {
     });
     const app = createHttpApp({ ...dependencies(), operations: ops });
 
-    const result = await json(app, "/v1/fetch", {
+    const result = await json(app, "/api/v1/web/fetch", {
       url: "https://example.test",
       render: "browser",
       waitMs: 0,
@@ -266,7 +266,7 @@ describe("personal HTTP service", () => {
       },
       { url: "https://example.test", section_id: "intro" },
     ]) {
-      const result = await json(app, "/v1/fetch", body);
+      const result = await json(app, "/api/v1/web/fetch", body);
       expect(result.response.status).toBe(200);
     }
     expect(ops.fetch).toHaveBeenNthCalledWith(
@@ -287,7 +287,9 @@ describe("personal HTTP service", () => {
       { url: "https://example.test", mode: "invalid" },
       { url: "https://example.test", full: true },
     ]) {
-      expect((await json(app, "/v1/fetch", body)).response.status).toBe(400);
+      expect((await json(app, "/api/v1/web/fetch", body)).response.status).toBe(
+        400,
+      );
     }
     expect(ops.fetch).toHaveBeenCalledTimes(5);
   });
@@ -302,7 +304,7 @@ describe("personal HTTP service", () => {
     });
     const app = createHttpApp({ ...dependencies(), operations: ops });
 
-    const result = await json(app, "/v1/links", {
+    const result = await json(app, "/api/v1/web/links", {
       url: "https://example.test",
       render: "browser",
       waitMs: 0,
@@ -327,12 +329,12 @@ describe("personal HTTP service", () => {
     const ops = operations();
     const app = createHttpApp({ ...dependencies(), operations: ops });
 
-    expect((await json(app, "/v1/search", { query: "" })).response.status).toBe(
-      400,
-    );
+    expect(
+      (await json(app, "/api/v1/web/search", { query: "" })).response.status,
+    ).toBe(400);
     expect(
       (
-        await json(app, "/v1/fetch", {
+        await json(app, "/api/v1/web/fetch", {
           url: "https://example.test",
           waitMs: 100,
         })
@@ -340,7 +342,7 @@ describe("personal HTTP service", () => {
     ).toBe(400);
     expect(
       (
-        await json(app, "/v1/links", {
+        await json(app, "/api/v1/web/links", {
           url: "https://example.test",
           waitMs: 100,
         })
@@ -348,7 +350,7 @@ describe("personal HTTP service", () => {
     ).toBe(400);
     expect(
       (
-        await json(app, "/v1/fetch", {
+        await json(app, "/api/v1/web/fetch", {
           url: "https://example.test",
           mode: "full",
           section_id: "intro",
@@ -357,7 +359,7 @@ describe("personal HTTP service", () => {
     ).toBe(400);
     expect(
       (
-        await json(app, "/v1/fetch", {
+        await json(app, "/api/v1/web/fetch", {
           url: "https://example.test",
           tree: true,
         })
@@ -367,7 +369,7 @@ describe("personal HTTP service", () => {
     expect(ops.fetch).not.toHaveBeenCalled();
     expect(ops.links).not.toHaveBeenCalled();
 
-    const malformed = await app.request("/v1/search", {
+    const malformed = await app.request("/api/v1/web/search", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: "not-json",
@@ -377,6 +379,9 @@ describe("personal HTTP service", () => {
   });
 
   it.each([
+    "/v1/search",
+    "/v1/fetch",
+    "/v1/links",
     "/v1/docs/resolve",
     "/v1/docs/fetch",
     "/v1/source-search",
@@ -405,9 +410,9 @@ describe("personal HTTP service", () => {
     expect(document.openapi).toBe("3.1.0");
     expect(document.info.version).toBe("1.2.3");
     expect(Object.keys(document.paths ?? {}).sort()).toEqual([
-      "/v1/fetch",
-      "/v1/links",
-      "/v1/search",
+      "/api/v1/web/fetch",
+      "/api/v1/web/links",
+      "/api/v1/web/search",
     ]);
     expect(
       (document.components?.schemas as any).SearchResponse.properties.provider
