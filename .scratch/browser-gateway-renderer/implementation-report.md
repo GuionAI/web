@@ -7,13 +7,18 @@ on the `browser-gateway-renderer` branch. The containerized HTTP Service now
 delegates explicit browser rendering to the server-local Browser Rendering
 Gateway (`POST /api/render`), while Web Core continues to own HTML extraction,
 navigation, links, and content limits. CLI, MCP, Pi, and DSH keep the existing
-direct `agent-browser` renderer.
+direct `agent-browser` renderer. Review fixes make the boundary image-only:
+`GUIONAI_HTTP_IMAGE=1` is set by the Docker runtime, while a normal npm/local
+`web serve` preserves its supplied direct operations.
 
 ## Acceptance criteria
 
 - [x] Configured gateway Fetch and Links requests send `{ url, waitMs }`, use
   returned raw DOM and final URL, preserve navigation/link response contracts,
   and accept `waitMs` from 0 through 30,000.
+- [x] Gateway delegation is limited to the explicitly marked image path;
+  normal npm/local servers with direct operations retain direct browser
+  rendering.
 - [x] Missing, overloaded, unreachable, timed-out, malformed, oversized, or
   failed gateway work is translated to explicit `render_*` capability errors;
   cancellation propagates and HTTP rendering remains independent.
@@ -33,9 +38,11 @@ All checks completed successfully from the final implementation:
 
 - `pnpm typecheck`
 - `pnpm build`
-- `pnpm test` — 20 files, 152 tests passed
+- `pnpm test` — 20 files, 153 tests passed
 - `pnpm test:release`
 - `pnpm test:pack` — web, Pi, and DSH package smoke checks passed
+- `pnpm test:image` — builds a disposable image, runs a fake `/api/render`,
+  verifies browser Fetch, and probes browser binaries are absent
 - `pnpm format:check`
 - `git diff --check`
 - `docker build --tag guionai-web:browser-gateway-test .`
@@ -51,24 +58,26 @@ Actual additions and deletions are:
 
 | Category | Additions | Deletions |
 | --- | ---: | ---: |
-| Product code | 341 | 9 |
-| Tests | 356 | 0 |
-| Configuration and docs | 91 | 34 |
-| **Total** | **788** | **43** |
+| Product code | 343 | 8 |
+| Tests | 590 | 0 |
+| Configuration and docs | 118 | 37 |
+| **Total** | **1,051** | **45** |
 
-The total (831 changed lines) is within the spec estimate of 570–960. Product
-code and test additions are near the upper half because the gateway boundary
-includes bounded transport, response validation, cancellation, timeout/error
-translation, and HTTP plus package-level seams; no compatibility layer or
+The total (1,096 changed lines) exceeds the original 570–960 estimate because
+the review required a repeatable 193-line Docker contract harness, explicit
+image-mode selection, CI/release invocation, and corresponding documentation.
+The added paths remain test-owned and bounded; no compatibility layer or
 unfinished infrastructure was added.
 
 ## Commits and scope
 
 - `9c9a088 feat(http): delegate container browser rendering to gateway`
+- `aec662e fix(http): keep gateway rendering image-only`
 - Changed implementation paths: `packages/web-core/src/`,
   `packages/web-core/test/`, `packages/web/src/http.ts`,
-  `packages/web/src/program.ts`, `Dockerfile`, `README.md`, `CONTEXT.md`,
-  `docs/http-service.md`, and `docs/adr/`.
+  `packages/web/src/program.ts`, `packages/web/test/http.test.ts`,
+  `scripts/test-image-contract.mjs`, `Dockerfile`, `README.md`, `CONTEXT.md`,
+  `docs/http-service.md`, `docs/adr/`, `package.json`, and CI/release workflows.
 
 The required report is intentionally kept under `.scratch` and is excluded
 from the implementation LOC table above.
