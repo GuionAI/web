@@ -9,6 +9,11 @@ import { spawn } from "node:child_process";
 import { Defuddle } from "defuddle/node";
 import { parseHTML } from "linkedom";
 
+import {
+  BrowserGatewayError,
+  renderThroughBrowserGateway,
+  type BrowserGatewayOptions,
+} from "./browser-gateway.js";
 import { FETCH_MODES, renderMarkdown, type FetchMode } from "./markdown.js";
 import {
   boundedRequest,
@@ -116,6 +121,11 @@ export interface FetchOptions {
   removeWorkDirectory?: (path: string) => Promise<void>;
   /** Test-only override for the renderer cleanup allowance. */
   rendererCleanupTimeoutMs?: number;
+  /**
+   * Server-local raw-render gateway configuration. When present, browser
+   * rendering uses this boundary instead of launching a local browser.
+   */
+  browserGateway?: BrowserGatewayOptions;
 }
 
 /** Fetches static HTML or explicit browser-rendered DOM as established Markdown navigation modes. */
@@ -390,7 +400,7 @@ async function renderPage(
       options,
       target,
     );
-    return await extractHTML(page.html, url, callerSignal, false);
+    return await extractHTML(page.html, page.url, callerSignal, false);
   } catch (error) {
     throw rendererFailure(error);
   }
@@ -405,6 +415,17 @@ async function renderPageHTML(
 ): Promise<PageHTML> {
   const renderTarget =
     target ?? (await validateRenderTarget(url, callerSignal, options));
+  if (options?.browserGateway !== undefined) {
+    try {
+      return await renderThroughBrowserGateway(options.browserGateway, {
+        url,
+        waitMs,
+        signal: callerSignal,
+      });
+    } catch (error) {
+      throw rendererFailure(error);
+    }
+  }
   const workDirectory = await mkdtemp(join(tmpdir(), "guionai-web-render-"));
   const configPath = join(workDirectory, "agent-browser.json");
   const session = randomUUID();
@@ -625,7 +646,12 @@ async function extractHTML(
     }
     return ensureTrailingNewline(content);
   } catch (error) {
-    if (error instanceof FetchCapabilityError) throw error;
+    if (
+      error instanceof FetchCapabilityError ||
+      isOperationAborted(error) ||
+      isRequestTimeout(error)
+    )
+      throw error;
     throw new Error(`defuddle parse failed: ${errorMessage(error)}`);
   }
 }
@@ -884,6 +910,8 @@ function parseSuccessEnvelope(stdout: string): Record<string, unknown> {
 function rendererFailure(error: unknown): Error {
   if (isOperationAborted(error)) return error as Error;
   if (error instanceof FetchCapabilityError) return error;
+  if (error instanceof BrowserGatewayError)
+    return new FetchCapabilityError(`render_${error.kind}`);
   if (!(error instanceof RendererCommandError))
     return new FetchCapabilityError("render_failed");
   if (error.kind === "aborted") return new OperationAbortedError();

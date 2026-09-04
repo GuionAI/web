@@ -69,10 +69,13 @@ or `"tree"`. A non-empty `section_id` may be supplied with omitted mode or
 `"tree"`.
 
 HTTP rendering fetches the page with Node HTTP, linkedom, and Defuddle.
-Browser rendering invokes the operator-installed `agent-browser` executable
-through the isolated renderer implementation; the executable name is not a
-public request value. Browser rendering is never selected automatically, and
-the service does not fall back between renderers.
+Browser rendering delegates the raw DOM request to the internal Browser
+Rendering Gateway; the gateway's browser executable is not a public request
+value. Configure its origin with the server-local `BROWSER_GATEWAY_URL`
+environment variable. Browser rendering is never selected automatically, and
+the service does not fall back between renderers. If the URL is missing or the
+gateway rejects, times out, or returns an invalid response, the operation
+fails explicitly with a `render_*` capability error.
 
 The shared module owns the 5,000-character automatic-tree policy. An `"auto"`
 request for an unsectioned document longer than that threshold with navigable
@@ -155,9 +158,12 @@ response bodies.
 
 ## Configuration and OpenAPI
 
-Credentials, the optional `KEPOS_BRIDGE_ENDPOINT`, and the optional
-server-local `WEB_SEARCH_PROVIDER=deepseek` selection are environment
-variables. They are not accepted in request bodies. DeepSeek performs one
+Credentials, the optional `KEPOS_BRIDGE_ENDPOINT`, the optional
+`BROWSER_GATEWAY_URL`, and the optional server-local
+`WEB_SEARCH_PROVIDER=deepseek` selection are environment variables. The
+gateway URL is a base URL; the service calls its `POST /api/render` raw-render
+operation with `{ "url", "waitMs" }`. They are not accepted in request bodies.
+DeepSeek performs one
 auxiliary model call per search; callers receive only normalized results and do
 not need to know the Messages/tool wire protocol. The route
 schemas in [`packages/web/src/http.ts`](../packages/web/src/http.ts) are the

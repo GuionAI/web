@@ -15,6 +15,7 @@ import {
   type LinksInput,
   type LinksResult,
 } from "./fetch.js";
+import type { BrowserGatewayOptions } from "./browser-gateway.js";
 import { sgraphSearch, type SGraphInput, type SGraphResult } from "./sgraph.js";
 import {
   callKeposBridge,
@@ -29,6 +30,19 @@ import {
   readResponseText,
   throwIfAborted,
 } from "./request.js";
+
+export {
+  BROWSER_GATEWAY_MAX_RESPONSE_BYTES,
+  BROWSER_GATEWAY_RENDER_PATH,
+  BROWSER_GATEWAY_TIMEOUT_MS,
+  BrowserGatewayError,
+  renderThroughBrowserGateway,
+  type BrowserGatewayFailure,
+  type BrowserGatewayOptions,
+  type BrowserGatewayPage,
+  type BrowserGatewayRequest,
+  type BrowserGatewayTransport,
+} from "./browser-gateway.js";
 
 export {
   OperationAbortedError,
@@ -166,13 +180,24 @@ export type WebOperations = {
   sgraphSearch(input: SGraphInput): Promise<SGraphResult>;
 };
 
+export type WebOperationsOptions = {
+  /** Optional server-local browser gateway used by HTTP-service operations. */
+  browserGateway?: BrowserGatewayOptions;
+};
+
 /** Creates the default in-process implementation shared by every host adapter. */
-export function createWebOperations(): WebOperations {
+export function createWebOperations(
+  options: WebOperationsOptions = {},
+): WebOperations {
+  const fetchOptions =
+    options.browserGateway === undefined
+      ? undefined
+      : { browserGateway: options.browserGateway };
   return {
     search,
     keposBridge: callKeposBridge,
-    fetch: fetchWebPage,
-    links: fetchWebLinks,
+    fetch: (input, signal) => fetchWebPage(input, signal, fetchOptions),
+    links: (input, signal) => fetchWebLinks(input, signal, fetchOptions),
     docsResolve,
     docsFetch,
     sgraphSearch,
