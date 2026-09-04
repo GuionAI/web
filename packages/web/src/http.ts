@@ -10,6 +10,7 @@ import {
   throwIfAborted,
   validateKeposBridgeEndpoint,
   type SearchResponse,
+  type BrowserGatewayTransport,
   type WebCredentials,
   type WebOperations,
 } from "@guionai/web-core";
@@ -24,6 +25,14 @@ export type HttpServiceDependencies = {
   operations?: WebOperations;
   credentials?: WebCredentials | (() => WebCredentials);
   keposBridgeEndpoint?: string;
+  /** Selects the browserless image renderer instead of supplied operations. */
+  imageMode?: boolean;
+  /** Server-local origin for the internal Browser Rendering Gateway. */
+  browserGatewayUrl?: string;
+  /** Test-owned raw-render transport; production uses the configured origin. */
+  browserGatewayTransport?: BrowserGatewayTransport;
+  /** Test-owned HTTP implementation for the gateway request. */
+  browserGatewayFetch?: typeof globalThis.fetch;
   /** Injectable environment for startup/configuration tests. */
   environment?: NodeJS.ProcessEnv;
   /** Used by build-time OpenAPI generation to skip runtime credential checks. */
@@ -203,7 +212,7 @@ const fetchRoute = createRoute({
   operationId: "fetch",
   summary: "Fetch a web page",
   description:
-    'Fetch through HTTP by default with auto navigation; use mode "full" or "tree" for explicit navigation. Supply section_id with omitted mode or mode "auto" to retrieve a section. Browser rendering requires render=browser and waitMs.',
+    'Fetch through HTTP by default with auto navigation; use mode "full" or "tree" for explicit navigation. Supply section_id with omitted mode or mode "auto" to retrieve a section. Browser rendering requires render=browser and waitMs and uses the server-local Browser Rendering Gateway.',
   request: jsonRequest(FetchRequestSchema),
   responses: {
     200: jsonResponse(FetchResponseSchema, "Fetched page."),
@@ -217,7 +226,7 @@ const linksRoute = createRoute({
   operationId: "links",
   summary: "List page links",
   description:
-    "List HTTP(S) anchors using HTTP rendering by default or explicit browser rendering.",
+    "List HTTP(S) anchors using HTTP rendering by default or explicit browser rendering through the server-local Browser Rendering Gateway.",
   request: jsonRequest(LinksRequestSchema),
   responses: {
     200: jsonResponse(LinksResponseSchema, "Page links."),
@@ -348,8 +357,23 @@ export function resolveHttpServiceState(
     dependencies.keposBridgeEndpoint ??
     environment.KEPOS_BRIDGE_ENDPOINT ??
     DEFAULT_KEPOS_BRIDGE_ENDPOINT;
+  const imageMode =
+    dependencies.imageMode ?? environment.GUIONAI_HTTP_IMAGE === "1";
+  const browserGatewayUrl =
+    dependencies.browserGatewayUrl ?? environment.BROWSER_GATEWAY_URL;
+  const browserGateway = {
+    ...(browserGatewayUrl === undefined ? {} : { baseUrl: browserGatewayUrl }),
+    ...(dependencies.browserGatewayTransport === undefined
+      ? {}
+      : { transport: dependencies.browserGatewayTransport }),
+    ...(dependencies.browserGatewayFetch === undefined
+      ? {}
+      : { fetch: dependencies.browserGatewayFetch }),
+  };
   return {
-    operations: dependencies.operations ?? webCoreModule.createWebOperations(),
+    operations: imageMode
+      ? webCoreModule.createWebOperations({ browserGateway })
+      : (dependencies.operations ?? webCoreModule.createWebOperations()),
     credentials,
     keposBridgeEndpoint: validateKeposBridgeEndpoint(endpoint),
     ...(searchProvider === undefined ? {} : { searchProvider }),

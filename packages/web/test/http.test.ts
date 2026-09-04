@@ -325,6 +325,102 @@ describe("personal HTTP service", () => {
     );
   });
 
+  it("delegates default HTTP-service browser rendering to the gateway transport", async () => {
+    const transport = vi.fn(async ({ url, waitMs }) => ({
+      url: "https://93.184.216.34/final",
+      html: `<html><body><article><p>Gateway ${url} waited ${waitMs}.</p></article></body></html>`,
+    }));
+    const app = createHttpApp({
+      credentials: { exaApiKey: "exa-secret" },
+      imageMode: true,
+      browserGatewayTransport: transport,
+    });
+
+    const fetched = await json(app, "/api/v1/web/fetch", {
+      url: "https://93.184.216.34/page",
+      render: "browser",
+      waitMs: 125,
+      mode: "full",
+    });
+    expect(fetched.response.status).toBe(200);
+    expect(fetched.body).toEqual({
+      url: "https://93.184.216.34/page",
+      mode: "full",
+      content: "Gateway https://93.184.216.34/page waited 125.\n",
+      truncated: false,
+    });
+
+    const linked = await json(app, "/api/v1/web/links", {
+      url: "https://93.184.216.34/page",
+      render: "browser",
+      waitMs: 0,
+    });
+    expect(linked.response.status).toBe(200);
+    expect(transport).toHaveBeenCalledTimes(2);
+    expect(transport).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        url: "https://93.184.216.34/page",
+        waitMs: 0,
+      }),
+    );
+  });
+
+  it("keeps browser rendering explicit when the HTTP-service gateway is absent", async () => {
+    const app = createHttpApp({
+      credentials: { exaApiKey: "exa-secret" },
+      imageMode: true,
+    });
+    const result = await json(app, "/api/v1/web/fetch", {
+      url: "https://93.184.216.34/page",
+      render: "browser",
+      waitMs: 0,
+      mode: "full",
+    });
+    expect(result.response.status).toBe(502);
+    expect(result.body).toEqual({
+      code: "render_unavailable",
+      message: "fetch requires an explicit capability retry",
+    });
+  });
+
+  it("keeps supplied direct browser operations for a normal server", async () => {
+    const direct = operations({
+      fetch: vi.fn(async (input) => ({
+        url: input.url,
+        mode: "full" as const,
+        content: "Direct browser fixture.\n",
+        truncated: false,
+      })),
+    });
+    const app = createHttpApp({
+      operations: direct,
+      credentials: { exaApiKey: "exa-secret" },
+      environment: {},
+    });
+    const result = await json(app, "/api/v1/web/fetch", {
+      url: "https://93.184.216.34/page",
+      render: "browser",
+      waitMs: 0,
+      mode: "full",
+    });
+    expect(result.response.status).toBe(200);
+    expect(result.body).toEqual({
+      url: "https://93.184.216.34/page",
+      mode: "full",
+      content: "Direct browser fixture.\n",
+      truncated: false,
+    });
+    expect(direct.fetch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://93.184.216.34/page",
+        render: "browser",
+        waitMs: 0,
+      }),
+      expect.any(AbortSignal),
+    );
+  });
+
   it("rejects invalid search and fetch requests before an operation", async () => {
     const ops = operations();
     const app = createHttpApp({ ...dependencies(), operations: ops });

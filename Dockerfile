@@ -1,5 +1,6 @@
 # Guion Web's supported HTTP-service image. The build stage bundles the web
-# executable; the runtime stage adds the optional rendered-fetch capability.
+# executable; browser rendering is delegated to the configured in-cluster
+# Browser Rendering Gateway rather than installed in this image.
 FROM node:24-bookworm-slim AS build
 
 WORKDIR /workspace
@@ -13,22 +14,16 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm --filter @guionai/web run build
 
-FROM node:24-bookworm
+FROM node:24-bookworm-slim
 
 ENV NODE_ENV=production
-# Chrome for Testing has no Linux ARM64 distribution. Debian's Chromium works
-# on both released container architectures, and agent-browser documents this
-# executable override for containers.
-ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
+# The image entrypoint opts into the gateway-only browser path. Local npm
+# installs leave this marker unset and keep their supplied direct operations.
+ENV GUIONAI_HTTP_IMAGE=1
 WORKDIR /app
 
-# Rendering is deliberately explicit at the HTTP contract. The executable and
-# browser runtime are image capabilities, while credentials remain env-only.
-ARG AGENT_BROWSER_VERSION=0.36.0
-RUN apt-get update \
-  && apt-get install --yes --no-install-recommends chromium \
-  && rm -rf /var/lib/apt/lists/* \
-  && npm install --global agent-browser@${AGENT_BROWSER_VERSION}
+# `BROWSER_GATEWAY_URL` is optional at startup; image browser requests fail
+# explicitly until the operator points the service at the internal gateway.
 
 COPY --from=build /workspace/packages/web/dist ./dist
 

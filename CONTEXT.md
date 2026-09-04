@@ -32,8 +32,10 @@ _Avoid_: Bridge URL parameter
 **Page Rendering**:
 Fetch and Links use `render: "http"` by default or explicit `render: "browser"`.
 Browser rendering requires `waitMs` from 0 through 30,000 and is never selected
-automatically. The operator-installed `agent-browser` runtime is an implementation
-and setup detail, not an adapter-facing request value.
+automatically. The containerized HTTP Service delegates browser requests to the
+server-local Browser Rendering Gateway; CLI, MCP, Pi, and DSH retain the
+operator-installed `agent-browser` capability. Both are implementation and setup
+details, not adapter-facing request values.
 _Avoid_: Backend-specific renderer labels, automatic fallback
 
 **Page Navigation**:
@@ -57,8 +59,11 @@ The Hono-based `/api/v1/web` JSON API shipped by `web serve` and the GHCR image.
 uses server-local credentials, Bridge Route, and optional DeepSeek provider
 configuration; clients do not select providers or submit a generic Bridge
 command. Its page-reading routes use
-the same `render: "http" | "browser"`, `mode`, and `section_id` contract; the
-browser executable name appears only in operator setup.
+the same `render: "http" | "browser"`, `mode`, and `section_id` contract. The
+GHCR image sets `GUIONAI_HTTP_IMAGE=1` and delegates browser rendering to the
+server-local Browser Rendering Gateway configured by the operator; a local/npm
+server with direct operations retains its direct browser capability. The
+browser executable name appears only in gateway-side setup for the image.
 _Avoid_: Remote MCP, public service
 
 **Gateway Web API prefix**:

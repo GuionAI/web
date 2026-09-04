@@ -50,6 +50,8 @@ export DEEPSEEK_API_KEY="..."
 export CONTEXT7_API_KEY="..."
 # optional complete Bridge route for `web serve`
 export KEPOS_BRIDGE_ENDPOINT="http://127.0.0.1:8787/codex/web-search"
+# optional Browser Rendering Gateway origin for `web serve` browser requests
+export BROWSER_GATEWAY_URL="http://browser-gateway"
 # HTTP/Pi: select DeepSeek server-side (HTTP clients still send {"query":"..."})
 export WEB_SEARCH_PROVIDER="deepseek"
 ```
@@ -70,6 +72,7 @@ web serve --host 0.0.0.0 --port 8787
 docker run --rm -p 8787:8787 \
   -e EXA_API_KEY="$EXA_API_KEY" \
   -e KEPOS_BRIDGE_ENDPOINT="http://host.docker.internal:17480/codex/web-search" \
+  -e BROWSER_GATEWAY_URL="http://host.docker.internal:8788" \
   ghcr.io/guionai/web:v0.1.0
 ```
 
@@ -101,10 +104,12 @@ cancellation is reported as 499.
 Fetch and Links use HTTP rendering when `render` is omitted (or set to
 `"http"`). Browser rendering is explicit and requires both `render: "browser"`
 and an integer `waitMs` from 0 through 30,000; HTTP rendering never silently
-switches backends. The container installs the `agent-browser` executable with
-Debian Chromium (including Linux ARM64, where Chrome for Testing has no build),
-while credentials and Bridge configuration remain server-local environment
-variables.
+switches backends. A local/npm `web serve` keeps its supplied direct operations.
+The GHCR image sets `GUIONAI_HTTP_IMAGE=1` and sends browser requests to the
+server-local Browser Rendering Gateway configured by `BROWSER_GATEWAY_URL`.
+The GHCR image contains no Chromium or `agent-browser`; an absent, unreachable,
+overloaded, or failed gateway returns an explicit browser-render failure while
+ordinary HTTP rendering remains available.
 
 This is a Personal Web Service: a single-trust-boundary deployment for its
 operator and agents. It is not hardened for public or multi-tenant exposure;
@@ -226,9 +231,11 @@ from the original page DOM.
 
 `web fetch` has two renderers. `http` (the default) uses Node `fetch`, `linkedom`,
 and Defuddle for HTML-to-Markdown extraction from static, SSR, and pre-rendered
-pages. `browser` renders client-side pages through the separately installed
-host browser capability. HTTP rendering is used by default; choose browser
-explicitly when needed. The implementation never falls back automatically:
+pages. `browser` renders client-side pages through the host capability: `web
+serve` delegates to its configured Browser Rendering Gateway, while CLI, MCP,
+Pi, and DSH use the separately installed `agent-browser` capability. HTTP
+rendering is used by default; choose browser explicitly when needed. The
+implementation never falls back automatically:
 
 ```bash
 web fetch https://example.com/app --render=browser --wait=2000
@@ -249,7 +256,8 @@ or `links` requests must not provide `--wait`. The same `render: "browser"` and 
 `javascript_rendering_may_be_required` hint with the 2,000 ms suggestion; the
 agent decides whether to retry with a longer wait or abandon the page.
 
-Rendering is an optional host capability. If you choose to use it, install
+Direct rendering is an optional host capability for CLI, MCP, Pi, and DSH. If
+you choose to use it, install
 [agent-browser](https://github.com/vercel-labs/agent-browser) separately on the
 host:
 
@@ -305,26 +313,31 @@ pnpm build
 pnpm test
 pnpm test:release
 pnpm test:pack
+pnpm test:image
 ```
 
 `test:release` uses disposable manifests to exercise tag-version
 synchronization. `test:pack` runs each public package's packed installation or
-host-loading contract in test-owned temporary directories.
+host-loading contract in test-owned temporary directories. `test:image` builds a
+test-owned disposable Docker image, runs it against a fake `/api/render` gateway,
+and verifies the image has no browser executable.
 
 ## Releases
 
 A `v<semver>` tag is the release source of truth for all three public packages:
 `@guionai/web`, `@guionai/pi-web`, and `@guionai/dsh-web`. The release preflight
 synchronizes its checkout manifests from that tag, then completes formatting,
-typechecking, build, tests, release-version checks, and packed smoke tests
+typechecking, build, tests, release-version checks, packed smoke tests, and the
+Docker image contract
 before any publication begins.
 
 Three independent, non-fail-fast protected `npm` Environment matrix cells then
 publish one package each through npm Trusted Publishing with provenance. The
 synchronized version selects npm's `latest` tag for stable SemVer and `beta` for
 a prerelease. A matching immutable-tagged image is published to
-`ghcr.io/guionai/web:<tag>` with the `web serve` entrypoint and the
-`agent-browser` runtime. After all three npm cells and the image job succeed,
+`ghcr.io/guionai/web:<tag>` with the `web serve` entrypoint. The image delegates
+explicit browser rendering to the configured internal Browser Rendering
+Gateway and contains no browser executable. After all three npm cells and the image job succeed,
 the workflow creates the GitHub release with generated notes, source archives,
 and the build-generated `openapi.yaml` asset. The asset is generated from the
 same Hono route schemas as the image and package; it is not checked in or

@@ -56,6 +56,9 @@ jobs:
       - name: Packed installation smoke tests
         run: pnpm test:pack
 
+      - name: Container image browser-gateway contract
+        run: pnpm test:image
+
       - name: Upload built package artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -90,7 +93,7 @@ jobs:
             echo '| Packages | `@guionai/web, @guionai/pi-web, @guionai/dsh-web` |'
             printf '| Synchronized version | `%s` |\n' "$version"
             printf '| npm dist-tag | `%s` |\n' "$dist_tag"
-            echo "| Checks | format, typecheck, build, tests, release version invariants, packed smoke |"
+            echo "| Checks | format, typecheck, build, tests, release version invariants, packed smoke, image contract |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   publish:
