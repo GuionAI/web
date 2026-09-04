@@ -130,7 +130,7 @@ function manifest(): any {
   return JSON.parse(readFileSync(join(artifactRoot, "package.json"), "utf8"));
 }
 
-describe("DSH 0.1.2-alpha.5 packed package contract", () => {
+describe("DSH 0.1.2-rc.1 packed package contract", () => {
   it("contains valid host ESM, browser client, declarations, patch, and peer-only metadata", async () => {
     const packed = manifest();
     const host = await import(
@@ -179,7 +179,7 @@ describe("DSH 0.1.2-alpha.5 packed package contract", () => {
         name !== "@deepseek-ai/cordis" &&
         name !== "@deepseek-ai/schemastery"
       )
-        expect(version, `${name} peer`).toBe("0.1.2-alpha.5");
+        expect(version, `${name} peer`).toBe("0.1.2-rc.1");
     }
     expect(artifactContents).not.toContain("dsh-client-runtime");
     expect(artifactContents).not.toContain("0.1.1-rc.2");
