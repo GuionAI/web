@@ -46,3 +46,6 @@ jobs:
 
       - name: Packed installation smoke tests
         run: pnpm test:pack
+
+      - name: Container image browser-gateway contract
+        run: pnpm test:image

@@ -56,6 +56,7 @@ function createServeCommand(dependencies: ProgramDependencies): Command {
     .action((options: { host: string; port: number }) => {
       startHttpServer(
         {
+          operations: dependencies.operations,
           credentials: dependencies.credentials,
         },
         {

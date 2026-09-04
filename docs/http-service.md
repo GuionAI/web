@@ -72,10 +72,13 @@ HTTP rendering fetches the page with Node HTTP, linkedom, and Defuddle.
 Browser rendering delegates the raw DOM request to the internal Browser
 Rendering Gateway; the gateway's browser executable is not a public request
 value. Configure its origin with the server-local `BROWSER_GATEWAY_URL`
-environment variable. Browser rendering is never selected automatically, and
-the service does not fall back between renderers. If the URL is missing or the
-gateway rejects, times out, or returns an invalid response, the operation
-fails explicitly with a `render_*` capability error.
+environment variable when running the GHCR image. A local/npm `web serve` with
+supplied direct operations keeps its direct browser capability; the image sets
+`GUIONAI_HTTP_IMAGE=1` to select the gateway-only path. Browser rendering is
+never selected automatically, and the service does not fall back between
+renderers. If gateway configuration is missing or the gateway rejects, times
+out, or returns an invalid response, the image operation fails explicitly with
+a `render_*` capability error.
 
 The shared module owns the 5,000-character automatic-tree policy. An `"auto"`
 request for an unsectioned document longer than that threshold with navigable
@@ -158,11 +161,13 @@ response bodies.
 
 ## Configuration and OpenAPI
 
-Credentials, the optional `KEPOS_BRIDGE_ENDPOINT`, the optional
+Credentials, the optional `KEPOS_BRIDGE_ENDPOINT`, the optional image-only
 `BROWSER_GATEWAY_URL`, and the optional server-local
 `WEB_SEARCH_PROVIDER=deepseek` selection are environment variables. The
-gateway URL is a base URL; the service calls its `POST /api/render` raw-render
-operation with `{ "url", "waitMs" }`. They are not accepted in request bodies.
+image sets `GUIONAI_HTTP_IMAGE=1`; local/npm servers leave that marker unset and
+retain their direct operations. The gateway URL is a base URL; image mode calls
+its `POST /api/render` raw-render operation with `{ "url", "waitMs" }`. They
+are not accepted in request bodies.
 DeepSeek performs one
 auxiliary model call per search; callers receive only normalized results and do
 not need to know the Messages/tool wire protocol. The route

@@ -332,6 +332,7 @@ describe("personal HTTP service", () => {
     }));
     const app = createHttpApp({
       credentials: { exaApiKey: "exa-secret" },
+      imageMode: true,
       browserGatewayTransport: transport,
     });
 
@@ -366,7 +367,10 @@ describe("personal HTTP service", () => {
   });
 
   it("keeps browser rendering explicit when the HTTP-service gateway is absent", async () => {
-    const app = createHttpApp({ credentials: { exaApiKey: "exa-secret" } });
+    const app = createHttpApp({
+      credentials: { exaApiKey: "exa-secret" },
+      imageMode: true,
+    });
     const result = await json(app, "/api/v1/web/fetch", {
       url: "https://93.184.216.34/page",
       render: "browser",
@@ -378,6 +382,43 @@ describe("personal HTTP service", () => {
       code: "render_unavailable",
       message: "fetch requires an explicit capability retry",
     });
+  });
+
+  it("keeps supplied direct browser operations for a normal server", async () => {
+    const direct = operations({
+      fetch: vi.fn(async (input) => ({
+        url: input.url,
+        mode: "full" as const,
+        content: "Direct browser fixture.\n",
+        truncated: false,
+      })),
+    });
+    const app = createHttpApp({
+      operations: direct,
+      credentials: { exaApiKey: "exa-secret" },
+      environment: {},
+    });
+    const result = await json(app, "/api/v1/web/fetch", {
+      url: "https://93.184.216.34/page",
+      render: "browser",
+      waitMs: 0,
+      mode: "full",
+    });
+    expect(result.response.status).toBe(200);
+    expect(result.body).toEqual({
+      url: "https://93.184.216.34/page",
+      mode: "full",
+      content: "Direct browser fixture.\n",
+      truncated: false,
+    });
+    expect(direct.fetch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://93.184.216.34/page",
+        render: "browser",
+        waitMs: 0,
+      }),
+      expect.any(AbortSignal),
+    );
   });
 
   it("rejects invalid search and fetch requests before an operation", async () => {

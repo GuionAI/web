@@ -59,10 +59,11 @@ The Hono-based `/api/v1/web` JSON API shipped by `web serve` and the GHCR image.
 uses server-local credentials, Bridge Route, and optional DeepSeek provider
 configuration; clients do not select providers or submit a generic Bridge
 command. Its page-reading routes use
-the same `render: "http" | "browser"`, `mode`, and `section_id` contract. Browser
-rendering is delegated to the
-server-local Browser Rendering Gateway configured by the operator; the browser
-executable name appears only in gateway-side setup.
+the same `render: "http" | "browser"`, `mode`, and `section_id` contract. The
+GHCR image sets `GUIONAI_HTTP_IMAGE=1` and delegates browser rendering to the
+server-local Browser Rendering Gateway configured by the operator; a local/npm
+server with direct operations retains its direct browser capability. The
+browser executable name appears only in gateway-side setup for the image.
 _Avoid_: Remote MCP, public service
 
 **Gateway Web API prefix**:

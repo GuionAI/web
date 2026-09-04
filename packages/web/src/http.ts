@@ -25,6 +25,8 @@ export type HttpServiceDependencies = {
   operations?: WebOperations;
   credentials?: WebCredentials | (() => WebCredentials);
   keposBridgeEndpoint?: string;
+  /** Selects the browserless image renderer instead of supplied operations. */
+  imageMode?: boolean;
   /** Server-local origin for the internal Browser Rendering Gateway. */
   browserGatewayUrl?: string;
   /** Test-owned raw-render transport; production uses the configured origin. */
@@ -41,7 +43,6 @@ export type HttpServiceState = {
   operations: WebOperations;
   credentials: WebCredentials;
   keposBridgeEndpoint: string;
-  browserGatewayUrl?: string;
   /** Server-local override; undefined keeps the Bridge-to-Exa default. */
   searchProvider?: "deepseek";
 };
@@ -356,6 +357,8 @@ export function resolveHttpServiceState(
     dependencies.keposBridgeEndpoint ??
     environment.KEPOS_BRIDGE_ENDPOINT ??
     DEFAULT_KEPOS_BRIDGE_ENDPOINT;
+  const imageMode =
+    dependencies.imageMode ?? environment.GUIONAI_HTTP_IMAGE === "1";
   const browserGatewayUrl =
     dependencies.browserGatewayUrl ?? environment.BROWSER_GATEWAY_URL;
   const browserGateway = {
@@ -368,12 +371,11 @@ export function resolveHttpServiceState(
       : { fetch: dependencies.browserGatewayFetch }),
   };
   return {
-    operations:
-      dependencies.operations ??
-      webCoreModule.createWebOperations({ browserGateway }),
+    operations: imageMode
+      ? webCoreModule.createWebOperations({ browserGateway })
+      : (dependencies.operations ?? webCoreModule.createWebOperations()),
     credentials,
     keposBridgeEndpoint: validateKeposBridgeEndpoint(endpoint),
-    ...(browserGatewayUrl === undefined ? {} : { browserGatewayUrl }),
     ...(searchProvider === undefined ? {} : { searchProvider }),
   };
 }

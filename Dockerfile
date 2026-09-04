@@ -17,9 +17,12 @@ RUN pnpm --filter @guionai/web run build
 FROM node:24-bookworm-slim
 
 ENV NODE_ENV=production
+# The image entrypoint opts into the gateway-only browser path. Local npm
+# installs leave this marker unset and keep their supplied direct operations.
+ENV GUIONAI_HTTP_IMAGE=1
 WORKDIR /app
 
-# `BROWSER_GATEWAY_URL` is optional at startup; browser requests fail
+# `BROWSER_GATEWAY_URL` is optional at startup; image browser requests fail
 # explicitly until the operator points the service at the internal gateway.
 
 COPY --from=build /workspace/packages/web/dist ./dist

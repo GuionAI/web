@@ -104,7 +104,8 @@ cancellation is reported as 499.
 Fetch and Links use HTTP rendering when `render` is omitted (or set to
 `"http"`). Browser rendering is explicit and requires both `render: "browser"`
 and an integer `waitMs` from 0 through 30,000; HTTP rendering never silently
-switches backends. The `web serve` HTTP Service sends browser requests to the
+switches backends. A local/npm `web serve` keeps its supplied direct operations.
+The GHCR image sets `GUIONAI_HTTP_IMAGE=1` and sends browser requests to the
 server-local Browser Rendering Gateway configured by `BROWSER_GATEWAY_URL`.
 The GHCR image contains no Chromium or `agent-browser`; an absent, unreachable,
 overloaded, or failed gateway returns an explicit browser-render failure while
@@ -312,18 +313,22 @@ pnpm build
 pnpm test
 pnpm test:release
 pnpm test:pack
+pnpm test:image
 ```
 
 `test:release` uses disposable manifests to exercise tag-version
 synchronization. `test:pack` runs each public package's packed installation or
-host-loading contract in test-owned temporary directories.
+host-loading contract in test-owned temporary directories. `test:image` builds a
+test-owned disposable Docker image, runs it against a fake `/api/render` gateway,
+and verifies the image has no browser executable.
 
 ## Releases
 
 A `v<semver>` tag is the release source of truth for all three public packages:
 `@guionai/web`, `@guionai/pi-web`, and `@guionai/dsh-web`. The release preflight
 synchronizes its checkout manifests from that tag, then completes formatting,
-typechecking, build, tests, release-version checks, and packed smoke tests
+typechecking, build, tests, release-version checks, packed smoke tests, and the
+Docker image contract
 before any publication begins.
 
 Three independent, non-fail-fast protected `npm` Environment matrix cells then
