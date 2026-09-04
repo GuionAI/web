@@ -1,6 +1,6 @@
 # @guionai/dsh-web
 
-DeepSeek Harness 0.1.2-alpha.3 Web bundle and browser settings client for Guion Web.
+DeepSeek Harness 0.1.2-rc.1 Web bundle and browser settings client for Guion Web.
 
 Install it into the existing Web profile:
 
@@ -27,7 +27,7 @@ The route is a complete absolute `http:` or `https:` URL; credentials, query
 strings, and fragments are rejected and its path is used exactly as entered.
 
 The published package is a dual host/browser bundle. Its host and client
-artifacts, profile patch, and exact DSH `0.1.2-alpha.3` peer contract are included
+artifacts, profile patch, and exact DSH `0.1.2-rc.1` peer contract are included
 in the npm package. Search, HTTP page rendering, page-link discovery, optional browser rendering,
 Context7 documentation, and Sourcegraph all run in-process through the bundled
 Guion Web core. `web_fetch` has two page-rendering modes: HTTP (the default) and

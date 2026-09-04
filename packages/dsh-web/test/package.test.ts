@@ -43,7 +43,7 @@ describe("DSH Web package composition", () => {
       }),
     ).toThrow();
   });
-  it("works at the supported alpha.3 WebRuntime provider seam for concurrent PTC queries", async () => {
+  it("works at the supported rc.1 WebRuntime provider seam for concurrent PTC queries", async () => {
     const calls: string[] = [];
     const root = new Context();
     await root.plugin(WebRuntime, { searchProvider: SEARCH_PROVIDER_ID });

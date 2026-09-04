@@ -4,6 +4,6 @@
 
 Repository CI and local tests target Linux. Treat Windows behavior as best-effort here: keep Windows runners, Windows-specific smoke scripts, and simulated Windows tests out of this repository. Validate published packages on real Windows only in the downstream project that owns Windows usage.
 
-## DSH alpha.3 Loader validation
+## DSH rc.1 Loader validation
 
-For profile-local packaged plugins on DSH `0.1.2-alpha.3` with Node 24, run Host and browser acceptance through the deployed Node entrypoint with internals enabled: `node --expose-internals /home/neil/.local/share/dsh-runtime/node_modules/@deepseek-ai/dsh/lib/bin.js ...`. The plain shebang `dsh ...` entrypoint is diagnostic-only on this host/version and is not a supported acceptance path because it cannot resolve profile-local bare plugin specifiers. Use a test-owned disposable `DSH_HOME` and no live credentials.
+For profile-local packaged plugins on DSH `0.1.2-rc.1` with Node 24, install the official rc.1 CLI into a test-owned disposable directory and validate its real installed graph through the Node entrypoint with internals enabled: `node --expose-internals <disposable-install>/node_modules/@deepseek-ai/dsh/lib/bin.js ...`. Keep `DSH_HOME` test-owned and disposable, do not use a deployed runtime or live credentials, and do not add custom runtime overrides or compatibility layers.
