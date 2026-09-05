@@ -16,6 +16,7 @@ exit status. Sync compares `standard`, `ptc`, `cordis`, and `minimal` with the
 official and compatible trees; modified same-id content requires interactive
 confirmation or `--yes`. It must not mutate shipped presets, unrelated user
 presets, credentials, or sessions. Tests use fixture source trees and
-disposable `DSH_HOME` directories. End-to-end validation runs on the NUC with
-its installed official CLI, a disposable `DSH_HOME`, and current packed Guion
-artifacts, and records the paths and results in the implementation report.
+disposable `DSH_HOME` directories. End-to-end validation runs from the existing
+NUC checkout, built on the NUC, using its installed official DSH CLI and a
+disposable `DSH_HOME`. Do not transfer or validate a Web CLI packed on macOS.
+Record the paths and results in the implementation report.
