@@ -83,8 +83,8 @@ with its installed pnpm, and the built Web CLI called the NUC's installed
 ```
 
 The disposable profile linked the checkout's current `@guionai/dsh-web`
-package. No live yuki profile, credentials, preset root, or running service was
-read or changed.
+package. No live yuki profile, credentials, preset root, or service was read or
+changed.
 
 Observed results:
 
@@ -105,6 +105,25 @@ The same run then exercised the overwrite policy:
    `refusing to overwrite modified same-id preset ptc; rerun interactively or pass --yes`.
 3. Re-running with `--yes` refreshed all four presets, after which doctor was
    fully green again.
+
+The same disposable profile was then composed by the installed official Loader
+with a read-only probe bundle. The reconciled config contained
+`includeShippedRoot: false`, `includeUserRoot: true`, and `default: standard`;
+the installed `@guionai/dsh-web` link resolved exactly to the NUC checkout.
+The Loader booted successfully and was stopped immediately after the probe:
+
+```text
+standard user rows=26 broken=absent tool-web=0
+ptc user rows=27 broken=absent tool-web=0
+minimal user rows=8 broken=absent tool-web=0
+cordis user rows=27 broken=absent tool-web=0
+web_fetch properties=url,mode,section_id,render,waitMs required=url
+web_search properties=queries required=queries
+```
+
+The probe output is `/tmp/guion-dsh-checkout.q3UxVE/probe.json`. The disposable
+Loader process was confirmed stopped, and its token-bearing launch URL was not
+recorded.
 
 Vitest emits the existing non-failing missing source-map warning from the DSH
 primitives package.
