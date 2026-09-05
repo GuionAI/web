@@ -1,7 +1,7 @@
 {
   "name": "@guionai/dsh-web",
   "version": "0.1.0",
-  "description": "DeepSeek Harness 0.1.2-rc.1 provider for Exa, Brave, DeepSeek, and Kepos Bridge web research with HTTP and optional browser page-rendering modes.",
+  "description": "DeepSeek Harness 0.1.2-rc.1 Guion-owned research surface for Exa, Brave, DeepSeek, and Kepos Bridge with HTTP and optional browser page-rendering modes.",
   "homepage": "https://github.com/guionai/web#readme",
   "bugs": {
     "url": "https://github.com/guionai/web/issues"
@@ -71,7 +71,6 @@
     "@deepseek-ai/dsh-credentials": "0.1.2-rc.1",
     "@deepseek-ai/dsh-settings": "0.1.2-rc.1",
     "@deepseek-ai/dsh-tools": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-web": "0.1.2-rc.1",
     "@deepseek-ai/schemastery": "3.18.2",
     "react": "^18.2.0"
   },
@@ -90,7 +89,6 @@
     "@deepseek-ai/dsh-credentials": "0.1.2-rc.1",
     "@deepseek-ai/dsh-settings": "0.1.2-rc.1",
     "@deepseek-ai/dsh-tools": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-web": "0.1.2-rc.1",
     "@deepseek-ai/schemastery": "3.18.2",
     "@types/react": "^18.3.0",
     "react": "18.3.1",

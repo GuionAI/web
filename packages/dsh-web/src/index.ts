@@ -10,11 +10,10 @@ import {
   type GuionSettings,
   validateKeposBridgeEndpoint,
 } from "./contract.js";
-import { createGuionSearchProvider } from "./provider.js";
 import { registerKeposTools, registerWebTools } from "./tools.js";
 
 export const name = "guionai-dsh-web";
-export const inject = ["web", "credentials", "settings", "tools"] as const;
+export const inject = ["credentials", "settings", "tools"] as const;
 
 const keposBridgeEndpointSchema = z
   .string()
@@ -38,18 +37,10 @@ export function apply(ctx: Context): void {
     },
   });
   const operations = createWebOperations();
-  ctx.web.registerSearchProvider(
-    createGuionSearchProvider({
-      getProvider: () => (settings.get() as GuionSettings).provider,
-      getKeposBridgeEndpoint: () =>
-        (settings.get() as GuionSettings).keposBridgeEndpoint,
-      credentials: ctx.credentials,
-      operations,
-    }),
-  );
   const toolDependencies = {
     credentials: ctx.credentials,
     operations,
+    getProvider: () => (settings.get() as GuionSettings).provider,
     getKeposBridgeEndpoint: () =>
       (settings.get() as GuionSettings).keposBridgeEndpoint,
   };
@@ -85,5 +76,5 @@ export function apply(ctx: Context): void {
     };
   };
 
-  ctx.effect(install, "guionai-dsh-web: provider tools");
+  ctx.effect(install, "guionai-dsh-web: research tools");
 }

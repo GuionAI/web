@@ -8,6 +8,11 @@ HTTP service, Pi extension, and DeepSeek Harness (DSH) integration: HTTP
 HTML-to-Markdown extraction and explicit browser rendering for client-rendered
 pages on supported hosts.
 
+> **DSH setup note:** Run `web dsh sync` before installing the DSH bundle and
+> `web dsh doctor` afterward. The workflow creates compatible copies of the
+> familiar stock preset ids and hides their official shipped duplicates while
+> preserving ordinary user presets.
+
 ## Install and configure
 
 Node.js 20 or later is required. `@guionai/web` exposes its `web` executable,
@@ -202,21 +207,45 @@ the presence of its key alone.
 
 ## DSH
 
-Install the DSH bundle in the existing Web profile:
+The bundle uses the familiar stock preset ids, but its compatible copies are
+owned by Guion in the DSH user preset root. Synchronize those copies before
+installing or activating the profile bundle:
 
 ```bash
+web dsh sync
 dsh plugin --profile web add @guionai/dsh-web
+web dsh doctor
 ```
 
-The included profile patch routes stock PTC web search through the selected Exa,
-Brave, DeepSeek, or Kepos Bridge provider. Its settings UI stores provider selection and
-the complete non-secret Kepos Bridge route (default
-`http://codex-bridge.localhost:17480/codex/web-search`) and manages namespaced write-only
-credentials, including a write-only DeepSeek API key. DeepSeek uses the same
-provider picker/key workflow and exposes no DeepSeek endpoint field. Selecting Kepos Bridge additionally exposes `web_weather`,
-`web_sports`, `web_finance`, and `web_time`; these tools are removed when another
-provider is selected. Fetch, link discovery, documentation, and Sourcegraph tools
-also run in-process. The host DSH packages and React are peers supplied by DSH.
+`web dsh sync` reads the installed official
+`@deepseek-ai/dsh-agent-presets@0.1.2-rc.1` package and creates compatible
+`standard`, `ptc`, `cordis`, and `minimal` copies. It removes only
+the top-level official `tool-web` row from the first three; Minimal is copied
+unchanged because it already omits that row. The command is idempotent and
+compares existing same-id directories with both the official and compatible
+trees. Exact matches are refreshed automatically. Modified same-id presets
+require interactive confirmation; use `web dsh sync --yes` for an intentional
+non-interactive overwrite. Run sync again after upgrading the supported DSH
+runtime. The read-only doctor command reports missing, stale, and conflicting
+copies and exits nonzero when the roster is not ready.
+
+The bundle's preset roster sets `includeShippedRoot: false`,
+`includeUserRoot: true`, and `default: standard`. This hides all official
+shipped duplicates while preserving Yuki and every other ordinary user
+preset. Existing sessions, credentials, and deployed profiles are not
+migrated automatically; activate or deploy the bundle separately after a
+successful sync and doctor run.
+
+The profile patch disables the official DSH Web registry, search/fetch providers,
+and `tool-web`, then registers Guion's complete DSH Research Surface directly.
+Its settings UI stores provider selection and the complete non-secret Kepos
+Bridge route (default `http://codex-bridge.localhost:17480/codex/web-search`)
+and manages namespaced write-only credentials, including a write-only DeepSeek
+API key. DeepSeek uses the same provider picker/key workflow and exposes no
+DeepSeek endpoint field. Selecting Kepos Bridge additionally exposes
+`web_weather`, `web_sports`, `web_finance`, and `web_time`; these tools are
+removed when another provider is selected. The host DSH target is
+`0.1.2-rc.1`; its packages and React are peers supplied by DSH.
 `web_fetch` uses HTTP rendering by default and can explicitly use
 `render: "browser"` with an integer `waitMs` on a host that supplies the
 optional executable.
@@ -226,6 +255,15 @@ other adapters: input mode is `auto|full|tree` (default `auto`), and omitted or
 `auto|full|tree|section` and `truncated`.
 `web_links` uses the same explicit rendering contract and lists HTTP(S) anchors
 from the original page DOM.
+
+Guion owns `web_search`, `web_fetch`, `web_links`, `web_docs`, and
+`web_source_search` in both native and PTC presentation modes. `web_search`
+accepts one to four trimmed queries, runs them concurrently, deterministically
+merges partial successes, and reports total failure clearly. `web_fetch`
+accepts `mode: "auto" | "full" | "tree"`, optional `section_id` with omitted
+or `auto` mode, `render: "http" | "browser"`, and browser `waitMs` from 0
+through 30,000. `web_links` has the same rendering and wait contract. The
+complete schemas are inherited by every compatible stock-equivalent preset.
 
 ## Page-rendering modes
 

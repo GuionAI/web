@@ -1,6 +1,14 @@
 import { Command } from "commander";
+import { createInterface } from "node:readline/promises";
 
 import { createMcpCommand } from "./mcp.js";
+import {
+  inspectCompatiblePresets,
+  formatDshDoctor,
+  formatDshSync,
+  syncCompatiblePresets,
+  type DshPathOverrides,
+} from "./dsh.js";
 import { parseHttpPort, startHttpServer } from "./serve.js";
 import { DEFAULT_HTTP_HOST, DEFAULT_HTTP_PORT } from "./serve.js";
 import { WEB_PACKAGE_VERSION } from "./version.js";
@@ -19,6 +27,9 @@ export type ProgramDependencies = {
   operations: WebOperations;
   credentials: () => WebCredentials;
   writeOut?: (text: string) => void;
+  /** Optional explicit DSH paths used by tests and embedded callers. */
+  dsh?: DshPathOverrides;
+  confirmDshOverwrite?: (ids: readonly string[]) => boolean | Promise<boolean>;
 };
 
 export function createProgram(dependencies: ProgramDependencies): Command {
@@ -36,9 +47,59 @@ export function createProgram(dependencies: ProgramDependencies): Command {
     .addCommand(createLinksCommand(dependencies))
     .addCommand(createDocsCommand(dependencies))
     .addCommand(createSGraphCommand(dependencies))
+    .addCommand(createDshCommand(dependencies))
     .addCommand(createServeCommand(dependencies))
     .addCommand(createMcpCommand(dependencies));
   return program;
+}
+
+function createDshCommand(dependencies: ProgramDependencies): Command {
+  const writeOut =
+    dependencies.writeOut ?? ((text: string) => process.stdout.write(text));
+  const options = dependencies.dsh ?? {};
+  return new Command("dsh")
+    .description("Synchronize and diagnose Guion-compatible DSH presets")
+    .addCommand(
+      new Command("sync")
+        .description("Create or refresh compatible stock-equivalent presets")
+        .option(
+          "-y, --yes",
+          "overwrite modified same-id presets without prompting",
+        )
+        .action(async (commandOptions: { yes?: boolean }) => {
+          const result = await syncCompatiblePresets(options, {
+            yes: commandOptions.yes,
+            confirmOverwrite: async (ids) => {
+              if (dependencies.confirmDshOverwrite !== undefined)
+                return dependencies.confirmDshOverwrite(ids);
+              if (!process.stdin.isTTY || !process.stderr.isTTY) return false;
+              const prompt = createInterface({
+                input: process.stdin,
+                output: process.stderr,
+              });
+              try {
+                const answer = await prompt.question(
+                  `Overwrite modified same-id presets ${ids.join(", ")}? [y/N] `,
+                );
+                return /^(?:y|yes)$/i.test(answer.trim());
+              } finally {
+                prompt.close();
+              }
+            },
+          });
+          writeOut(formatDshSync(result));
+        }),
+    )
+    .addCommand(
+      new Command("doctor")
+        .description("Check compatible preset health without changing files")
+        .action(async () => {
+          const report = await inspectCompatiblePresets(options);
+          writeOut(formatDshDoctor(report));
+          if (!report.ok)
+            throw new Error("DSH compatible preset doctor found problems");
+        }),
+    );
 }
 
 function createServeCommand(dependencies: ProgramDependencies): Command {

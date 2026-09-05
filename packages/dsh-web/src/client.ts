@@ -65,7 +65,7 @@ function installStyles(css: string): () => void {
   return () => style.remove();
 }
 
-type ResearchToolName = "web_fetch" | "web_links" | "web_docs";
+type ResearchToolName = "web_search" | "web_fetch" | "web_links" | "web_docs";
 
 function WebResearchToolCard({
   toolName,
@@ -77,13 +77,15 @@ function WebResearchToolCard({
   const running = !isToolResult(block);
   const error = isToolResult(block) && block.isError;
   const title =
-    name === "web_fetch"
-      ? "Fetch page"
-      : name === "web_links"
-        ? "Find links"
-        : args.action === "resolve"
-          ? "Find documentation"
-          : "Fetch documentation";
+    name === "web_search"
+      ? "Search the web"
+      : name === "web_fetch"
+        ? "Fetch page"
+        : name === "web_links"
+          ? "Find links"
+          : args.action === "resolve"
+            ? "Find documentation"
+            : "Fetch documentation";
   const summary = toolSummary(name, args);
   const details = name === "web_fetch" ? fetchDetails(args) : [];
 
@@ -152,6 +154,23 @@ function toolBody(
   args: Record<string, unknown>,
   output: string,
 ): ReturnType<typeof createElement> | null {
+  if (name === "web_search") {
+    const count = /^Found (\d+) search results/.exec(output)?.[1];
+    return createElement(
+      "div",
+      { className: "guionai-web__tool-body" },
+      createElement(
+        "p",
+        { className: "guionai-web__result-count" },
+        count ? `${count} results found` : "Search complete",
+      ),
+      createElement(
+        "p",
+        { className: "guionai-web__excerpt" },
+        excerpt(output),
+      ),
+    );
+  }
   if (name === "web_links") {
     const links = linksFromOutput(output);
     const count = /^Found (\d+) links?/.exec(output)?.[1];
@@ -272,6 +291,13 @@ function toolSummary(
   name: ResearchToolName,
   args: Record<string, unknown>,
 ): string {
+  if (name === "web_search") {
+    const queries = args.queries;
+    return Array.isArray(queries) &&
+      queries.every((query) => typeof query === "string")
+      ? queries.join(", ")
+      : "Web search";
+  }
   if (name === "web_docs") {
     const identifier = args.action === "resolve" ? args.query : args.library_id;
     return typeof identifier === "string"
@@ -781,12 +807,11 @@ export function apply(ctx: ClientContext): void {
     ),
   );
   ctx.slots.inject("tool.call.toolview", function* () {
-    for (const key of ["web_fetch", "web_links", "web_docs"]) {
+    for (const key of ["web_search", "web_fetch", "web_links", "web_docs"]) {
       yield ctx.slots.register(
         {
           name: "tool.call.toolview",
           key,
-          ...(key === "web_fetch" ? { priority: -1 } : {}),
           inject: () => ({}),
         } as never,
         ((props: ToolCallViewProps) =>

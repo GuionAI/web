@@ -1,41 +1,26 @@
-import { Context } from "@deepseek-ai/cordis";
-import { WebRuntime } from "@deepseek-ai/dsh-web";
 import { describe, expect, it } from "vitest";
-import { createWebOperations, type WebOperations } from "@guionai/web-core";
 
 import {
   DEFAULT_KEPOS_BRIDGE_ENDPOINT,
-  SEARCH_PROVIDER_ID,
   type SearchProviderName,
 } from "../src/contract.js";
-import { createGuionSearchProvider } from "../src/provider.js";
-import { apply, SettingsSchema } from "../src/index.js";
-
-function withOperations(overrides: Partial<WebOperations>): WebOperations {
-  return { ...createWebOperations(), ...overrides };
-}
+import { apply, inject, SettingsSchema } from "../src/index.js";
 
 describe("DSH Web package composition", () => {
-  it("resolves the Kepos provider and deployed route defaults", () => {
+  it("keeps the live provider settings contract", () => {
     expect(SettingsSchema()).toMatchObject({
       provider: "exa",
       keposBridgeEndpoint: DEFAULT_KEPOS_BRIDGE_ENDPOINT,
     });
     expect(
       SettingsSchema({
-        provider: "exa",
+        provider: "kepos-bridge",
         keposBridgeEndpoint: "https://bridge.example.test/route",
       }),
     ).toMatchObject({
-      provider: "exa",
+      provider: "kepos-bridge",
       keposBridgeEndpoint: "https://bridge.example.test/route",
     });
-    expect(
-      SettingsSchema({
-        provider: "deepseek",
-        keposBridgeEndpoint: DEFAULT_KEPOS_BRIDGE_ENDPOINT,
-      }),
-    ).toMatchObject({ provider: "deepseek" });
     expect(() =>
       SettingsSchema({
         provider: "kepos-bridge",
@@ -43,46 +28,8 @@ describe("DSH Web package composition", () => {
       }),
     ).toThrow();
   });
-  it("works at the supported rc.1 WebRuntime provider seam for concurrent PTC queries", async () => {
-    const calls: string[] = [];
-    const root = new Context();
-    await root.plugin(WebRuntime, { searchProvider: SEARCH_PROVIDER_ID });
-    await root.plugin({
-      inject: ["web"],
-      apply(ctx) {
-        ctx.web.registerSearchProvider(
-          createGuionSearchProvider({
-            getProvider: () => "exa",
-            getKeposBridgeEndpoint: () => "http://fixture.test/route",
-            credentials: {
-              resolve: async () => ({ value: "test-secret", source: "file" }),
-            },
-            operations: withOperations({
-              search: async (input) => {
-                calls.push(input.query);
-                return { provider: "Exa", results: [] };
-              },
-            }),
-          }),
-        );
-      },
-    });
-    const controller = new AbortController();
-    await expect(
-      Promise.all(
-        ["first", "second"].map((query) =>
-          root.web.search({ query, maxResults: 8 }, controller.signal),
-        ),
-      ),
-    ).resolves.toEqual([
-      { sources: [], truncated: false },
-      { sources: [], truncated: false },
-    ]);
-    expect(calls).toEqual(["first", "second"]);
-    await root.fiber.dispose();
-  });
 
-  it("owns Kepos-only tool registrations and the settings watcher across live transitions", () => {
+  it("registers the complete Guion suite without an official Web service", () => {
     let current: {
       provider: SearchProviderName;
       keposBridgeEndpoint: string;
@@ -91,7 +38,7 @@ describe("DSH Web package composition", () => {
       keposBridgeEndpoint: "http://fixture.test/one",
     };
     const watchers = new Set<
-      (next: typeof current, prev: typeof current) => void
+      (next: typeof current, previous: typeof current) => void
     >();
     const registered = new Map<string, () => void>();
     let effectDisposer: (() => void) | undefined;
@@ -100,7 +47,7 @@ describe("DSH Web package composition", () => {
         register: () => ({
           get: () => current,
           watch: (
-            callback: (next: typeof current, prev: typeof current) => void,
+            callback: (next: typeof current, previous: typeof current) => void,
           ) => {
             watchers.add(callback);
             return () => watchers.delete(callback);
@@ -108,7 +55,6 @@ describe("DSH Web package composition", () => {
         }),
       },
       credentials: { resolve: async () => undefined },
-      web: { registerSearchProvider: () => () => undefined },
       tools: {
         register: (definition: { name: string }) => {
           const dispose = () => {
@@ -127,13 +73,16 @@ describe("DSH Web package composition", () => {
       },
     };
 
+    expect(inject).toEqual(["credentials", "settings", "tools"]);
     apply(ctx as never);
     expect([...registered.keys()]).toEqual([
+      "web_search",
       "web_fetch",
       "web_links",
       "web_docs",
       "web_source_search",
     ]);
+
     const transition = (next: typeof current) => {
       const previous = current;
       current = next;
@@ -144,6 +93,7 @@ describe("DSH Web package composition", () => {
       keposBridgeEndpoint: current.keposBridgeEndpoint,
     });
     expect([...registered.keys()]).toEqual([
+      "web_search",
       "web_fetch",
       "web_links",
       "web_docs",
@@ -154,25 +104,16 @@ describe("DSH Web package composition", () => {
       "web_time",
     ]);
     transition({
-      provider: "kepos-bridge",
-      keposBridgeEndpoint: "https://fixture.test/two",
-    });
-    expect([...registered.keys()]).toHaveLength(8);
-    transition({
       provider: "exa",
       keposBridgeEndpoint: current.keposBridgeEndpoint,
     });
     expect([...registered.keys()]).toEqual([
+      "web_search",
       "web_fetch",
       "web_links",
       "web_docs",
       "web_source_search",
     ]);
-    transition({
-      provider: "kepos-bridge",
-      keposBridgeEndpoint: current.keposBridgeEndpoint,
-    });
-    expect([...registered.keys()]).toHaveLength(8);
     effectDisposer?.();
     expect(registered.size).toBe(0);
     expect(watchers.size).toBe(0);

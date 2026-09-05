@@ -173,6 +173,7 @@ describe("DSH 0.1.2-rc.1 packed package contract", () => {
     expect(packed.peerDependencies["@deepseek-ai/dsh-client-runtime"]).toBe(
       undefined,
     );
+    expect(packed.peerDependencies["@deepseek-ai/dsh-web"]).toBeUndefined();
     for (const [name, version] of Object.entries(packed.peerDependencies)) {
       if (
         name.startsWith("@deepseek-ai/") &&
@@ -212,8 +213,7 @@ describe("DSH 0.1.2-rc.1 packed package contract", () => {
       ).length,
     ).toBeGreaterThan(10);
     expect(host.name).toBe("guionai-dsh-web");
-    expect(host.inject).toEqual(["web", "credentials", "settings", "tools"]);
-    let provider: any;
+    expect(host.inject).toEqual(["credentials", "settings", "tools"]);
     const tools: any[] = [];
     const browser = writeFakeAgentBrowser();
     const originalFetch = globalThis.fetch;
@@ -259,12 +259,6 @@ describe("DSH 0.1.2-rc.1 packed package contract", () => {
         credentials: {
           resolve: async () => ({ value: "fixture-key", source: "test" }),
         },
-        web: {
-          registerSearchProvider: (value: unknown) => {
-            provider = value;
-            return () => undefined;
-          },
-        },
         tools: {
           register: (definition: unknown) => {
             tools.push(definition);
@@ -273,13 +267,26 @@ describe("DSH 0.1.2-rc.1 packed package contract", () => {
         },
         effect: (execute: () => () => void) => execute(),
       });
+      const searchTool = tools.find(
+        (definition) => definition.name === "web_search",
+      );
+      if (!searchTool)
+        throw new Error("packed DSH artifact did not register web_search");
       await expect(
-        provider.search({ query: "packed fixture" }),
-      ).resolves.toEqual({
-        sources: [
-          { url: "https://example.test", title: "Packed", snippet: "fixture" },
+        searchTool.execute(
+          { queries: ["packed fixture"] },
+          { signal: new AbortController().signal },
+        ),
+      ).resolves.toMatchObject({
+        provider: "Exa",
+        results: [
+          {
+            link: "https://example.test",
+            title: "Packed",
+            snippet: "fixture",
+            position: 1,
+          },
         ],
-        truncated: false,
       });
       const fetchTool = tools.find(
         (definition) => definition.name === "web_fetch",
@@ -348,21 +355,31 @@ describe("DSH 0.1.2-rc.1 packed package contract", () => {
     const patch = parse(
       readFileSync(join(artifactRoot, "cordis.patch.yml"), "utf8"),
     ) as any[];
-    expect(patch.find((entry) => entry.id === "web")).toEqual({
-      id: "web",
-      name: "@deepseek-ai/dsh-web",
-      config: { searchProvider: "guionai-web-search" },
-    });
-    expect(patch.find((entry) => entry.id === "tool-web")).toEqual({
-      id: "tool-web",
-      disabled: true,
+    for (const id of [
+      "web",
+      "web-search-deepseek",
+      "web-fetch-http",
+      "tool-web",
+    ])
+      expect(patch.find((entry) => entry.id === id)).toEqual({
+        id,
+        disabled: true,
+      });
+    expect(patch.find((entry) => entry.id === "agent-presets")).toEqual({
+      id: "agent-presets",
+      name: "@deepseek-ai/dsh-agent-presets",
+      config: {
+        includeShippedRoot: false,
+        includeUserRoot: true,
+        default: "standard",
+      },
     });
     expect(
       patch.find((entry) => Array.isArray(entry.insert))?.insert,
     ).toContainEqual({
       id: "guionai-dsh-web",
       name: "@guionai/dsh-web",
-      inject: ["web", "credentials", "settings", "tools"],
+      inject: ["credentials", "settings", "tools"],
     });
   }, 30_000);
 
