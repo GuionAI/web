@@ -1,222 +1,124 @@
-# DSH managed presets implementation report
+# DSH compatible presets implementation report
 
 ## Scope
 
 - Repository: `guionai/web`
 - Branch: `dsh-managed-presets`
-- Fixed point: `1bb01fd` (main)
-- Implementation commits: `3d437a6` (`feat(dsh): manage compatible stock presets`),
-  `3e3e95c` (`fix(dsh): harden managed preset synchronization`), and `e9ca3b8`
-  (`fix(dsh): require explicit provider wiring`)
+- Fixed point: `1bb01fd` (`main`)
+- Final implementation commit: `3d7d4a1` (`refactor(dsh): simplify compatible preset sync`)
 - Delivery boundary: the complete `dsh-managed-presets` spec and tickets 01–04.
-  Code review and deployment were outside the Implementation worker's scope.
 
-## Ticket outcomes
+## Outcome
 
-### 01 — Own the complete DSH Research Surface
+Guion's DSH bundle now owns the complete research surface:
+`web_search`, `web_fetch`, `web_links`, `web_docs`, and
+`web_source_search`. The official Web registry/provider integration and
+dependency are gone. The Guion implementations retain the selected search
+providers, namespaced credentials, fetch navigation/rendering options,
+cancellation, bounded output, and conditional Kepos tools.
 
-- Replaced the official Web registry/provider integration with direct Guion
-  ownership of `web_search`, `web_fetch`, `web_links`, `web_docs`, and
-  `web_source_search`.
-- Preserved live Exa, Brave, DeepSeek, and Kepos Bridge selection and
-  namespaced credential resolution. Search validates one-to-four trimmed
-  queries, runs them concurrently, merges successful results deterministically,
-  reports partial/total failures, forwards cancellation, and bounds rendered
-  model text.
-- Retained the complete fetch navigation and rendering contract (`mode`,
-  `section_id`, `render`, and `waitMs`) and the provider-conditional Kepos
-  tools.
-- Removed the obsolete provider module, official Web peer/development
-  dependency, and registry injection. Packed host, client, tool, and schema
-  tests cover the owned surface.
+The bundle patch disables the official Web stack and hides shipped presets.
+It exposes only the user preset root, with `standard` as the default. The
+effective Guion schemas remain:
 
-### 02 — Sync and diagnose managed presets
+- `web_search`: required `queries`
+- `web_fetch`: required `url`; optional `mode`, `section_id`, `render`, and
+  `waitMs`
 
-- Added `web dsh sync` and read-only `web dsh doctor` with DSH executable
-  discovery, standard `DSH_HOME` resolution, explicit test-owned path seams,
-  exact official preset-package version validation, source identity markers,
-  structural `tool-web` removal, and complete source-tree validation.
-- Sync creates or refreshes marked same-id `standard`, `ptc`, `cordis`, and
-  `minimal` snapshots under `.agent-presets`; it stages writes, preflights all
-  conflicts, preserves unmarked user data, and rolls back managed replacements
-  when a filesystem operation is interrupted. Each rename revalidates
-  ownership, verifies a moved backup marker before it can be deleted, preserves
-  unknown races, and removes newly installed targets during rollback.
-- Doctor compares every managed file byte-for-byte with the expected
-  transformed source snapshot (while allowing only the generated marker), so
-  deletion, tampering, and unexpected copied files are reported as incomplete.
-  The source package manifest and version are authoritative; version override
-  seams and unused path aliases/helpers were removed. Fixture tests cover
-  source-file deletion/tampering, deterministic ownership races, and injected
-  mid-swap rollback.
+## Compatible preset workflow
 
-### 03 — Hide shipped presets end to end
+`web dsh sync` creates or refreshes `standard`, `ptc`, `cordis`, and `minimal`
+under the DSH user preset root. Each copy comes from the installed official
+`@deepseek-ai/dsh-agent-presets` package with the official `tool-web` entry
+removed structurally.
 
-- Updated the bundle patch to disable the complete official Web stack and the
-  scoped `tool-web` row, while targeting the existing `agent-presets` row with
-  `includeShippedRoot: false`, `includeUserRoot: true`, and `default: standard`.
-- Parsed and packed artifact tests assert the full patch and peer-only package
-  contract, including the absence of `@deepseek-ai/dsh-web`.
-- Completed packed Linux validation against the official rc.1 Loader path and
-  disposable DSH home (details below).
+There is no Guion marker file or persistent ownership metadata. For each
+same-ID directory, sync compares the complete tree with two snapshots:
 
-### 04 — Document the managed preset workflow
+- an exact current compatible copy is safe to refresh;
+- an exact official copy is safe to convert;
+- any other content is treated as user-modified and requires interactive
+  confirmation, or `--yes` in automation.
 
-- Updated the root and DSH-package READMEs with sync-before-activation,
-  doctor, hidden shipped-root, same-id ownership/conflict, upgrade refresh, and
-  effective Guion schema guidance.
-- Added the DSH vocabulary to `CONTEXT.md`, recorded the ownership decision in
-  ADR 0004, and added test-owned/real-Linux requirements to `AGENTS.md`.
-- The root/package READMEs, `CONTEXT.md`, and `AGENTS.md` are the only project
-  documents that describe this workflow; no other project documentation
-  exposes a DSH preset contract requiring an update.
+Non-interactive sync refuses modified same-ID directories unless `--yes` is
+present. Unrelated user presets are untouched. Replacement is staged per
+preset, with a local backup restored if installation fails; there is no global
+four-preset transaction or speculative race-hook machinery.
 
-## Changed paths
+`web dsh doctor` is read-only and reports each compatible preset as `ok`,
+`missing`, `stale` (an exact official copy), or `conflict` (any other content).
 
-- `AGENTS.md`
-- `CONTEXT.md`
-- `README.md`
-- `docs/adr/0004-dsh-research-surface-owner.md`
-- `packages/dsh-web/README.md`
-- `packages/dsh-web/cordis.patch.yml`
-- `packages/dsh-web/package.json`
-- `packages/dsh-web/src/client.ts`
-- `packages/dsh-web/src/contract.ts`
-- `packages/dsh-web/src/index.ts`
-- `packages/dsh-web/src/provider.ts` (removed)
-- `packages/dsh-web/src/tools.ts`
-- `packages/dsh-web/test/artifact.test.ts`
-- `packages/dsh-web/test/client.test.ts`
-- `packages/dsh-web/test/package.test.ts`
-- `packages/dsh-web/test/provider.test.ts` (removed)
-- `packages/dsh-web/test/tools.test.ts`
-- `packages/dsh-web/tsup.config.ts`
-- `packages/web/src/dsh.ts`
-- `packages/web/src/program.ts`
-- `packages/web/src/runner.ts`
-- `packages/web/test/dsh.test.ts`
-- `packages/web/test/packed-smoke.mjs`
-- `pnpm-lock.yaml`
+## Documentation
+
+The workflow and the requirement to sync before selecting a compatible preset
+are documented in the root README and `packages/dsh-web/README.md`.
+`CONTEXT.md` defines the vocabulary, ADR 0004 records the ownership decision,
+and `AGENTS.md` records the test-state and real-Linux verification rules.
 
 ## Verification
 
-All final local checks passed:
+Final local checks passed:
 
-- `pnpm install --frozen-lockfile --ignore-scripts`
+- `pnpm test` — 20 files, 161 tests
 - `pnpm typecheck`
-- `pnpm test` — 20 files, 163 tests passed
+- `pnpm build` — all four packages
+- `pnpm test:pack` — Web, Pi, and DSH package smoke checks
 - `pnpm format:check`
-- `pnpm build` — all four package builds passed
-- `pnpm test:pack` — Web, Pi, and DSH packed smoke tests passed
 - `pnpm test:release`
 - `git diff --check`
 
-The blocker pass added packed Web CLI coverage with a fake installed DSH and
-agent-presets graph under a test-owned temporary directory. It invokes
-`dsh sync` and `dsh doctor` through PATH discovery with a disposable DSH_HOME;
-no source paths or live state are injected.
+The packed Web smoke no longer contains a fake DSH installation or a second
+sync/doctor test graph. Runtime discovery is covered by focused temporary
+filesystem tests, including a standard `node_modules/.bin/dsh` shim.
 
-The updated Linux validation ran on NUC `kosmos-wsl` (Linux, Node
-`v24.19.0`) under the disposable work directory
-`/tmp/guion-dsh-linux-blocker-final-ss2sfY`. The blocker run reused the prior
-disposable official install at
-`/tmp/guion-dsh-linux-final-heK1hs/install` rather than reinstalling DSH; that
-install contains the official `@deepseek-ai/dsh@0.1.2-rc.1` and
-`@deepseek-ai/dsh-agent-presets@0.1.2-rc.1` graph. The current packed artifacts
-and test-owned paths were:
-
-- Web bundle: `/tmp/guion-dsh-linux-blocker-final-ss2sfY/guionai-web-0.1.0.tgz`
-- DSH bundle: `/tmp/guion-dsh-linux-blocker-final-ss2sfY/guionai-dsh-web-0.1.0.tgz`
-- Packed Web CLI: `/tmp/guion-dsh-linux-blocker-final-ss2sfY/webcli/node_modules/.bin/web`
-- DSH entrypoint: `/tmp/guion-dsh-linux-final-heK1hs/install/node_modules/@deepseek-ai/dsh/lib/bin.js`
-- DSH home: `/tmp/guion-dsh-linux-blocker-final-ss2sfY/home`
-- Profile: `/tmp/guion-dsh-linux-blocker-final-ss2sfY/home/profiles/web`
-- Probe: `/tmp/guion-dsh-linux-blocker-final-ss2sfY/home/profiles/probe`
-
-The Web CLI install was performed in the test-owned `webcli` directory:
-
-```sh
-cd /tmp/guion-dsh-linux-blocker-final-ss2sfY/webcli
-HOME=/tmp/guion-dsh-linux-blocker-final-ss2sfY/home-home XDG_CACHE_HOME=/tmp/guion-dsh-linux-blocker-final-ss2sfY/cache npm_config_store_dir=/tmp/guion-dsh-linux-blocker-final-ss2sfY/store pnpm install --offline --ignore-scripts --frozen-lockfile=false
-```
-
-The profile install used the current packed DSH bundle and probe from the
-test-owned profile directory:
-
-```sh
-cd /tmp/guion-dsh-linux-blocker-final-ss2sfY/home/profiles/web
-HOME=/tmp/guion-dsh-linux-blocker-final-ss2sfY/profile-home-repro XDG_CACHE_HOME=/tmp/guion-dsh-linux-blocker-final-ss2sfY/profile-cache-repro npm_config_store_dir=/tmp/guion-dsh-linux-blocker-final-ss2sfY/profile-store-repro pnpm install --offline --ignore-scripts --frozen-lockfile=false
-```
-
-These are the complete runtime commands used (all paths are explicit; there
-are no source-path overrides):
-
-```sh
-PATH=/tmp/guion-dsh-linux-final-heK1hs/install/node_modules/.bin:/run/current-system/sw/bin HOME=/tmp/guion-dsh-linux-blocker-final-ss2sfY/home DSH_HOME=/tmp/guion-dsh-linux-blocker-final-ss2sfY/home /tmp/guion-dsh-linux-blocker-final-ss2sfY/webcli/node_modules/.bin/web dsh sync
-PATH=/tmp/guion-dsh-linux-final-heK1hs/install/node_modules/.bin:/run/current-system/sw/bin HOME=/tmp/guion-dsh-linux-blocker-final-ss2sfY/home DSH_HOME=/tmp/guion-dsh-linux-blocker-final-ss2sfY/home /tmp/guion-dsh-linux-blocker-final-ss2sfY/webcli/node_modules/.bin/web dsh doctor
-PATH=/run/current-system/sw/bin HOME=/tmp/guion-dsh-linux-blocker-final-ss2sfY/home DSH_HOME=/tmp/guion-dsh-linux-blocker-final-ss2sfY/home node --expose-internals /tmp/guion-dsh-linux-final-heK1hs/install/node_modules/@deepseek-ai/dsh/lib/bin.js --profile web --dump-config
-PATH=/run/current-system/sw/bin HOME=/tmp/guion-dsh-linux-blocker-final-ss2sfY/home DSH_HOME=/tmp/guion-dsh-linux-blocker-final-ss2sfY/home PROBE_OUT=/tmp/guion-dsh-linux-blocker-final-ss2sfY/probe-repro.json node --expose-internals /tmp/guion-dsh-linux-final-heK1hs/install/node_modules/@deepseek-ai/dsh/lib/bin.js --profile web --no-open --host 127.0.0.1 --port 0
-```
-
-Captured command output was:
+The real integration check ran on `nuc-kep` from the existing checkout
+`/home/neil/code/projects/guionai/web`. `og pull` first fast-forwarded its
+current `main`; because `og pull` only fetches the current branch, the new
+remote feature ref was then fetched and checked out. The checkout was built
+with its installed pnpm, and the built Web CLI called the NUC's installed
+`dsh` executable. All mutable DSH state was isolated under:
 
 ```text
-DSH managed presets created all four presets from @deepseek-ai/dsh-agent-presets@0.1.2-rc.1.
-Preset root: /tmp/guion-dsh-linux-blocker-final-ss2sfY/home/.agent-presets
+/tmp/guion-dsh-checkout.q3UxVE/dsh-home
+```
+
+The disposable profile linked the checkout's current `@guionai/dsh-web`
+package. No live yuki profile, credentials, preset root, or running service was
+read or changed.
+
+Observed results:
+
+```text
+DSH compatible presets created all four presets from @deepseek-ai/dsh-agent-presets@0.1.2-rc.1.
 DSH doctor: OK
 - standard: ok
 - ptc: ok
 - cordis: ok
 - minimal: ok
-dsh web: http://127.0.0.1:44554/?token=REDACTED
 ```
 
-The probe's roster/composition summary was:
+The same run then exercised the overwrite policy:
 
-```text
-standard user rows=26 tool-web=[]
-ptc user rows=27 tool-web=[]
-minimal user rows=8 tool-web=[]
-cordis user rows=27 tool-web=[]
-```
-
-The probe's schema summary was:
-
-```text
-web_fetch properties=url,mode,section_id,render,waitMs required=url
-web_search properties=queries required=queries
-```
-
-The dump contained `includeShippedRoot: false`, `includeUserRoot: true`, and
-`default: standard`; the profile process was stopped after the probe completed.
-Every home, profile, probe, and packed bundle path above was test-owned and
-disposable, and no live DSH home, credentials, overrides, or services were
-read or modified.
+1. Replacing `standard` with the exact installed official preset was accepted
+   and converted without a prompt.
+2. Adding a user edit to `ptc` made non-interactive sync exit with status 1:
+   `refusing to overwrite modified same-id preset ptc; rerun interactively or pass --yes`.
+3. Re-running with `--yes` refreshed all four presets, after which doctor was
+   fully green again.
 
 Vitest emits the existing non-failing missing source-map warning from the DSH
 primitives package.
 
-## LOC accounting
+## Size
 
-Against fixed point `1bb01fd`, excluding the lockfile, generated artifacts,
-ignored tracker files, and this report:
-
-| Category               | Additions | Deletions |
-| ---------------------- | --------: | --------: |
-| Product code           |     1,528 |       179 |
-| Tests                  |       900 |       316 |
-| Configuration and docs |       224 |        25 |
-| **Total**              | **2,652** |   **520** |
-
-The estimate was 1,070–1,820 changed lines. The material variance comes from
-the complete filesystem-safe runtime discovery, source validation, staging, and
-rollback path plus the required fixture and packed Loader coverage; no
-compatibility migration, live-state fallback, or unrelated optional feature was
-added.
+Against `1bb01fd`, excluding the lockfile and this report, the final diff is
+2,144 additions and 521 deletions (2,665 changed lines). The simplified sync
+removed 901 lines and added 392 relative to the previously reviewed branch:
+the marker protocol, global transaction, injected rename hooks, shim-text
+parser, and packed fake-DSH smoke were deleted.
 
 ## Acceptance result
 
-Tickets 01, 02, 03, and 04 and the complete spec are implemented and verified.
-The implementation is committed as `3d437a6`, `3e3e95c`, and `e9ca3b8`; the report update
-is committed separately. Code review and deployment were outside the
-Implementation worker's scope.
+The whole spec is implemented and verified. The final workflow uses content
+comparison plus explicit confirmation, keeps upstream DSH unchanged, and uses
+the NUC's real CLI for Linux integration verification.
