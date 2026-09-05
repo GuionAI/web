@@ -134,6 +134,101 @@ try {
   if (!help.stdout.includes("Search the web") || !help.stdout.includes("mcp"))
     throw new Error("installed web CLI did not start with its MCP command");
 
+  // Exercise the packed DSH commands through normal executable discovery.
+  // This graph is deliberately disposable: no source paths or live DSH_HOME
+  // are injected into the CLI, and the fake launcher points at an installed
+  // runtime-shaped package just as the official package manager does.
+  const fakeDshInstall = join(root, "fake-dsh-install");
+  const fakeDshBin = join(fakeDshInstall, "node_modules", ".bin");
+  const fakeDshRoot = join(
+    fakeDshInstall,
+    "node_modules",
+    "@deepseek-ai",
+    "dsh",
+  );
+  const fakePresetRoot = join(
+    fakeDshInstall,
+    "node_modules",
+    "@deepseek-ai",
+    "dsh-agent-presets",
+  );
+  const fakeDshHome = join(root, "dsh-home");
+  await mkdir(join(fakeDshRoot, "lib"), { recursive: true });
+  await mkdir(join(fakeDshBin), { recursive: true });
+  await writeFile(
+    join(fakeDshRoot, "package.json"),
+    JSON.stringify({ name: "@deepseek-ai/dsh", version: "0.1.2-rc.1" }) + "\n",
+  );
+  await writeFile(
+    join(fakeDshRoot, "lib", "bin.js"),
+    "// disposable DSH entry\n",
+  );
+  await writeFile(
+    join(fakeDshBin, "dsh"),
+    `#!/bin/sh
+exec ${JSON.stringify(process.execPath)} ${JSON.stringify(join(fakeDshRoot, "lib", "bin.js"))} "$@"
+`,
+  );
+  await chmod(join(fakeDshBin, "dsh"), 0o700);
+  await mkdir(fakePresetRoot, { recursive: true });
+  await writeFile(
+    join(fakePresetRoot, "package.json"),
+    JSON.stringify({
+      name: "@deepseek-ai/dsh-agent-presets",
+      version: "0.1.2-rc.1",
+    }) + "\n",
+  );
+  const packedComposition = (id, includeWeb) =>
+    [
+      `# ${id} packed composition`,
+      "- id: persona",
+      "  name: packed:persona",
+      ...(includeWeb
+        ? [
+            "",
+            "- id: tool-web",
+            "  name: '@deepseek-ai/dsh-tool-web'",
+            "  config:",
+            "    fetch: true",
+            "    searchTimeoutMs: 60000",
+          ]
+        : []),
+      "",
+      "- id: tail",
+      "  name: packed:tail",
+      "",
+    ].join("\n");
+  for (const id of ["standard", "ptc", "cordis", "minimal"]) {
+    const preset = join(fakePresetRoot, "presets", id);
+    await mkdir(preset, { recursive: true });
+    await writeFile(
+      join(preset, "agent.cordis.yml"),
+      packedComposition(id, id !== "minimal"),
+    );
+    await writeFile(
+      join(preset, "preset.yml"),
+      `name: Packed ${id}\ndescription: packed smoke fixture\norder: 1\n`,
+    );
+    await writeFile(join(preset, "prompt.md"), `packed prompt ${id}\n`);
+  }
+  const dshEnvironment = {
+    PATH: `${fakeDshBin}:${dirname(process.execPath)}:/usr/bin:/bin`,
+    HOME: join(root, "dsh-home-home"),
+    DSH_HOME: fakeDshHome,
+  };
+  const dshSync = await execFileAsync(binary, ["dsh", "sync"], {
+    cwd: root,
+    env: dshEnvironment,
+  });
+  if (!dshSync.stdout.includes("DSH managed presets created all four presets"))
+    throw new Error("packed web CLI could not sync managed DSH presets");
+  const dshDoctor = await execFileAsync(binary, ["dsh", "doctor"], {
+    cwd: root,
+    env: dshEnvironment,
+  });
+  if (!dshDoctor.stdout.includes("DSH doctor: OK"))
+    throw new Error("packed web CLI could not doctor managed DSH presets");
+
   const fakeBin = join(root, "fake-browser-bin");
   const fakeLog = join(root, "agent-browser.jsonl");
   await mkdir(fakeBin);

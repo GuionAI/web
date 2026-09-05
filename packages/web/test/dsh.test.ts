@@ -4,6 +4,7 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  rename,
   rm,
   stat,
   writeFile,
@@ -20,6 +21,7 @@ import {
   MANAGED_PRESET_IDS,
   formatDshDoctor,
   inspectManagedPresets,
+  resolveDshRuntime,
   syncManagedPresets,
   type DshPathOverrides,
 } from "../src/dsh.js";
@@ -195,10 +197,25 @@ describe("managed DSH presets", () => {
   it("fails closed for unsupported versions and unexpected source rows", async () => {
     const value = await fixture();
     try {
-      await expect(
-        syncManagedPresets({ ...value.options, sourcePackageVersion: "0.1.1" }),
-      ).rejects.toMatchObject({ code: "dsh-source-unsupported" });
+      await writeFile(
+        join(value.sourcePackageRoot, "package.json"),
+        JSON.stringify({
+          name: "@deepseek-ai/dsh-agent-presets",
+          version: "0.1.1",
+        }) + "\n",
+      );
+      await expect(syncManagedPresets(value.options)).rejects.toMatchObject({
+        code: "dsh-source-unsupported",
+      });
       expect(await stat(value.dshHome).catch(() => undefined)).toBeUndefined();
+
+      await writeFile(
+        join(value.sourcePackageRoot, "package.json"),
+        JSON.stringify({
+          name: "@deepseek-ai/dsh-agent-presets",
+          version: "0.1.2-rc.1",
+        }) + "\n",
+      );
 
       await writeFile(
         join(value.sourcePresetRoot, "standard", "agent.cordis.yml"),
@@ -277,6 +294,153 @@ describe("managed DSH presets", () => {
     }
   });
 
+  it("doctor compares every copied source file, including deletion and tampering", async () => {
+    const value = await fixture();
+    try {
+      await syncManagedPresets(value.options);
+      const standard = join(value.dshHome, ".agent-presets", "standard");
+      await rm(join(standard, "prompt.md"));
+      let report = await inspectManagedPresets(value.options);
+      expect(
+        report.presets.find((preset) => preset.id === "standard"),
+      ).toMatchObject({ status: "incomplete" });
+      expect(report.issues.join("\n")).toContain("missing: prompt.md");
+
+      await writeFile(join(standard, "prompt.md"), "tampered prompt\n");
+      report = await inspectManagedPresets(value.options);
+      expect(
+        report.presets.find((preset) => preset.id === "standard"),
+      ).toMatchObject({ status: "incomplete" });
+      expect(report.issues.join("\n")).toContain(
+        "differs from the official source: prompt.md",
+      );
+
+      await writeFile(
+        join(standard, "preset.yml"),
+        "name: Tampered\ndescription: still valid\norder: 1\n",
+      );
+      report = await inspectManagedPresets(value.options);
+      expect(
+        report.presets.find((preset) => preset.id === "standard"),
+      ).toMatchObject({ status: "incomplete" });
+      expect(report.issues.join("\n")).toContain(
+        "differs from the official source: preset.yml",
+      );
+    } finally {
+      await dispose(value);
+    }
+  });
+
+  it("aborts a same-id ownership race without deleting unknown data", async () => {
+    const value = await fixture();
+    try {
+      await syncManagedPresets(value.options);
+      const target = join(value.dshHome, ".agent-presets", "standard");
+      const original = join(value.root, "original-standard");
+      let raced = false;
+      await expect(
+        syncManagedPresets({
+          ...value.options,
+          hooks: {
+            beforeRename: async (event) => {
+              if (
+                !raced &&
+                event.id === "standard" &&
+                event.phase === "before-backup-rename"
+              ) {
+                raced = true;
+                await rename(target, original);
+                await mkdir(target);
+                await writeFile(join(target, "operator-data.txt"), "keep me\n");
+              }
+            },
+          },
+        }),
+      ).rejects.toMatchObject({ code: "dsh-preset-conflict" });
+      expect(await readFile(join(target, "operator-data.txt"), "utf8")).toBe(
+        "keep me\n",
+      );
+      expect(
+        JSON.parse(await readFile(join(original, MANAGED_MARKER_FILE), "utf8"))
+          .managedBy,
+      ).toBe("@guionai/web");
+      expect(await readdir(join(value.dshHome, ".agent-presets"))).toContain(
+        "standard",
+      );
+    } finally {
+      await dispose(value);
+    }
+  });
+
+  it("serializes concurrent syncs for one DSH_HOME", async () => {
+    const value = await fixture();
+    try {
+      let enteredResolve!: () => void;
+      const entered = new Promise<void>((resolve) => {
+        enteredResolve = resolve;
+      });
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let paused = false;
+      const firstRun = syncManagedPresets({
+        ...value.options,
+        hooks: {
+          beforeRename: async (event) => {
+            if (
+              !paused &&
+              event.id === "standard" &&
+              event.phase === "before-install-rename"
+            ) {
+              paused = true;
+              enteredResolve();
+              await gate;
+            }
+          },
+        },
+      });
+      await entered;
+      let secondDone = false;
+      const secondRun = syncManagedPresets(value.options).then((result) => {
+        secondDone = true;
+        return result;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(secondDone).toBe(false);
+      release();
+      const [first, second] = await Promise.all([firstRun, secondRun]);
+      expect(first.created).toEqual([...MANAGED_PRESET_IDS]);
+      expect(second.replaced).toEqual([...MANAGED_PRESET_IDS]);
+      expect(
+        (await readdir(join(value.dshHome, ".agent-presets"))).sort(),
+      ).toEqual([...MANAGED_PRESET_IDS].sort());
+    } finally {
+      await dispose(value);
+    }
+  });
+
+  it("rolls back newly installed targets after a mid-swap failure", async () => {
+    const value = await fixture();
+    try {
+      let installs = 0;
+      await expect(
+        syncManagedPresets({
+          ...value.options,
+          hooks: {
+            beforeRename: (event) => {
+              if (event.phase === "after-install-rename" && ++installs === 2)
+                throw new Error("injected mid-swap failure");
+            },
+          },
+        }),
+      ).rejects.toThrow("injected mid-swap failure");
+      expect(await readdir(join(value.dshHome, ".agent-presets"))).toEqual([]);
+    } finally {
+      await dispose(value);
+    }
+  });
+
   it("exposes sync and doctor through the runner with fixture-owned paths", async () => {
     const value = await fixture();
     try {
@@ -324,17 +488,23 @@ describe("managed DSH presets", () => {
     }
   });
 
-  it("classifies a direct source fixture without requiring an installed manifest", async () => {
+  it("requires the official source package manifest and version", async () => {
     const value = await fixture();
     try {
-      const runtime = await (
-        await import("../src/dsh.js")
-      ).resolveDshRuntime({
+      const runtime = await resolveDshRuntime({
         sourcePresetRoot: value.sourcePresetRoot,
         dshHome: value.dshHome,
       });
       expect(runtime.sourcePresetRoot).toBe(value.sourcePresetRoot);
       expect(runtime.sourcePackageName).toBe("@deepseek-ai/dsh-agent-presets");
+
+      await rm(join(value.sourcePackageRoot, "package.json"));
+      await expect(
+        resolveDshRuntime({
+          sourcePresetRoot: value.sourcePresetRoot,
+          dshHome: value.dshHome,
+        }),
+      ).rejects.toMatchObject({ code: "dsh-source-invalid" });
     } finally {
       await dispose(value);
     }
