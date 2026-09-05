@@ -1,6 +1,13 @@
 import { Command } from "commander";
 
 import { createMcpCommand } from "./mcp.js";
+import {
+  doctorManagedPresets,
+  formatDshDoctor,
+  formatDshSync,
+  syncManagedPresets,
+  type DshPathOverrides,
+} from "./dsh.js";
 import { parseHttpPort, startHttpServer } from "./serve.js";
 import { DEFAULT_HTTP_HOST, DEFAULT_HTTP_PORT } from "./serve.js";
 import { WEB_PACKAGE_VERSION } from "./version.js";
@@ -19,6 +26,8 @@ export type ProgramDependencies = {
   operations: WebOperations;
   credentials: () => WebCredentials;
   writeOut?: (text: string) => void;
+  /** Optional explicit DSH paths used by tests and embedded callers. */
+  dsh?: DshPathOverrides;
 };
 
 export function createProgram(dependencies: ProgramDependencies): Command {
@@ -36,9 +45,36 @@ export function createProgram(dependencies: ProgramDependencies): Command {
     .addCommand(createLinksCommand(dependencies))
     .addCommand(createDocsCommand(dependencies))
     .addCommand(createSGraphCommand(dependencies))
+    .addCommand(createDshCommand(dependencies))
     .addCommand(createServeCommand(dependencies))
     .addCommand(createMcpCommand(dependencies));
   return program;
+}
+
+function createDshCommand(dependencies: ProgramDependencies): Command {
+  const writeOut =
+    dependencies.writeOut ?? ((text: string) => process.stdout.write(text));
+  const options = dependencies.dsh ?? {};
+  return new Command("dsh")
+    .description("Synchronize and diagnose Guion-managed DSH presets")
+    .addCommand(
+      new Command("sync")
+        .description("Create or refresh compatible stock-equivalent presets")
+        .action(async () => {
+          const result = await syncManagedPresets(options);
+          writeOut(formatDshSync(result));
+        }),
+    )
+    .addCommand(
+      new Command("doctor")
+        .description("Check managed preset health without changing files")
+        .action(async () => {
+          const report = await doctorManagedPresets(options);
+          writeOut(formatDshDoctor(report));
+          if (!report.ok)
+            throw new Error("DSH managed preset doctor found problems");
+        }),
+    );
 }
 
 function createServeCommand(dependencies: ProgramDependencies): Command {

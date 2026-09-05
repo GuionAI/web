@@ -1,16 +1,30 @@
-# rc.1 stock Web has one configured search provider and no fetch provider.
-# Replace only that complete service config; the PTC preset remains untouched.
+# Guion owns the complete model-facing Research Surface. Disable every stock
+# Web owner so no profile can register a second provider, fetch backend, or
+# scoped tool suite beside it.
 - id: web
-  name: "@deepseek-ai/dsh-web"
-  config:
-    searchProvider: guionai-web-search
+  disabled: true
 
-# The root model-facing tool is intentionally disabled. PTC owns its native
-# batched web_search surface and reaches the provider through ctx.web.
+- id: web-search-deepseek
+  disabled: true
+
+- id: web-fetch-http
+  disabled: true
+
 - id: tool-web
   disabled: true
+
+# DSH prepends its shipped preset root and lets it win duplicate ids by
+# design. Guion-managed same-id copies therefore become active only when the
+# shipped root is disabled; the user root remains enabled so Yuki and other
+# ordinary user presets stay visible.
+- id: agent-presets
+  name: "@deepseek-ai/dsh-agent-presets"
+  config:
+    includeShippedRoot: false
+    includeUserRoot: true
+    default: standard
 
 - insert:
     - id: guionai-dsh-web
       name: "@guionai/dsh-web"
-      inject: [web, credentials, settings, tools]
+      inject: [credentials, settings, tools]

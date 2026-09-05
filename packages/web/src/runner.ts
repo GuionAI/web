@@ -1,4 +1,5 @@
 import { createProgram } from "./program.js";
+import type { DshPathOverrides } from "./dsh.js";
 import {
   FetchCapabilityError,
   type WebCredentials,
@@ -8,6 +9,8 @@ import {
 export type CliDependencies = {
   operations: WebOperations;
   credentials: () => WebCredentials;
+  /** Optional test-owned DSH runtime/home seam for `web dsh` commands. */
+  dsh?: DshPathOverrides;
 };
 
 export type CliOutput = {

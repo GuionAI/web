@@ -83,9 +83,7 @@ describe("DSH settings client credential surface", () => {
   });
 
   it("shadows the host fetch view and registers dedicated views for links and docs", () => {
-    const registrations: Array<{ key: string; priority?: number }> = [
-      { key: "web_fetch", priority: 0 },
-    ];
+    const registrations: Array<{ key: string; priority?: number }> = [];
     const fixture = fakeApi();
     const ctx = {
       effect: (_execute: () => () => void) => () => undefined,
@@ -132,9 +130,9 @@ describe("DSH settings client credential surface", () => {
     expect(
       registrations.map(({ key, priority }) => ({ key, priority })),
     ).toEqual([
-      { key: "web_fetch", priority: 0 },
       { key: SETTINGS_NAMESPACE },
-      { key: "web_fetch", priority: -1 },
+      { key: "web_search" },
+      { key: "web_fetch" },
       { key: "web_links" },
       { key: "web_docs" },
     ]);

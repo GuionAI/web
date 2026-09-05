@@ -1,5 +1,4 @@
 export const SETTINGS_NAMESPACE = "guionai-web" as const;
-export const SEARCH_PROVIDER_ID = "guionai-web-search" as const;
 
 export {
   DEFAULT_KEPOS_BRIDGE_ENDPOINT,

@@ -18,6 +18,8 @@ import {
   type SGraphResult,
   type KeposBridgeResponse,
   type WebOperations,
+  type SearchCredentials,
+  type SearchResponse,
 } from "@guionai/web-core";
 import {
   credentialRef,
@@ -27,7 +29,13 @@ import {
 import type { Context } from "@deepseek-ai/cordis";
 import { defineTool, type ToolDefinition } from "@deepseek-ai/dsh-tools";
 
-import { CONTEXT7_CREDENTIAL_REF } from "./contract.js";
+import {
+  BRAVE_CREDENTIAL_REF,
+  CONTEXT7_CREDENTIAL_REF,
+  DEEPSEEK_CREDENTIAL_REF,
+  EXA_CREDENTIAL_REF,
+  type SearchProviderName,
+} from "./contract.js";
 
 export interface WebToolDependencies {
   credentials: {
@@ -35,8 +43,70 @@ export interface WebToolDependencies {
   };
   /** Reads the current validated bridge endpoint when a Kepos tool executes. */
   getKeposBridgeEndpoint: () => string;
+  /** Reads the selected provider from the live settings scope per search. */
+  getProvider?: () => SearchProviderName;
   operations?: WebOperations;
 }
+
+const searchParameters = {
+  queries: {
+    type: "array",
+    required: true,
+    description: "One to four web search queries",
+    items: {
+      type: "string",
+      description: "A non-empty web search query",
+    },
+  },
+} as const;
+
+type SearchToolResult = SearchResponse & {
+  errors?: Array<{ query: string; error: string }>;
+};
+
+const searchOutput = {
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      provider: { type: "string", required: true },
+      results: {
+        type: "array",
+        required: true,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            title: { type: "string", required: true },
+            link: { type: "string", required: true },
+            snippet: { type: "string", required: true },
+            position: { type: "integer", required: true },
+          },
+        },
+      },
+      errors: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            query: { type: "string", required: true },
+            error: { type: "string", required: true },
+          },
+        },
+      },
+    },
+  } as const,
+  render: (_args: unknown, value: SearchToolResult) => [
+    {
+      type: "text" as const,
+      text: boundedToolText(
+        formatSearch(value),
+        "Use a narrower search query to reduce results.",
+      ),
+    },
+  ],
+};
 
 const fetchParameters = {
   url: {
@@ -450,6 +520,193 @@ type RenderOptions =
 function normalizeDocs(input: unknown): DocsToolInput {
   if (!isRecord(input)) throw new Error("web_docs input must be an object");
   return normalizeDocsToolInput(input);
+}
+
+function requireSearchQueries(input: unknown): string[] {
+  if (!isRecord(input))
+    throw new Error("queries must be an array of 1 to 4 non-empty strings");
+  rejectUnknownFields(input, ["queries"], "web_search");
+  if (!Array.isArray(input.queries))
+    throw new Error("queries must be an array of 1 to 4 non-empty strings");
+  if (input.queries.length < 1 || input.queries.length > 4)
+    throw new Error("queries must be an array of 1 to 4 non-empty strings");
+
+  const queries: string[] = [];
+  for (const value of input.queries) {
+    if (typeof value !== "string" || value.trim().length === 0)
+      throw new Error("queries must be an array of 1 to 4 non-empty strings");
+    const query = value.trim();
+    if (!queries.includes(query)) queries.push(query);
+  }
+  if (queries.length < 1 || queries.length > 4)
+    throw new Error("queries must be an array of 1 to 4 non-empty strings");
+  return queries;
+}
+
+function searchCredential(
+  provider: SearchProviderName,
+): { ref: CredentialRef; field: keyof SearchCredentials } | undefined {
+  switch (provider) {
+    case "exa":
+      return {
+        ref: credentialRef(EXA_CREDENTIAL_REF),
+        field: "exaApiKey",
+      };
+    case "brave":
+      return {
+        ref: credentialRef(BRAVE_CREDENTIAL_REF),
+        field: "braveApiKey",
+      };
+    case "deepseek":
+      return {
+        ref: credentialRef(DEEPSEEK_CREDENTIAL_REF),
+        field: "deepseekApiKey",
+      };
+    case "kepos-bridge":
+      return undefined;
+  }
+}
+
+function searchCredentials(
+  field: keyof SearchCredentials,
+  value: string,
+): SearchCredentials {
+  switch (field) {
+    case "exaApiKey":
+      return { exaApiKey: value };
+    case "braveApiKey":
+      return { braveApiKey: value };
+    case "deepseekApiKey":
+      return { deepseekApiKey: value };
+  }
+}
+
+function errorMessage(reason: unknown, secret?: string): string {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  return secret !== undefined && message.includes(secret)
+    ? "search request failed"
+    : message || "web search failed";
+}
+
+async function executeSearchQuery(
+  query: string,
+  signal: AbortSignal | undefined,
+  dependencies: WebToolDependencies,
+  operations: WebOperations,
+): Promise<SearchResponse> {
+  if (signal?.aborted) throw new Error("Operation aborted");
+  const provider = dependencies.getProvider?.() ?? "exa";
+  const credential = searchCredential(provider);
+  let resolved: ResolvedCredential | undefined;
+  if (credential !== undefined) {
+    try {
+      resolved = await dependencies.credentials.resolve(credential.ref);
+    } catch {
+      throw new Error(`${provider} credential resolution failed`);
+    }
+  }
+  if (signal?.aborted) throw new Error("Operation aborted");
+  const credentials =
+    credential === undefined || resolved === undefined
+      ? {}
+      : searchCredentials(credential.field, resolved.value);
+  const input = {
+    query,
+    provider,
+    credentials,
+    signal,
+    ...(provider === "kepos-bridge"
+      ? { keposBridgeEndpoint: dependencies.getKeposBridgeEndpoint() }
+      : {}),
+  };
+  try {
+    return await operations.search(input);
+  } catch (error) {
+    if (
+      signal?.aborted ||
+      (error instanceof Error && error.message === "Operation aborted")
+    )
+      throw new Error("Operation aborted");
+    throw new Error(errorMessage(error, resolved?.value));
+  }
+}
+
+function mergeSearchResults(responses: SearchResponse[]): SearchResponse {
+  const results: SearchResponse["results"] = [];
+  for (let resultIndex = 0; ; resultIndex += 1) {
+    let added = false;
+    for (const response of responses) {
+      const result = response.results[resultIndex];
+      if (result === undefined) continue;
+      results.push({ ...result, position: results.length + 1 });
+      added = true;
+    }
+    if (!added) return { provider: responses[0]?.provider ?? "", results };
+  }
+}
+
+function formatSearch(value: SearchToolResult): string {
+  const lines = value.results.map(
+    (result) =>
+      `${result.position}. ${result.title}\n   URL: ${result.link}\n   ${result.snippet}`,
+  );
+  const failures =
+    value.errors === undefined || value.errors.length === 0
+      ? ""
+      : `\n\nSearch failures:\n${value.errors.map((failure) => `- ${JSON.stringify(failure.query)}: ${failure.error}`).join("\n")}`;
+  if (lines.length === 0) return `No search results.${failures}`;
+  return `Found ${lines.length} search results (provider: ${value.provider}):\n\n${lines.join("\n\n")}${failures}`;
+}
+
+function webSearchTool(
+  dependencies: WebToolDependencies,
+  operations: WebOperations,
+): ToolDefinition {
+  return strictDefinition(
+    defineTool({
+      name: "web_search",
+      description:
+        "Search the web for current facts. Provide one to four queries; repeated queries are merged and model-facing text is bounded.",
+      parameters: searchParameters,
+      output: searchOutput,
+      isConcurrencySafe: () => true,
+      async execute(args, exec) {
+        const queries = requireSearchQueries(args);
+        const settled = await Promise.allSettled(
+          queries.map((query) =>
+            executeSearchQuery(query, exec.signal, dependencies, operations),
+          ),
+        );
+        if (exec.signal.aborted) throw new Error("Operation aborted");
+
+        const responses: SearchResponse[] = [];
+        const errors: Array<{ query: string; error: string }> = [];
+        for (const [index, result] of settled.entries()) {
+          if (result.status === "fulfilled") responses.push(result.value);
+          else
+            errors.push({
+              query: queries[index]!,
+              error: errorMessage(result.reason),
+            });
+        }
+        if (responses.length === 0) {
+          throw new Error(
+            `web search failed for all queries:\n${errors
+              .map(
+                (failure) =>
+                  `- ${JSON.stringify(failure.query)}: ${failure.error}`,
+              )
+              .join("\n")}`,
+          );
+        }
+        const merged = mergeSearchResults(responses);
+        return {
+          ...merged,
+          ...(errors.length > 0 ? { errors } : {}),
+        } satisfies SearchToolResult;
+      },
+    }),
+  );
 }
 
 async function context7Credentials(
@@ -897,9 +1154,16 @@ function webTimeTool(
 
 export function createWebToolDefinitions(
   dependencies: WebToolDependencies,
-): readonly [ToolDefinition, ToolDefinition, ToolDefinition, ToolDefinition] {
+): readonly [
+  ToolDefinition,
+  ToolDefinition,
+  ToolDefinition,
+  ToolDefinition,
+  ToolDefinition,
+] {
   const operations = dependencies.operations ?? createWebOperations();
   return [
+    webSearchTool(dependencies, operations),
     webFetchTool(dependencies, operations),
     webLinksTool(dependencies, operations),
     webDocsTool(dependencies, operations),

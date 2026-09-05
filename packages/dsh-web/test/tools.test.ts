@@ -6,6 +6,7 @@ import {
 } from "@guionai/web-core";
 
 import {
+  BRAVE_CREDENTIAL_REF,
   CONTEXT7_CREDENTIAL_REF,
   DEFAULT_KEPOS_BRIDGE_ENDPOINT,
 } from "../src/contract.js";
@@ -40,7 +41,7 @@ function dependencies(
 }
 
 describe("DSH direct web tools", () => {
-  it("registers fetch, links, docs, and Sourcegraph tools with current schemas and concurrent execution", () => {
+  it("registers the complete research suite with current schemas and concurrency metadata", () => {
     const definitions = createWebToolDefinitions(dependencies());
     const registered: ToolDefinition[] = [];
     registerWebTools(
@@ -55,65 +56,322 @@ describe("DSH direct web tools", () => {
       dependencies(),
     );
     expect(definitions.map((definition) => definition.name)).toEqual([
+      "web_search",
       "web_fetch",
       "web_links",
       "web_docs",
       "web_source_search",
     ]);
     expect(registered.map((definition) => definition.name)).toEqual([
+      "web_search",
       "web_fetch",
       "web_links",
       "web_docs",
       "web_source_search",
     ]);
     expect([
-      definitions[0]!.isConcurrencySafe?.({ url: "https://example.test" }),
-      definitions[1]!.isConcurrencySafe?.({
+      definitions[0]!.isConcurrencySafe?.({ queries: ["latest"] }),
+      definitions[1]!.isConcurrencySafe?.({ url: "https://example.test" }),
+      definitions[2]!.isConcurrencySafe?.({
         url: "https://example.test",
         render: "browser",
         waitMs: 0,
       }),
-      definitions[2]!.isConcurrencySafe?.({
+      definitions[3]!.isConcurrencySafe?.({
         action: "resolve",
         query: "react",
       }),
-      definitions[3]!.isConcurrencySafe?.({ query: "repo:guionai" }),
-    ]).toEqual([true, true, true, true]);
+      definitions[4]!.isConcurrencySafe?.({ query: "repo:guionai" }),
+    ]).toEqual([true, true, true, true, true]);
     expect((definitions[0]!.parameters as any).additionalProperties).toBe(
       false,
     );
-    expect((definitions[0]!.parameters as any).properties.render.enum).toEqual([
-      "http",
-      "browser",
-    ]);
-    expect((definitions[0]!.parameters as any).properties.mode.enum).toEqual([
-      "auto",
-      "full",
-      "tree",
-    ]);
-    expect((definitions[0]!.parameters as any).properties.waitMs.type).toBe(
-      "integer",
+    expect((definitions[0]!.parameters as any).properties.queries.type).toBe(
+      "array",
     );
-    expect((definitions[1]!.parameters as any).properties.limit.default).toBe(
-      100,
+    expect((definitions[1]!.parameters as any).additionalProperties).toBe(
+      false,
     );
     expect((definitions[1]!.parameters as any).properties.render.enum).toEqual([
       "http",
       "browser",
     ]);
-    expect((definitions[2]!.parameters as any).properties.action.enum).toEqual([
+    expect((definitions[1]!.parameters as any).properties.mode.enum).toEqual([
+      "auto",
+      "full",
+      "tree",
+    ]);
+    expect((definitions[1]!.parameters as any).properties.waitMs.type).toBe(
+      "integer",
+    );
+    expect((definitions[2]!.parameters as any).properties.limit.default).toBe(
+      100,
+    );
+    expect((definitions[2]!.parameters as any).properties.render.enum).toEqual([
+      "http",
+      "browser",
+    ]);
+    expect((definitions[3]!.parameters as any).properties.action.enum).toEqual([
       "resolve",
       "fetch",
     ]);
-    expect(Object.keys((definitions[3]!.parameters as any).properties)).toEqual(
+    expect(Object.keys((definitions[4]!.parameters as any).properties)).toEqual(
       ["query", "count", "context", "timeout"],
     );
+  });
+
+  it("trims and deduplicates queries, runs them concurrently, and keeps partial results", async () => {
+    const pending = new Map<
+      string,
+      {
+        promise: Promise<{
+          provider: "Brave";
+          results: Array<{
+            title: string;
+            link: string;
+            snippet: string;
+            position: number;
+          }>;
+        }>;
+        resolve: (value: {
+          provider: "Brave";
+          results: Array<{
+            title: string;
+            link: string;
+            snippet: string;
+            position: number;
+          }>;
+        }) => void;
+        reject: (reason?: unknown) => void;
+      }
+    >();
+    const deferred = () => {
+      let resolve!: (value: {
+        provider: "Brave";
+        results: Array<{
+          title: string;
+          link: string;
+          snippet: string;
+          position: number;
+        }>;
+      }) => void;
+      let reject!: (reason?: unknown) => void;
+      const promise = new Promise<{
+        provider: "Brave";
+        results: Array<{
+          title: string;
+          link: string;
+          snippet: string;
+          position: number;
+        }>;
+      }>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+      });
+      return { promise, resolve, reject };
+    };
+    const calls: Array<{
+      query: string;
+      provider: unknown;
+      signal?: AbortSignal;
+    }> = [];
+    const search = vi.fn((input: any) => {
+      calls.push({
+        query: input.query,
+        provider: input.provider,
+        signal: input.signal,
+      });
+      const value = deferred();
+      pending.set(input.query, value);
+      return value.promise;
+    });
+    const controller = new AbortController();
+    const [tool] = createWebToolDefinitions(
+      dependencies({
+        getProvider: () => "brave",
+        credentials: {
+          resolve: async (ref) => {
+            expect(ref).toBe(BRAVE_CREDENTIAL_REF);
+            return { value: "brave-secret", source: "test" };
+          },
+        },
+        operations: operations({ search }),
+      }),
+    );
+    const resultPromise = call(
+      tool!,
+      { queries: [" first ", "second", " first", "third"] },
+      controller.signal,
+    );
+    await Promise.resolve();
+    expect(calls.map(({ query }) => query)).toEqual([
+      "first",
+      "second",
+      "third",
+    ]);
+    expect(
+      calls.every(
+        ({ provider, signal }) =>
+          provider === "brave" && signal === controller.signal,
+      ),
+    ).toBe(true);
+    pending.get("second")!.resolve({
+      provider: "Brave",
+      results: [
+        { title: "B1", link: "https://b/1", snippet: "b", position: 1 },
+      ],
+    });
+    pending.get("third")!.reject(new Error("fixture unavailable"));
+    pending.get("first")!.resolve({
+      provider: "Brave",
+      results: [
+        { title: "A1", link: "https://a/1", snippet: "a", position: 1 },
+        { title: "A2", link: "https://a/2", snippet: "a", position: 2 },
+      ],
+    });
+    await expect(resultPromise).resolves.toMatchObject({
+      provider: "Brave",
+      results: [
+        { title: "A1", position: 1 },
+        { title: "B1", position: 2 },
+        { title: "A2", position: 3 },
+      ],
+      errors: [{ query: "third", error: "fixture unavailable" }],
+    });
+  });
+
+  it("rejects invalid search arguments and accepts trimmed non-empty queries", async () => {
+    const search = vi.fn(async () => ({
+      provider: "Exa" as const,
+      results: [],
+    }));
+    const [tool] = createWebToolDefinitions(
+      dependencies({ operations: operations({ search }) }),
+    );
+
+    await expect(
+      call(tool!, { queries: [" \t trimmed query \n"] }),
+    ).resolves.toEqual({ provider: "Exa", results: [] });
+    expect(search).toHaveBeenCalledWith(
+      expect.objectContaining({ query: "trimmed query" }),
+    );
+    search.mockClear();
+
+    for (const queries of [
+      [],
+      ["one", "two", "three", "four", "five"],
+      ["   "],
+      ["one", "\t"],
+    ]) {
+      await expect(call(tool!, { queries })).rejects.toThrow(
+        "queries must be an array of 1 to 4 non-empty strings",
+      );
+    }
+    await expect(
+      call(tool!, { queries: ["one"], unexpected: true }),
+    ).rejects.toThrow(/does not accept field unexpected/);
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it("forwards search cancellation and reports the final aborted outcome", async () => {
+    const controller = new AbortController();
+    let resolveStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
+    let receivedSignal: AbortSignal | undefined;
+    const search = vi.fn(
+      (input: { signal?: AbortSignal }) =>
+        new Promise<never>((_resolve, reject) => {
+          receivedSignal = input.signal;
+          resolveStarted();
+          input.signal?.addEventListener(
+            "abort",
+            () => reject(new Error("Operation aborted")),
+            { once: true },
+          );
+        }),
+    );
+    const [tool] = createWebToolDefinitions(
+      dependencies({ operations: operations({ search }) }),
+    );
+
+    const pending = call(tool!, { queries: ["cancel me"] }, controller.signal);
+    await started;
+    expect(receivedSignal).toBe(controller.signal);
+    controller.abort();
+    await expect(pending).rejects.toThrow("Operation aborted");
+  });
+
+  it("bounds model-facing search rendering", () => {
+    const [tool] = createWebToolDefinitions(dependencies());
+    const marker = "search-render-tail-marker";
+    const blocks = tool!.output.render(
+      { queries: ["large"] },
+      {
+        provider: "Exa",
+        results: [
+          {
+            title: "Large result",
+            link: "https://example.test/large",
+            snippet: `${"x".repeat(60_000)}${marker}`,
+            position: 1,
+          },
+        ],
+      },
+    );
+    const text = blocks[0]?.type === "text" ? blocks[0].text : "";
+
+    expect(text).toContain("[Truncated:");
+    expect(text).not.toContain(marker);
+    expect(Buffer.byteLength(text, "utf8")).toBeLessThan(50 * 1024);
+  });
+
+  it("reports every failure when no search query succeeds and reads live provider credentials", async () => {
+    let provider: "exa" | "brave" = "exa";
+    const refs: string[] = [];
+    const search = vi.fn(async () => {
+      throw new Error("provider unavailable");
+    });
+    const [tool] = createWebToolDefinitions(
+      dependencies({
+        getProvider: () => provider,
+        credentials: {
+          resolve: async (ref) => {
+            refs.push(ref);
+            return { value: `${provider}-secret`, source: "test" };
+          },
+        },
+        operations: operations({ search }),
+      }),
+    );
+    await expect(call(tool!, { queries: ["one", "two"] })).rejects.toThrow(
+      'web search failed for all queries:\n- "one": provider unavailable\n- "two": provider unavailable',
+    );
+    provider = "brave";
+    await expect(call(tool!, { queries: ["three"] })).rejects.toThrow(
+      "provider unavailable",
+    );
+    expect(refs).toEqual([
+      "GUIONAI_DSH_WEB_EXA_API_KEY",
+      "GUIONAI_DSH_WEB_EXA_API_KEY",
+      BRAVE_CREDENTIAL_REF,
+    ]);
+    expect(
+      search.mock.calls.map(
+        (call) => ((call as unknown as unknown[])[0] as any).credentials,
+      ),
+    ).toEqual([
+      { exaApiKey: "exa-secret" },
+      { exaApiKey: "exa-secret" },
+      { braveApiKey: "brave-secret" },
+    ]);
   });
 
   it("calls the bundled operations once with current direct inputs and caller cancellation", async () => {
     const calls: unknown[] = [];
     const controller = new AbortController();
-    const [fetch, links, docs, sgraph] = createWebToolDefinitions(
+    const [, fetch, links, docs, sgraph] = createWebToolDefinitions(
       dependencies({
         operations: operations({
           fetch: async (input, abortSignal) => {
@@ -263,7 +521,7 @@ describe("DSH direct web tools", () => {
   });
 
   it("preserves shared fetch validation, cancellation, and structured renderer failures", async () => {
-    const fetch = createWebToolDefinitions(dependencies())[0]!;
+    const fetch = createWebToolDefinitions(dependencies())[1]!;
     await expect(
       call(fetch, {
         url: "https://example.test",
@@ -330,7 +588,7 @@ describe("DSH direct web tools", () => {
             }),
         }),
       }),
-    )[0]!;
+    )[1]!;
     const pending = call(
       cancel,
       { url: "https://example.test", render: "http" },
@@ -348,7 +606,7 @@ describe("DSH direct web tools", () => {
           },
         }),
       }),
-    )[0]!;
+    )[1]!;
     await expect(
       call(retryDefinition, {
         url: "https://example.test",
@@ -370,7 +628,7 @@ describe("DSH direct web tools", () => {
           },
         }),
       }),
-    )[0]!;
+    )[1]!;
     await expect(
       call(allowlistDefinition, {
         url: "https://example.test",
@@ -404,7 +662,7 @@ describe("DSH direct web tools", () => {
           },
         }),
       }),
-    )[2]!;
+    )[3]!;
     await expect(
       call(docs, { action: "fetch", library_id: "/react" }),
     ).rejects.toThrow("web docs fetch failed");
@@ -417,7 +675,7 @@ describe("DSH direct web tools", () => {
     const fetch = vi.fn();
     const links = vi.fn();
     const docsResolve = vi.fn();
-    const [fetchTool, linksTool, docsTool, sgraphTool] =
+    const [, fetchTool, linksTool, docsTool, sgraphTool] =
       createWebToolDefinitions(
         dependencies({ operations: operations({ fetch, links, docsResolve }) }),
       );
@@ -631,7 +889,7 @@ describe("DSH direct web tools", () => {
       content: "fixture",
       truncated: false,
     }));
-    const [fetchTool] = createWebToolDefinitions(
+    const [, fetchTool] = createWebToolDefinitions(
       dependencies({ operations: operations({ fetch }) }),
     );
     await expect(call(fetchTool!, { url: " " })).resolves.toMatchObject({

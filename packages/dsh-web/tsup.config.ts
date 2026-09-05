@@ -16,7 +16,6 @@ const dshExternals = [
   "@deepseek-ai/dsh-credentials",
   "@deepseek-ai/dsh-settings",
   "@deepseek-ai/dsh-tools",
-  "@deepseek-ai/dsh-web",
   "@deepseek-ai/schemastery",
 ];
 
