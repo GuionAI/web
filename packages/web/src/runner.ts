@@ -11,6 +11,7 @@ export type CliDependencies = {
   credentials: () => WebCredentials;
   /** Optional test-owned DSH runtime/home seam for `web dsh` commands. */
   dsh?: DshPathOverrides;
+  confirmDshOverwrite?: (ids: readonly string[]) => boolean | Promise<boolean>;
 };
 
 export type CliOutput = {

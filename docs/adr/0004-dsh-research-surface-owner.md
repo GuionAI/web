@@ -35,16 +35,17 @@ to take effect.
 `@deepseek-ai/dsh-agent-presets@0.1.2-rc.1` tree and writes full snapshots of
 `standard`, `ptc`, `cordis`, and `minimal` under the user preset root. It
 removes only the expected top-level official `tool-web` row from the first
-three and marks every output with its source version and identity. Sync may
-replace only its marked outputs; it refuses unmarked same-id directories and
-never edits the shipped package or ordinary user presets. `web dsh doctor`
-performs the corresponding read-only checks.
+three. Sync compares existing directories with the official and compatible
+trees, refreshes exact matches automatically, and requires interactive
+confirmation or `--yes` before replacing modified same-id content. It never
+edits the shipped package. `web dsh doctor` performs the corresponding
+read-only checks.
 
 ## Consequences
 
 Provider selection and credentials remain one live Guion settings surface, and
 native and PTC calls receive the same registered tools. Official shipped
-presets remain deployment-owned and untouched; their same-id managed copies
+presets remain deployment-owned and untouched; their same-id compatible copies
 are the supported path because the bundle hides the shipped root while
 retaining Yuki and other ordinary user presets. Existing sessions, credentials,
 and deployed profiles are not migrated automatically. Runtime upgrades require

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   cp,
   lstat,
@@ -21,18 +20,14 @@ import { parseDocument, type Document } from "yaml";
 export const SUPPORTED_DSH_VERSION = "0.1.2-rc.1" as const;
 export const OFFICIAL_PRESET_PACKAGE =
   "@deepseek-ai/dsh-agent-presets" as const;
-export const MANAGED_PRESET_IDS = [
+export const COMPATIBLE_PRESET_IDS = [
   "standard",
   "ptc",
   "cordis",
   "minimal",
 ] as const;
-export type ManagedPresetId = (typeof MANAGED_PRESET_IDS)[number];
+export type CompatiblePresetId = (typeof COMPATIBLE_PRESET_IDS)[number];
 
-/** The file which establishes that a preset directory is replaceable by Guion. */
-export const MANAGED_MARKER_FILE = ".guion-managed.json" as const;
-const MANAGED_MARKER_VERSION = 1 as const;
-const MANAGED_BY = "@guionai/web" as const;
 const USER_PRESET_DIRECTORY = ".agent-presets" as const;
 
 /**
@@ -40,28 +35,6 @@ const USER_PRESET_DIRECTORY = ".agent-presets" as const;
  * When omitted, sync and doctor discover the installed `dsh` executable and
  * use the same DSH_HOME precedence as the official harness.
  */
-export type DshRenamePhase =
-  | "before-backup-rename"
-  | "after-backup-rename"
-  | "before-install-rename"
-  | "after-install-rename"
-  | "before-backup-delete";
-
-export interface DshRenameEvent {
-  readonly id: ManagedPresetId;
-  readonly phase: DshRenamePhase;
-  readonly target: string;
-  readonly staged?: string;
-  readonly backup?: string;
-}
-
-export interface DshSyncHooks {
-  /** A test-owned seam for deterministic filesystem races and failures. */
-  readonly beforeRename?:
-    | ((event: DshRenameEvent) => void | Promise<void>)
-    | undefined;
-}
-
 export interface DshPathOverrides {
   dshExecutable?: string;
   dshHome?: string;
@@ -69,7 +42,13 @@ export interface DshPathOverrides {
   sourcePresetRoot?: string;
   userPresetRoot?: string;
   environment?: NodeJS.ProcessEnv;
-  hooks?: DshSyncHooks;
+}
+
+export interface DshSyncOptions {
+  readonly yes?: boolean;
+  readonly confirmOverwrite?: (
+    ids: readonly CompatiblePresetId[],
+  ) => boolean | Promise<boolean>;
 }
 
 export interface DshRuntimeInfo {
@@ -80,19 +59,18 @@ export interface DshRuntimeInfo {
   readonly sourcePresetRoot: string;
   readonly sourcePackageName: typeof OFFICIAL_PRESET_PACKAGE;
   readonly sourcePackageVersion: typeof SUPPORTED_DSH_VERSION;
-  readonly sourceIdentity: string;
 }
 
 export interface DshSyncResult {
   readonly runtime: DshRuntimeInfo;
-  readonly ids: readonly ManagedPresetId[];
-  readonly replaced: readonly ManagedPresetId[];
-  readonly created: readonly ManagedPresetId[];
+  readonly ids: readonly CompatiblePresetId[];
+  readonly replaced: readonly CompatiblePresetId[];
+  readonly created: readonly CompatiblePresetId[];
 }
 
 export interface DshDoctorPreset {
-  readonly id: ManagedPresetId;
-  readonly status: "ok" | "missing" | "incomplete" | "conflict" | "stale";
+  readonly id: CompatiblePresetId;
+  readonly status: "ok" | "missing" | "conflict" | "stale";
   readonly detail?: string;
 }
 
@@ -172,31 +150,19 @@ async function canonicalPath(path: string): Promise<string> {
 }
 
 async function packageRootForExecutable(executable: string): Promise<string> {
-  let resolvedExecutable = await canonicalPath(executable);
-  // npm and pnpm expose `dsh` as a generated POSIX wrapper rather than a
-  // symlink. Read the wrapper's absolute Node entry so discovery follows the
-  // runtime actually selected by PATH.
-  try {
-    const launcher = await readFile(resolvedExecutable, "utf8");
-    const suffix = "/node_modules/@deepseek-ai/dsh/lib/bin.js";
-    const suffixAt = launcher.indexOf(suffix);
-    if (suffixAt >= 0) {
-      let tokenStart = suffixAt;
-      while (tokenStart > 0 && !/\s|["'`]/.test(launcher[tokenStart - 1]!))
-        tokenStart -= 1;
-      const token = launcher.slice(tokenStart, suffixAt + suffix.length);
-      resolvedExecutable = await canonicalPath(
-        token.startsWith("/")
-          ? token
-          : join(
-              dirname(resolvedExecutable),
-              token.replace(/^\$basedir(?:_win)?\//, ""),
-            ),
-      );
-    }
-  } catch {
-    // A direct JavaScript entry is handled by the normal ancestor walk.
-  }
+  const resolvedExecutable = await canonicalPath(executable);
+  // npm and pnpm put generated wrappers in node_modules/.bin beside the
+  // package they launch. This avoids depending on package-manager shim text.
+  const adjacentPackage = resolve(
+    dirname(resolvedExecutable),
+    "..",
+    "@deepseek-ai",
+    "dsh",
+  );
+  if ((await readPackageManifest(adjacentPackage))?.name === "@deepseek-ai/dsh")
+    return canonicalPath(adjacentPackage);
+
+  // Direct JavaScript entries and symlinked bins resolve inside the package.
   let current = dirname(resolvedExecutable);
   while (true) {
     try {
@@ -391,18 +357,6 @@ async function listFiles(root: string, prefix = ""): Promise<string[]> {
   return files;
 }
 
-async function sourceIdentity(root: string, version: string): Promise<string> {
-  const hash = createHash("sha256");
-  hash.update(`${OFFICIAL_PRESET_PACKAGE}\0${version}\0`);
-  for (const file of await listFiles(root)) {
-    hash.update(file);
-    hash.update("\0");
-    hash.update(await readFile(join(root, file)));
-    hash.update("\0");
-  }
-  return `sha256:${hash.digest("hex")}`;
-}
-
 function parseYaml(
   source: string,
   filename: string,
@@ -499,7 +453,7 @@ function validateComposition(
 
 async function validateSourceTree(
   sourceRoot: string,
-  id: ManagedPresetId,
+  id: CompatiblePresetId,
   removeWeb: boolean,
 ): Promise<{
   composition: string;
@@ -566,7 +520,7 @@ async function validateSourceTree(
   }
   validateComposition(
     transformedComposition,
-    `${id}/agent.cordis.yml (managed)`,
+    `${id}/agent.cordis.yml (compatible)`,
     false,
   );
   return { composition, metadata, transformedComposition };
@@ -594,7 +548,6 @@ async function resolveRuntime(
       "dsh-source-missing",
       `could not resolve the official preset root: ${discovered.presetRoot}`,
     );
-  const identity = await sourceIdentity(discovered.presetRoot, version);
   const dshHome = resolveHome(options);
   const userPresetRoot = resolve(
     options.userPresetRoot ?? join(dshHome, USER_PRESET_DIRECTORY),
@@ -607,7 +560,6 @@ async function resolveRuntime(
     sourcePresetRoot: discovered.presetRoot,
     sourcePackageName: OFFICIAL_PRESET_PACKAGE,
     sourcePackageVersion: SUPPORTED_DSH_VERSION,
-    sourceIdentity: identity,
   };
 }
 
@@ -615,68 +567,6 @@ export async function resolveDshRuntime(
   options: DshPathOverrides = {},
 ): Promise<DshRuntimeInfo> {
   return resolveRuntime(options);
-}
-
-function markerFor(
-  runtime: DshRuntimeInfo,
-  id: ManagedPresetId,
-): UnknownRecord {
-  return {
-    managedBy: MANAGED_BY,
-    markerVersion: MANAGED_MARKER_VERSION,
-    presetId: id,
-    sourcePackage: runtime.sourcePackageName,
-    sourcePackageVersion: runtime.sourcePackageVersion,
-    sourceIdentity: runtime.sourceIdentity,
-    sourcePreset: `${OFFICIAL_PRESET_PACKAGE}/presets/${id}`,
-  };
-}
-
-function isManagedMarker(
-  value: unknown,
-  id: ManagedPresetId,
-): value is UnknownRecord {
-  return (
-    isRecord(value) &&
-    value.managedBy === MANAGED_BY &&
-    value.markerVersion === MANAGED_MARKER_VERSION &&
-    value.presetId === id
-  );
-}
-
-async function readMarker(
-  directory: string,
-  id: ManagedPresetId,
-): Promise<UnknownRecord | undefined> {
-  try {
-    const value: unknown = JSON.parse(
-      await readFile(join(directory, MANAGED_MARKER_FILE), "utf8"),
-    );
-    return isManagedMarker(value, id) ? value : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-async function targetKind(
-  root: string,
-  id: ManagedPresetId,
-): Promise<{
-  kind: "missing" | "managed" | "conflict";
-  marker?: UnknownRecord;
-}> {
-  const directory = join(root, id);
-  let info;
-  try {
-    info = await lstat(directory);
-  } catch {
-    return { kind: "missing" };
-  }
-  if (!info.isDirectory()) return { kind: "conflict" };
-  const marker = await readMarker(directory, id);
-  return marker === undefined
-    ? { kind: "conflict" }
-    : { kind: "managed", marker };
 }
 
 async function assertUserRootSafe(root: string): Promise<void> {
@@ -693,17 +583,9 @@ async function assertUserRootSafe(root: string): Promise<void> {
   }
 }
 
-async function stagePreset(
-  stageRoot: string,
-  sourceRoot: string,
-  runtime: DshRuntimeInfo,
-  id: ManagedPresetId,
-): Promise<void> {
-  const removeWeb = id !== "minimal";
-  const validation = await validateSourceTree(sourceRoot, id, removeWeb);
-  const sourceDirectory = join(sourceRoot, id);
-  const stagedDirectory = join(stageRoot, id);
-  await cp(sourceDirectory, stagedDirectory, {
+async function stagePreset(stageRoot: string, plan: PresetPlan): Promise<void> {
+  const stagedDirectory = join(stageRoot, plan.id);
+  await cp(plan.sourceDirectory, stagedDirectory, {
     recursive: true,
     force: false,
     errorOnExist: true,
@@ -711,392 +593,190 @@ async function stagePreset(
   });
   await writeFile(
     join(stagedDirectory, "agent.cordis.yml"),
-    validation.transformedComposition,
-    "utf8",
-  );
-  await writeFile(
-    join(stagedDirectory, MANAGED_MARKER_FILE),
-    `${JSON.stringify(markerFor(runtime, id), null, 2)}\n`,
-    "utf8",
+    plan.compatible.get("agent.cordis.yml")!,
   );
 }
 
-type ManagedSnapshot = ReadonlyMap<string, Buffer>;
+type PresetSnapshot = ReadonlyMap<string, Buffer>;
+type PresetPlan = {
+  readonly id: CompatiblePresetId;
+  readonly sourceDirectory: string;
+  readonly official: PresetSnapshot;
+  readonly compatible: PresetSnapshot;
+};
+type TargetState = {
+  readonly kind: "missing" | "official" | "compatible" | "conflict";
+  readonly detail?: string;
+};
 
-/**
- * Build the exact byte snapshot that a managed copy is allowed to contain.
- * The official composition is the one transformed by this integration; every
- * other source file is copied byte-for-byte.  The marker is generated by
- * Guion and is therefore deliberately excluded from the source snapshot.
- */
-async function expectedManagedSnapshot(
+async function buildPresetPlan(
   runtime: DshRuntimeInfo,
-  id: ManagedPresetId,
-): Promise<ManagedSnapshot> {
+  id: CompatiblePresetId,
+): Promise<PresetPlan> {
   const validation = await validateSourceTree(
     runtime.sourcePresetRoot,
     id,
     id !== "minimal",
   );
   const sourceDirectory = join(runtime.sourcePresetRoot, id);
-  const expected = new Map<string, Buffer>();
+  const official = new Map<string, Buffer>();
   for (const file of await listFiles(sourceDirectory)) {
-    if (file === MANAGED_MARKER_FILE) continue;
-    expected.set(
-      file,
-      file === "agent.cordis.yml"
-        ? Buffer.from(validation.transformedComposition)
-        : await readFile(join(sourceDirectory, file)),
-    );
+    official.set(file, await readFile(join(sourceDirectory, file)));
   }
-  return expected;
-}
-
-async function snapshotMismatch(
-  runtime: DshRuntimeInfo,
-  id: ManagedPresetId,
-  directory: string,
-): Promise<string | undefined> {
-  return compareManagedSnapshot(
-    await expectedManagedSnapshot(runtime, id),
-    directory,
+  const compatible = new Map(official);
+  compatible.set(
+    "agent.cordis.yml",
+    Buffer.from(validation.transformedComposition),
   );
+  return { id, sourceDirectory, official, compatible };
 }
 
-async function compareManagedSnapshot(
-  expected: ManagedSnapshot,
+async function compareSnapshot(
+  expected: PresetSnapshot,
   directory: string,
 ): Promise<string | undefined> {
-  const expectedFiles = new Set([...expected.keys(), MANAGED_MARKER_FILE]);
+  const expectedFiles = new Set(expected.keys());
   const actualFiles = new Set(await listFiles(directory));
   for (const file of expectedFiles)
-    if (!actualFiles.has(file)) return `managed file is missing: ${file}`;
+    if (!actualFiles.has(file)) return `file is missing: ${file}`;
   for (const file of actualFiles)
-    if (!expectedFiles.has(file)) return `unexpected managed file: ${file}`;
+    if (!expectedFiles.has(file)) return `unexpected file: ${file}`;
   for (const [file, expectedBytes] of expected) {
     const actualBytes = await readFile(join(directory, file));
     if (
       actualBytes.length !== expectedBytes.length ||
       !actualBytes.equals(expectedBytes)
     )
-      return `managed file differs from the official source: ${file}`;
+      return `file differs: ${file}`;
   }
   return undefined;
 }
 
-async function managedTargetMatches(
-  runtime: DshRuntimeInfo,
-  id: ManagedPresetId,
+async function inspectTarget(
+  plan: PresetPlan,
   directory: string,
-  expected?: ManagedSnapshot,
-): Promise<boolean> {
-  const marker = await readMarker(directory, id);
-  if (
-    marker === undefined ||
-    marker.sourcePackage !== runtime.sourcePackageName ||
-    marker.sourcePackageVersion !== runtime.sourcePackageVersion ||
-    marker.sourceIdentity !== runtime.sourceIdentity
-  )
-    return false;
-  try {
-    return (
-      (await compareManagedSnapshot(
-        expected ?? (await expectedManagedSnapshot(runtime, id)),
-        directory,
-      )) === undefined
-    );
-  } catch {
-    return false;
-  }
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await lstat(path);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-    throw error;
-  }
-}
-
-async function invokeRenameHook(
-  options: DshPathOverrides,
-  event: DshRenameEvent,
-): Promise<void> {
-  await options.hooks?.beforeRename?.(event);
-}
-
-export async function syncManagedPresets(
-  options: DshPathOverrides = {},
-): Promise<DshSyncResult> {
-  const runtime = await resolveRuntime(options);
-  return syncManagedPresetsLocked(runtime, options);
-}
-
-async function syncManagedPresetsLocked(
-  runtime: DshRuntimeInfo,
-  options: DshPathOverrides,
-): Promise<DshSyncResult> {
-  // Validate every source tree before creating the user root or staging files.
-  for (const id of MANAGED_PRESET_IDS)
-    await validateSourceTree(runtime.sourcePresetRoot, id, id !== "minimal");
-  await assertUserRootSafe(runtime.userPresetRoot);
-
-  const existing = new Map<
-    ManagedPresetId,
-    Awaited<ReturnType<typeof targetKind>>
-  >();
-  for (const id of MANAGED_PRESET_IDS) {
-    const result = await targetKind(runtime.userPresetRoot, id);
-    existing.set(id, result);
-    if (result.kind === "conflict")
-      throw new DshPresetError(
-        "dsh-preset-conflict",
-        `refusing to overwrite unmarked same-id preset ${join(runtime.userPresetRoot, id)}; move it or add a Guion marker explicitly`,
-      );
-  }
-
-  await mkdir(runtime.userPresetRoot, { recursive: true });
-  const stageRoot = await mkdtemp(join(runtime.dshHome, ".guion-dsh-presets-"));
-  const snapshots = new Map<ManagedPresetId, ManagedSnapshot>();
-  const backups: Array<{
-    id: ManagedPresetId;
-    target: string;
-    backup: string;
-  }> = [];
-  const installed: Array<{
-    id: ManagedPresetId;
-    target: string;
-    expected: ManagedSnapshot;
-  }> = [];
-  const replaced: ManagedPresetId[] = [];
-  const created: ManagedPresetId[] = [];
-  let backupNonce = 0;
-  try {
-    for (const id of MANAGED_PRESET_IDS) {
-      snapshots.set(id, await expectedManagedSnapshot(runtime, id));
-      await stagePreset(stageRoot, runtime.sourcePresetRoot, runtime, id);
-    }
-
-    // Recheck all targets after staging and before the first replacement. A
-    // failed preflight therefore cannot leave a partially refreshed roster.
-    for (const id of MANAGED_PRESET_IDS) {
-      const result = await targetKind(runtime.userPresetRoot, id);
-      if (result.kind === "conflict" || result.kind !== existing.get(id)!.kind)
-        throw new DshPresetError(
-          "dsh-preset-conflict",
-          `same-id preset changed while preparing ${join(runtime.userPresetRoot, id)}; refusing to overwrite it`,
-        );
-    }
-
-    for (const id of MANAGED_PRESET_IDS) {
-      const target = join(runtime.userPresetRoot, id);
-      const expected = snapshots.get(id)!;
-      // Revalidate ownership immediately before each rename. The hook is
-      // intentionally called after this check so tests can deterministically
-      // model a race in the tiny rename window and exercise post-rename
-      // marker verification.
-      const current = await targetKind(runtime.userPresetRoot, id);
-      if (current.kind !== existing.get(id)!.kind)
-        throw new DshPresetError(
-          "dsh-preset-conflict",
-          `same-id preset changed before replacement ${target}; refusing to overwrite it`,
-        );
-      if (current.kind === "managed") {
-        const backup = join(
-          runtime.userPresetRoot,
-          `.guion-dsh-backup-${id}-${process.pid}-${Date.now()}-${backupNonce++}`,
-        );
-        await invokeRenameHook(options, {
-          id,
-          phase: "before-backup-rename",
-          target,
-          staged: join(stageRoot, id),
-          backup,
-        });
-        await rename(target, backup);
-        if ((await readMarker(backup, id)) === undefined) {
-          // A same-ID directory may have been swapped after the ownership
-          // check. Restore it immediately and never make it deletable.
-          try {
-            if (!(await pathExists(target))) await rename(backup, target);
-          } catch {
-            // Keep the unknown directory at the backup path if restoration is
-            // itself raced; rollback below will also leave it untouched.
-          }
-          throw new DshPresetError(
-            "dsh-preset-conflict",
-            `same-id preset changed during replacement ${target}; unknown data was preserved`,
-          );
-        }
-        backups.push({ id, target, backup });
-        await invokeRenameHook(options, {
-          id,
-          phase: "after-backup-rename",
-          target,
-          staged: join(stageRoot, id),
-          backup,
-        });
-        replaced.push(id);
-      } else {
-        created.push(id);
-      }
-      const staged = join(stageRoot, id);
-      await invokeRenameHook(options, {
-        id,
-        phase: "before-install-rename",
-        target,
-        staged,
-        backup: backups.at(-1)?.id === id ? backups.at(-1)?.backup : undefined,
-      });
-      if ((await targetKind(runtime.userPresetRoot, id)).kind !== "missing")
-        throw new DshPresetError(
-          "dsh-preset-conflict",
-          `same-id preset appeared before install ${target}; refusing to overwrite it`,
-        );
-      await rename(staged, target);
-      installed.push({ id, target, expected });
-      if (!(await managedTargetMatches(runtime, id, target, expected)))
-        throw new DshPresetError(
-          "dsh-preset-incomplete",
-          `managed preset install did not match the expected source snapshot: ${id}`,
-        );
-      await invokeRenameHook(options, {
-        id,
-        phase: "after-install-rename",
-        target,
-        backup: backups.at(-1)?.id === id ? backups.at(-1)?.backup : undefined,
-      });
-    }
-
-    // Validate every backup before deleting any of them. If cleanup itself
-    // fails, retaining a verified Guion-managed backup is safe and recoverable.
-    for (const backup of backups)
-      await invokeRenameHook(options, {
-        id: backup.id,
-        phase: "before-backup-delete",
-        target: backup.target,
-        backup: backup.backup,
-      });
-    for (const backup of backups) {
-      if ((await readMarker(backup.backup, backup.id)) === undefined)
-        throw new DshPresetError(
-          "dsh-preset-conflict",
-          `backup for ${backup.id} is no longer Guion-managed; preserving it at ${backup.backup}`,
-        );
-    }
-    for (const backup of backups) {
-      try {
-        await rm(backup.backup, { recursive: true, force: true });
-      } catch {
-        // A cleanup failure must not turn a successful, complete roster into
-        // a destructive rollback. The verified backup remains recoverable.
-      }
-    }
-    return { runtime, ids: MANAGED_PRESET_IDS, replaced, created };
-  } catch (error) {
-    // Remove only targets that still exactly match this transaction's staged
-    // snapshot, then restore backups. Unknown data is never deleted.
-    for (const entry of [...installed].reverse()) {
-      try {
-        if (
-          await managedTargetMatches(
-            runtime,
-            entry.id,
-            entry.target,
-            entry.expected,
-          )
-        )
-          await rm(entry.target, { recursive: true, force: true });
-      } catch {
-        // Leave anything that cannot be proven to be ours untouched.
-      }
-    }
-    for (const backup of [...backups].reverse()) {
-      try {
-        if (await pathExists(backup.target)) {
-          if (await managedTargetMatches(runtime, backup.id, backup.target))
-            await rm(backup.target, { recursive: true, force: true });
-          else continue;
-        }
-        if (await pathExists(backup.backup))
-          await rename(backup.backup, backup.target);
-      } catch {
-        // Preserve both paths when restoration is not safe.
-      }
-    }
-    throw error;
-  } finally {
-    try {
-      await rm(stageRoot, { recursive: true, force: true });
-    } catch {
-      // Staged data is disposable; never mask the sync result or error.
-    }
-  }
-}
-
-async function inspectManagedPreset(
-  runtime: DshRuntimeInfo,
-  id: ManagedPresetId,
-): Promise<DshDoctorPreset> {
-  const directory = join(runtime.userPresetRoot, id);
+): Promise<TargetState> {
   let info;
   try {
     info = await lstat(directory);
-  } catch {
-    return {
-      id,
-      status: "missing",
-      detail: "managed preset directory is missing",
-    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      return { kind: "missing" };
+    throw error;
   }
   if (!info.isDirectory() || info.isSymbolicLink())
-    return {
-      id,
-      status: "conflict",
-      detail: "same-id path is not a directory",
-    };
-  let markerValue: unknown;
+    return { kind: "conflict", detail: "same-id path is not a directory" };
   try {
-    markerValue = JSON.parse(
-      await readFile(join(directory, MANAGED_MARKER_FILE), "utf8"),
+    const compatibleMismatch = await compareSnapshot(
+      plan.compatible,
+      directory,
     );
-  } catch {
-    return {
-      id,
-      status: "conflict",
-      detail: `missing or invalid ${MANAGED_MARKER_FILE}`,
-    };
-  }
-  if (!isManagedMarker(markerValue, id))
-    return { id, status: "conflict", detail: "directory is not Guion-managed" };
-  if (
-    markerValue.sourcePackage !== runtime.sourcePackageName ||
-    markerValue.sourcePackageVersion !== runtime.sourcePackageVersion ||
-    markerValue.sourceIdentity !== runtime.sourceIdentity
-  )
-    return {
-      id,
-      status: "stale",
-      detail: "managed copy was generated from a different official source",
-    };
-  try {
-    const mismatch = await snapshotMismatch(runtime, id, directory);
-    if (mismatch !== undefined)
-      return { id, status: "incomplete", detail: mismatch };
+    if (compatibleMismatch === undefined) return { kind: "compatible" };
+    if ((await compareSnapshot(plan.official, directory)) === undefined)
+      return { kind: "official" };
+    return { kind: "conflict", detail: compatibleMismatch };
   } catch (error) {
     return {
-      id,
-      status: "incomplete",
-      detail:
-        error instanceof Error ? error.message : "managed files are incomplete",
+      kind: "conflict",
+      detail: error instanceof Error ? error.message : "preset cannot be read",
     };
   }
-  return { id, status: "ok" };
 }
 
-export async function inspectManagedPresets(
+export async function syncCompatiblePresets(
+  paths: DshPathOverrides = {},
+  options: DshSyncOptions = {},
+): Promise<DshSyncResult> {
+  const runtime = await resolveRuntime(paths);
+  const plans = await Promise.all(
+    COMPATIBLE_PRESET_IDS.map((id) => buildPresetPlan(runtime, id)),
+  );
+  await assertUserRootSafe(runtime.userPresetRoot);
+  const states = new Map<CompatiblePresetId, TargetState>();
+  const conflicts: CompatiblePresetId[] = [];
+  for (const plan of plans) {
+    const state = await inspectTarget(
+      plan,
+      join(runtime.userPresetRoot, plan.id),
+    );
+    states.set(plan.id, state);
+    if (state.kind === "conflict") conflicts.push(plan.id);
+  }
+  const confirmed =
+    conflicts.length === 0 ||
+    options.yes === true ||
+    (options.confirmOverwrite !== undefined &&
+      (await options.confirmOverwrite(conflicts)));
+  if (!confirmed)
+    throw new DshPresetError(
+      "dsh-confirmation-required",
+      `refusing to overwrite modified same-id preset${conflicts.length === 1 ? "" : "s"} ${conflicts.join(", ")}; rerun interactively or pass --yes`,
+    );
+
+  await mkdir(runtime.userPresetRoot, { recursive: true });
+  const stageRoot = await mkdtemp(join(runtime.dshHome, ".guion-dsh-presets-"));
+  const replaced: CompatiblePresetId[] = [];
+  const created: CompatiblePresetId[] = [];
+  try {
+    for (const plan of plans) await stagePreset(stageRoot, plan);
+    for (const plan of plans) {
+      const target = join(runtime.userPresetRoot, plan.id);
+      const current = await inspectTarget(plan, target);
+      if (
+        current.kind === "conflict" &&
+        states.get(plan.id)?.kind !== "conflict" &&
+        options.yes !== true
+      )
+        throw new DshPresetError(
+          "dsh-preset-conflict",
+          `same-id preset changed after confirmation: ${target}`,
+        );
+      const staged = join(stageRoot, plan.id);
+      if (current.kind === "missing") {
+        await rename(staged, target);
+        created.push(plan.id);
+        continue;
+      }
+      const backup = join(
+        runtime.userPresetRoot,
+        `.guion-dsh-backup-${plan.id}-${process.pid}-${Date.now()}`,
+      );
+      await rename(target, backup);
+      try {
+        await rename(staged, target);
+      } catch (error) {
+        await rename(backup, target);
+        throw error;
+      }
+      replaced.push(plan.id);
+      await rm(backup, { recursive: true, force: true }).catch(() => undefined);
+    }
+    return { runtime, ids: COMPATIBLE_PRESET_IDS, replaced, created };
+  } finally {
+    await rm(stageRoot, { recursive: true, force: true }).catch(
+      () => undefined,
+    );
+  }
+}
+
+async function inspectCompatiblePreset(
+  plan: PresetPlan,
+  userPresetRoot: string,
+): Promise<DshDoctorPreset> {
+  const state = await inspectTarget(plan, join(userPresetRoot, plan.id));
+  if (state.kind === "compatible") return { id: plan.id, status: "ok" };
+  if (state.kind === "missing")
+    return { id: plan.id, status: "missing", detail: "preset is missing" };
+  if (state.kind === "official")
+    return {
+      id: plan.id,
+      status: "stale",
+      detail: "official preset has not been converted; run web dsh sync",
+    };
+  return { id: plan.id, status: "conflict", detail: state.detail };
+}
+
+export async function inspectCompatiblePresets(
   options: DshPathOverrides = {},
 ): Promise<DshDoctorReport> {
   let runtime: DshRuntimeInfo;
@@ -1116,9 +796,10 @@ export async function inspectManagedPresets(
   }
   const presets: DshDoctorPreset[] = [];
   const issues: string[] = [];
-  for (const id of MANAGED_PRESET_IDS) {
+  const plans: PresetPlan[] = [];
+  for (const id of COMPATIBLE_PRESET_IDS) {
     try {
-      await validateSourceTree(runtime.sourcePresetRoot, id, id !== "minimal");
+      plans.push(await buildPresetPlan(runtime, id));
     } catch (error) {
       issues.push(error instanceof Error ? error.message : String(error));
     }
@@ -1127,11 +808,14 @@ export async function inspectManagedPresets(
     issues.push(error instanceof Error ? error.message : String(error));
   });
   if (issues.length === 0) {
-    for (const id of MANAGED_PRESET_IDS) {
-      const preset = await inspectManagedPreset(runtime, id);
+    for (const plan of plans) {
+      const preset = await inspectCompatiblePreset(
+        plan,
+        runtime.userPresetRoot,
+      );
       presets.push(preset);
       if (preset.status !== "ok")
-        issues.push(`${id}: ${preset.detail ?? preset.status}`);
+        issues.push(`${plan.id}: ${preset.detail ?? preset.status}`);
     }
   }
   return {
@@ -1143,19 +827,12 @@ export async function inspectManagedPresets(
   };
 }
 
-export async function doctorManagedPresets(
-  options: DshPathOverrides = {},
-): Promise<DshDoctorReport> {
-  return inspectManagedPresets(options);
-}
-
 export function formatDshDoctor(report: DshDoctorReport): string {
   const lines = [`DSH doctor: ${report.ok ? "OK" : "FAILED"}`];
   if (report.runtime !== undefined) {
     lines.push(
       `Source: ${report.runtime.sourcePackageName}@${report.runtime.sourcePackageVersion}`,
     );
-    lines.push(`Source identity: ${report.runtime.sourceIdentity}`);
     lines.push(`Preset root: ${report.runtime.userPresetRoot}`);
   } else if (report.userPresetRoot !== undefined)
     lines.push(`Preset root: ${report.userPresetRoot}`);
@@ -1169,7 +846,7 @@ export function formatDshDoctor(report: DshDoctorReport): string {
 
 export function formatDshSync(result: DshSyncResult): string {
   const action =
-    result.created.length === MANAGED_PRESET_IDS.length
+    result.created.length === COMPATIBLE_PRESET_IDS.length
       ? "created all four presets"
       : [
           result.created.length > 0
@@ -1181,5 +858,5 @@ export function formatDshSync(result: DshSyncResult): string {
         ]
           .filter(Boolean)
           .join("; ");
-  return `DSH managed presets ${action} from ${result.runtime.sourcePackageName}@${result.runtime.sourcePackageVersion}.\nPreset root: ${result.runtime.userPresetRoot}\n`;
+  return `DSH compatible presets ${action} from ${result.runtime.sourcePackageName}@${result.runtime.sourcePackageVersion}.\nPreset root: ${result.runtime.userPresetRoot}\n`;
 }

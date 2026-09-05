@@ -9,7 +9,7 @@ HTML-to-Markdown extraction and explicit browser rendering for client-rendered
 pages on supported hosts.
 
 > **DSH setup note:** Run `web dsh sync` before installing the DSH bundle and
-> `web dsh doctor` afterward. The workflow creates Guion-managed copies of the
+> `web dsh doctor` afterward. The workflow creates compatible copies of the
 > familiar stock preset ids and hides their official shipped duplicates while
 > preserving ordinary user presets.
 
@@ -218,14 +218,15 @@ web dsh doctor
 ```
 
 `web dsh sync` reads the installed official
-`@deepseek-ai/dsh-agent-presets@0.1.2-rc.1` package and creates marked,
-compatible `standard`, `ptc`, `cordis`, and `minimal` copies. It removes only
+`@deepseek-ai/dsh-agent-presets@0.1.2-rc.1` package and creates compatible
+`standard`, `ptc`, `cordis`, and `minimal` copies. It removes only
 the top-level official `tool-web` row from the first three; Minimal is copied
 unchanged because it already omits that row. The command is idempotent and
-refreshes only directories bearing Guion's marker. An existing unmarked
-same-id directory is never overwritten: move it or choose another id before
-retrying. Run sync again after upgrading the supported DSH runtime. The
-read-only doctor command reports missing, incomplete, stale, and conflicting
+compares existing same-id directories with both the official and compatible
+trees. Exact matches are refreshed automatically. Modified same-id presets
+require interactive confirmation; use `web dsh sync --yes` for an intentional
+non-interactive overwrite. Run sync again after upgrading the supported DSH
+runtime. The read-only doctor command reports missing, stale, and conflicting
 copies and exits nonzero when the roster is not ready.
 
 The bundle's preset roster sets `includeShippedRoot: false`,
@@ -262,7 +263,7 @@ merges partial successes, and reports total failure clearly. `web_fetch`
 accepts `mode: "auto" | "full" | "tree"`, optional `section_id` with omitted
 or `auto` mode, `render: "http" | "browser"`, and browser `waitMs` from 0
 through 30,000. `web_links` has the same rendering and wait contract. The
-complete schemas are inherited by every managed stock-equivalent preset.
+complete schemas are inherited by every compatible stock-equivalent preset.
 
 ## Page-rendering modes
 

@@ -12,15 +12,16 @@ web dsh doctor
 ```
 
 `web dsh sync` reads the installed official
-`@deepseek-ai/dsh-agent-presets@0.1.2-rc.1` package and creates marked copies
+`@deepseek-ai/dsh-agent-presets@0.1.2-rc.1` package and creates compatible copies
 with the familiar `standard`, `ptc`, `cordis`, and `minimal` ids in
 `${DSH_HOME:-$HOME/.dsh}/.agent-presets`. It removes only the top-level
 official `tool-web` row from `standard`, `ptc`, and `cordis`; Minimal is copied
-unchanged. Sync is idempotent and refreshes only directories bearing Guion's
-marker. It refuses an unmarked same-id directory, so a user's custom preset is
-never overwritten or deleted. Run sync again after upgrading DSH. `doctor` is
-read-only, reports missing/incomplete/conflicting/stale managed copies, and
-exits nonzero until all four are current.
+unchanged. Sync compares same-id directories with the official and compatible
+trees and refreshes exact matches automatically. Modified same-id presets
+require interactive confirmation; pass `--yes` only for an intentional
+non-interactive overwrite. Run sync again after upgrading DSH. `doctor` is
+read-only, reports missing/conflicting/stale copies, and exits nonzero until
+all four are current.
 
 The bundle patch sets `includeShippedRoot: false`, `includeUserRoot: true`,
 and `default: standard`. This hides the official shipped duplicates while
@@ -31,7 +32,7 @@ deploy the bundle only after sync and doctor succeed.
 The package owns the global DSH Research Surface and does not require a custom
 profile. It directly registers `web_search`, `web_fetch`, `web_links`,
 `web_docs`, and `web_source_search`; while Kepos Bridge is selected it also
-registers `web_weather`, `web_sports`, `web_finance`, and `web_time`. Managed
+registers `web_weather`, `web_sports`, `web_finance`, and `web_time`. Compatible
 stock-equivalent presets omit the scoped `tool-web` row so both native and PTC
 modes inherit these same global registrations.
 
@@ -39,7 +40,7 @@ The profile patch disables the official DSH Web registry, official search and
 fetch providers, and official `tool-web`; it does not load or depend on the
 official `@deepseek-ai/dsh-web` package.
 
-The Guion schemas are complete and shared by every managed preset:
+The Guion schemas are complete and shared by every compatible preset:
 `web_search` takes one to four trimmed queries and preserves concurrent,
 deterministic partial results; `web_fetch` takes `mode: "auto" | "full" |
 "tree"`, optional `section_id` with omitted/`auto` mode, and explicit

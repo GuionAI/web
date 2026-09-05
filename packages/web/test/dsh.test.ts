@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  cp,
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   readdir,
-  rename,
   rm,
   stat,
   writeFile,
@@ -17,12 +18,11 @@ import { createWebOperations } from "@guionai/web-core";
 import { runCli } from "../src/runner.js";
 import {
   DshPresetError,
-  MANAGED_MARKER_FILE,
-  MANAGED_PRESET_IDS,
+  COMPATIBLE_PRESET_IDS,
   formatDshDoctor,
-  inspectManagedPresets,
+  inspectCompatiblePresets,
   resolveDshRuntime,
-  syncManagedPresets,
+  syncCompatiblePresets,
   type DshPathOverrides,
 } from "../src/dsh.js";
 
@@ -42,7 +42,6 @@ const sourceComposition = (id: string, includeWeb: boolean): string =>
     ...(includeWeb
       ? [
           "",
-          "# The source row is removed structurally by sync.",
           "- id: tool-web",
           "  name: '@deepseek-ai/dsh-tool-web'",
           "  config:",
@@ -69,12 +68,9 @@ async function fixture(): Promise<Fixture> {
   await mkdir(sourcePresetRoot, { recursive: true });
   await writeFile(
     join(sourcePackageRoot, "package.json"),
-    JSON.stringify({
-      name: "@deepseek-ai/dsh-agent-presets",
-      version: "0.1.2-rc.1",
-    }) + "\n",
+    `${JSON.stringify({ name: "@deepseek-ai/dsh-agent-presets", version: "0.1.2-rc.1" })}\n`,
   );
-  for (const id of MANAGED_PRESET_IDS) {
+  for (const id of COMPATIBLE_PRESET_IDS) {
     const directory = join(sourcePresetRoot, id);
     await mkdir(directory, { recursive: true });
     await writeFile(
@@ -96,99 +92,103 @@ async function fixture(): Promise<Fixture> {
   };
 }
 
+async function readComposition(value: Fixture, id: string): Promise<string> {
+  return readFile(
+    join(value.dshHome, ".agent-presets", id, "agent.cordis.yml"),
+    "utf8",
+  );
+}
+
 async function dispose(value: Fixture): Promise<void> {
   await rm(value.root, { recursive: true, force: true });
 }
 
-async function readPreset(
-  fixtureValue: Fixture,
-  id: string,
-): Promise<{
-  composition: string;
-  marker: Record<string, unknown>;
-}> {
-  const directory = join(fixtureValue.dshHome, ".agent-presets", id);
-  return {
-    composition: await readFile(join(directory, "agent.cordis.yml"), "utf8"),
-    marker: JSON.parse(
-      await readFile(join(directory, MANAGED_MARKER_FILE), "utf8"),
-    ) as Record<string, unknown>,
-  };
-}
-
-describe("managed DSH presets", () => {
-  it("derives all four same-id presets and removes only official tool-web rows", async () => {
+describe("compatible DSH presets", () => {
+  it("derives all four same-id presets without ownership metadata", async () => {
     const value = await fixture();
     try {
-      const result = await syncManagedPresets(value.options);
-      expect(result.created).toEqual([...MANAGED_PRESET_IDS]);
-      expect(result.replaced).toEqual([]);
-      for (const id of MANAGED_PRESET_IDS) {
-        const preset = await readPreset(value, id);
-        const rows = parse(preset.composition) as Array<
+      const result = await syncCompatiblePresets(value.options);
+      expect(result.created).toEqual([...COMPATIBLE_PRESET_IDS]);
+      for (const id of COMPATIBLE_PRESET_IDS) {
+        const directory = join(value.dshHome, ".agent-presets", id);
+        const rows = parse(await readComposition(value, id)) as Array<
           Record<string, unknown>
         >;
         expect(rows.map((row) => row.id)).toEqual(["persona", "tail"]);
-        expect(preset.marker).toMatchObject({
-          managedBy: "@guionai/web",
-          markerVersion: 1,
-          presetId: id,
-          sourcePackage: "@deepseek-ai/dsh-agent-presets",
-          sourcePackageVersion: "0.1.2-rc.1",
-          sourcePreset: `@deepseek-ai/dsh-agent-presets/presets/${id}`,
-        });
-        expect(typeof preset.marker.sourceIdentity).toBe("string");
+        expect((await readdir(directory)).sort()).toEqual([
+          "agent.cordis.yml",
+          "preset.yml",
+          "prompt.md",
+        ]);
       }
-      const minimal = await readPreset(value, "minimal");
-      expect(minimal.composition).toContain("# minimal fixture composition");
-      expect(minimal.composition).not.toContain("tool-web");
     } finally {
       await dispose(value);
     }
   });
 
-  it("refreshes marked copies idempotently while retaining ordinary user presets", async () => {
+  it("refreshes compatible copies and retains unrelated user presets", async () => {
     const value = await fixture();
     try {
-      await syncManagedPresets(value.options);
+      await syncCompatiblePresets(value.options);
       const userRoot = join(value.dshHome, ".agent-presets");
-      await mkdir(join(userRoot, "yuki"), { recursive: true });
+      await mkdir(join(userRoot, "yuki"));
       await writeFile(
         join(userRoot, "yuki", "agent.cordis.yml"),
         "- id: yuki\n  name: fixture:yuki\n",
       );
-      const first = await readPreset(value, "standard");
-      const second = await syncManagedPresets(value.options);
-      expect(second.replaced).toEqual([...MANAGED_PRESET_IDS]);
-      expect(second.created).toEqual([]);
-      expect(await readPreset(value, "standard")).toEqual(first);
-      expect(
-        await stat(join(userRoot, "yuki", "agent.cordis.yml")),
-      ).toBeDefined();
+      const before = await readComposition(value, "standard");
+      const result = await syncCompatiblePresets(value.options);
+      expect(result.replaced).toEqual([...COMPATIBLE_PRESET_IDS]);
+      expect(await readComposition(value, "standard")).toBe(before);
       expect((await readdir(userRoot)).sort()).toEqual(
-        [...MANAGED_PRESET_IDS, "yuki"].sort(),
+        [...COMPATIBLE_PRESET_IDS, "yuki"].sort(),
       );
     } finally {
       await dispose(value);
     }
   });
 
-  it("preflights unmarked same-id conflicts without mutating any preset", async () => {
+  it("converts an exact official copy without confirmation", async () => {
     const value = await fixture();
     try {
-      const userRoot = join(value.dshHome, ".agent-presets");
-      await mkdir(join(userRoot, "standard"), { recursive: true });
-      await writeFile(
-        join(userRoot, "standard", "agent.cordis.yml"),
-        "user-owned standard\n",
-      );
-      await expect(syncManagedPresets(value.options)).rejects.toMatchObject({
-        code: "dsh-preset-conflict",
+      const target = join(value.dshHome, ".agent-presets", "standard");
+      await mkdir(join(value.dshHome, ".agent-presets"), { recursive: true });
+      await cp(join(value.sourcePresetRoot, "standard"), target, {
+        recursive: true,
       });
-      expect(
-        await readFile(join(userRoot, "standard", "agent.cordis.yml"), "utf8"),
-      ).toBe("user-owned standard\n");
-      expect(await readdir(userRoot)).toEqual(["standard"]);
+      const result = await syncCompatiblePresets(value.options);
+      expect(result.replaced).toContain("standard");
+      expect(await readComposition(value, "standard")).not.toContain(
+        "tool-web",
+      );
+    } finally {
+      await dispose(value);
+    }
+  });
+
+  it("requires confirmation before replacing modified same-id content", async () => {
+    const value = await fixture();
+    try {
+      const target = join(value.dshHome, ".agent-presets", "standard");
+      await mkdir(target, { recursive: true });
+      await writeFile(join(target, "operator.txt"), "keep me\n");
+      await expect(syncCompatiblePresets(value.options)).rejects.toMatchObject({
+        code: "dsh-confirmation-required",
+      });
+      expect(await readFile(join(target, "operator.txt"), "utf8")).toBe(
+        "keep me\n",
+      );
+      let prompted: readonly string[] = [];
+      await syncCompatiblePresets(value.options, {
+        confirmOverwrite: (ids) => {
+          prompted = ids;
+          return true;
+        },
+      });
+      expect(prompted).toEqual(["standard"]);
+      expect(await readComposition(value, "standard")).not.toContain(
+        "tool-web",
+      );
     } finally {
       await dispose(value);
     }
@@ -199,41 +199,22 @@ describe("managed DSH presets", () => {
     try {
       await writeFile(
         join(value.sourcePackageRoot, "package.json"),
-        JSON.stringify({
-          name: "@deepseek-ai/dsh-agent-presets",
-          version: "0.1.1",
-        }) + "\n",
+        `${JSON.stringify({ name: "@deepseek-ai/dsh-agent-presets", version: "0.1.1" })}\n`,
       );
-      await expect(syncManagedPresets(value.options)).rejects.toMatchObject({
+      await expect(syncCompatiblePresets(value.options)).rejects.toMatchObject({
         code: "dsh-source-unsupported",
       });
       expect(await stat(value.dshHome).catch(() => undefined)).toBeUndefined();
 
       await writeFile(
         join(value.sourcePackageRoot, "package.json"),
-        JSON.stringify({
-          name: "@deepseek-ai/dsh-agent-presets",
-          version: "0.1.2-rc.1",
-        }) + "\n",
+        `${JSON.stringify({ name: "@deepseek-ai/dsh-agent-presets", version: "0.1.2-rc.1" })}\n`,
       );
-
       await writeFile(
         join(value.sourcePresetRoot, "standard", "agent.cordis.yml"),
         sourceComposition("standard", false),
       );
-      await expect(syncManagedPresets(value.options)).rejects.toMatchObject({
-        code: "dsh-source-invalid",
-      });
-      expect(await stat(value.dshHome).catch(() => undefined)).toBeUndefined();
-
-      await writeFile(
-        join(value.sourcePresetRoot, "standard", "agent.cordis.yml"),
-        sourceComposition("standard", true).replace(
-          "  config:\n",
-          "  extra: true\n  config:\n",
-        ),
-      );
-      await expect(syncManagedPresets(value.options)).rejects.toMatchObject({
+      await expect(syncCompatiblePresets(value.options)).rejects.toMatchObject({
         code: "dsh-source-invalid",
       });
       expect(await stat(value.dshHome).catch(() => undefined)).toBeUndefined();
@@ -242,214 +223,92 @@ describe("managed DSH presets", () => {
     }
   });
 
-  it("doctor is read-only and distinguishes missing, incomplete, stale, and conflict outputs", async () => {
+  it("doctor compares output with the official and compatible trees", async () => {
     const value = await fixture();
     try {
-      const missing = await inspectManagedPresets(value.options);
-      expect(missing.ok).toBe(false);
-      expect(missing.presets.map((preset) => preset.status)).toEqual([
-        "missing",
-        "missing",
-        "missing",
-        "missing",
-      ]);
-      await syncManagedPresets(value.options);
-      const standard = join(value.dshHome, ".agent-presets", "standard");
+      expect(
+        (await inspectCompatiblePresets(value.options)).presets.map(
+          (preset) => preset.status,
+        ),
+      ).toEqual(["missing", "missing", "missing", "missing"]);
+      await syncCompatiblePresets(value.options);
       await writeFile(
-        join(standard, "agent.cordis.yml"),
-        "not: a composition\n",
+        join(value.dshHome, ".agent-presets", "standard", "prompt.md"),
+        "tampered\n",
       );
-      await writeFile(
-        join(value.dshHome, ".agent-presets", "ptc", MANAGED_MARKER_FILE),
-        "{}\n",
-      );
-      await writeFile(
-        join(value.dshHome, ".agent-presets", "cordis", MANAGED_MARKER_FILE),
-        JSON.stringify({
-          managedBy: "@guionai/web",
-          markerVersion: 1,
-          presetId: "cordis",
-          sourcePackage: "@deepseek-ai/dsh-agent-presets",
-          sourcePackageVersion: "0.1.2-rc.1",
-          sourceIdentity: "sha256:stale",
-        }) + "\n",
-      );
-      await mkdir(join(value.dshHome, ".agent-presets", "minimal", "nested"), {
+      await rm(join(value.dshHome, ".agent-presets", "ptc"), {
         recursive: true,
       });
-      const report = await inspectManagedPresets(value.options);
+      await cp(
+        join(value.sourcePresetRoot, "ptc"),
+        join(value.dshHome, ".agent-presets", "ptc"),
+        { recursive: true },
+      );
+      const report = await inspectCompatiblePresets(value.options);
       expect(report.ok).toBe(false);
       expect(report.presets.map((preset) => preset.status)).toEqual([
-        "incomplete",
         "conflict",
         "stale",
         "ok",
+        "ok",
       ]);
       expect(formatDshDoctor(report)).toContain("DSH doctor: FAILED");
-      expect(await readFile(join(standard, "agent.cordis.yml"), "utf8")).toBe(
-        "not: a composition\n",
-      );
     } finally {
       await dispose(value);
     }
   });
 
-  it("doctor compares every copied source file, including deletion and tampering", async () => {
+  it("supports interactive confirmation and --yes through the CLI", async () => {
     const value = await fixture();
     try {
-      await syncManagedPresets(value.options);
-      const standard = join(value.dshHome, ".agent-presets", "standard");
-      await rm(join(standard, "prompt.md"));
-      let report = await inspectManagedPresets(value.options);
-      expect(
-        report.presets.find((preset) => preset.id === "standard"),
-      ).toMatchObject({ status: "incomplete" });
-      expect(report.issues.join("\n")).toContain("missing: prompt.md");
-
-      await writeFile(join(standard, "prompt.md"), "tampered prompt\n");
-      report = await inspectManagedPresets(value.options);
-      expect(
-        report.presets.find((preset) => preset.id === "standard"),
-      ).toMatchObject({ status: "incomplete" });
-      expect(report.issues.join("\n")).toContain(
-        "differs from the official source: prompt.md",
-      );
-
-      await writeFile(
-        join(standard, "preset.yml"),
-        "name: Tampered\ndescription: still valid\norder: 1\n",
-      );
-      report = await inspectManagedPresets(value.options);
-      expect(
-        report.presets.find((preset) => preset.id === "standard"),
-      ).toMatchObject({ status: "incomplete" });
-      expect(report.issues.join("\n")).toContain(
-        "differs from the official source: preset.yml",
-      );
-    } finally {
-      await dispose(value);
-    }
-  });
-
-  it("aborts a same-id ownership race without deleting unknown data", async () => {
-    const value = await fixture();
-    try {
-      await syncManagedPresets(value.options);
+      await syncCompatiblePresets(value.options);
       const target = join(value.dshHome, ".agent-presets", "standard");
-      const original = join(value.root, "original-standard");
-      let raced = false;
-      await expect(
-        syncManagedPresets({
-          ...value.options,
-          hooks: {
-            beforeRename: async (event) => {
-              if (
-                !raced &&
-                event.id === "standard" &&
-                event.phase === "before-backup-rename"
-              ) {
-                raced = true;
-                await rename(target, original);
-                await mkdir(target);
-                await writeFile(join(target, "operator-data.txt"), "keep me\n");
-              }
-            },
-          },
-        }),
-      ).rejects.toMatchObject({ code: "dsh-preset-conflict" });
-      expect(await readFile(join(target, "operator-data.txt"), "utf8")).toBe(
-        "keep me\n",
-      );
-      expect(
-        JSON.parse(await readFile(join(original, MANAGED_MARKER_FILE), "utf8"))
-          .managedBy,
-      ).toBe("@guionai/web");
-      expect(await readdir(join(value.dshHome, ".agent-presets"))).toContain(
-        "standard",
-      );
-    } finally {
-      await dispose(value);
-    }
-  });
-
-  it("rolls back newly installed targets after a mid-swap failure", async () => {
-    const value = await fixture();
-    try {
-      let installs = 0;
-      await expect(
-        syncManagedPresets({
-          ...value.options,
-          hooks: {
-            beforeRename: (event) => {
-              if (event.phase === "after-install-rename" && ++installs === 2)
-                throw new Error("injected mid-swap failure");
-            },
-          },
-        }),
-      ).rejects.toThrow("injected mid-swap failure");
-      expect(await readdir(join(value.dshHome, ".agent-presets"))).toEqual([]);
-    } finally {
-      await dispose(value);
-    }
-  });
-
-  it("exposes sync and doctor through the runner with fixture-owned paths", async () => {
-    const value = await fixture();
-    try {
-      let stdout = "";
-      let stderr = "";
+      await writeFile(join(target, "prompt.md"), "modified\n");
+      let confirmed: readonly string[] = [];
       const dependencies = {
         operations: createWebOperations(),
         credentials: () => ({}),
         dsh: value.options,
+        confirmDshOverwrite: (ids: readonly string[]) => {
+          confirmed = ids;
+          return true;
+        },
       };
+      const output = { stdout: () => undefined, stderr: () => undefined };
       expect(
-        await runCli(["node", "web", "dsh", "sync"], dependencies, {
-          stdout: (text) => (stdout += text),
-          stderr: (text) => (stderr += text),
-        }),
+        await runCli(["node", "web", "dsh", "sync"], dependencies, output),
       ).toBe(0);
-      expect(stdout).toContain("DSH managed presets created all four presets");
-      expect(stderr).toBe("");
-      stdout = "";
-      expect(
-        await runCli(["node", "web", "dsh", "doctor"], dependencies, {
-          stdout: (text) => (stdout += text),
-          stderr: (text) => (stderr += text),
-        }),
-      ).toBe(0);
-      expect(stdout).toContain("DSH doctor: OK");
-      expect(stderr).toBe("");
+      expect(confirmed).toEqual(["standard"]);
 
-      await writeFile(
-        join(value.dshHome, ".agent-presets", "standard", "agent.cordis.yml"),
-        "broken\n",
-      );
-      stdout = "";
-      stderr = "";
+      await writeFile(join(target, "prompt.md"), "modified again\n");
+      confirmed = [];
       expect(
-        await runCli(["node", "web", "dsh", "doctor"], dependencies, {
-          stdout: (text) => (stdout += text),
-          stderr: (text) => (stderr += text),
-        }),
-      ).toBe(1);
-      expect(stdout).toContain("standard: incomplete");
-      expect(stderr).toBe("DSH managed preset doctor found problems\n");
+        await runCli(
+          ["node", "web", "dsh", "sync", "--yes"],
+          dependencies,
+          output,
+        ),
+      ).toBe(0);
+      expect(confirmed).toEqual([]);
+      expect(
+        await runCli(["node", "web", "dsh", "doctor"], dependencies, output),
+      ).toBe(0);
     } finally {
       await dispose(value);
     }
   });
 
-  it("requires the official source package manifest and version", async () => {
+  it("requires the official package manifest and exposes actionable errors", async () => {
     const value = await fixture();
     try {
-      const runtime = await resolveDshRuntime({
-        sourcePresetRoot: value.sourcePresetRoot,
-        dshHome: value.dshHome,
-      });
-      expect(runtime.sourcePresetRoot).toBe(value.sourcePresetRoot);
-      expect(runtime.sourcePackageName).toBe("@deepseek-ai/dsh-agent-presets");
-
+      expect(
+        (
+          await resolveDshRuntime({
+            sourcePresetRoot: value.sourcePresetRoot,
+            dshHome: value.dshHome,
+          })
+        ).sourcePackageName,
+      ).toBe("@deepseek-ai/dsh-agent-presets");
       await rm(join(value.sourcePackageRoot, "package.json"));
       await expect(
         resolveDshRuntime({
@@ -457,15 +316,37 @@ describe("managed DSH presets", () => {
           dshHome: value.dshHome,
         }),
       ).rejects.toMatchObject({ code: "dsh-source-invalid" });
+      const error = new DshPresetError("dsh-source-invalid", "fixture failure");
+      expect(error.message).toBe("fixture failure");
     } finally {
       await dispose(value);
     }
   });
 
-  it("exports its custom error type for actionable source failures", () => {
-    const error = new DshPresetError("dsh-source-invalid", "fixture failure");
-    expect(error).toBeInstanceOf(Error);
-    expect(error.code).toBe("dsh-source-invalid");
-    expect(error.message).toBe("fixture failure");
+  it("discovers DSH beside a standard node_modules bin shim", async () => {
+    const value = await fixture();
+    try {
+      const dshRoot = join(value.root, "node_modules", "@deepseek-ai", "dsh");
+      const executable = join(value.root, "node_modules", ".bin", "dsh");
+      await mkdir(join(dshRoot, "lib"), { recursive: true });
+      await mkdir(join(value.root, "node_modules", ".bin"), {
+        recursive: true,
+      });
+      await writeFile(
+        join(dshRoot, "package.json"),
+        `${JSON.stringify({ name: "@deepseek-ai/dsh", version: "0.1.2-rc.1" })}\n`,
+      );
+      await writeFile(join(dshRoot, "lib", "bin.js"), "// fixture\n");
+      await writeFile(executable, "#!/bin/sh\n");
+      const runtime = await resolveDshRuntime({
+        dshExecutable: executable,
+        dshHome: value.dshHome,
+      });
+      expect(runtime.sourcePackageRoot).toBe(
+        await realpath(value.sourcePackageRoot),
+      );
+    } finally {
+      await dispose(value);
+    }
   });
 });
