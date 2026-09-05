@@ -827,35 +827,11 @@ async function invokeRenameHook(
   await options.hooks?.beforeRename?.(event);
 }
 
-const syncLocks = new Map<string, Promise<void>>();
-
-async function withSyncLock<T>(
-  key: string,
-  action: () => Promise<T>,
-): Promise<T> {
-  const predecessor = syncLocks.get(key) ?? Promise.resolve();
-  let release!: () => void;
-  const current = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const queued = predecessor.then(() => current);
-  syncLocks.set(key, queued);
-  await predecessor;
-  try {
-    return await action();
-  } finally {
-    release();
-    if (syncLocks.get(key) === queued) syncLocks.delete(key);
-  }
-}
-
 export async function syncManagedPresets(
   options: DshPathOverrides = {},
 ): Promise<DshSyncResult> {
   const runtime = await resolveRuntime(options);
-  return withSyncLock(runtime.userPresetRoot, () =>
-    syncManagedPresetsLocked(runtime, options),
-  );
+  return syncManagedPresetsLocked(runtime, options);
 }
 
 async function syncManagedPresetsLocked(

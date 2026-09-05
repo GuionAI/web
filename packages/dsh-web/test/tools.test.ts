@@ -36,6 +36,7 @@ function dependencies(
   return {
     credentials: { resolve: async () => undefined },
     getKeposBridgeEndpoint: () => DEFAULT_KEPOS_BRIDGE_ENDPOINT,
+    getProvider: () => "exa",
     ...overrides,
   };
 }

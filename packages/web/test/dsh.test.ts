@@ -372,54 +372,6 @@ describe("managed DSH presets", () => {
     }
   });
 
-  it("serializes concurrent syncs for one DSH_HOME", async () => {
-    const value = await fixture();
-    try {
-      let enteredResolve!: () => void;
-      const entered = new Promise<void>((resolve) => {
-        enteredResolve = resolve;
-      });
-      let release!: () => void;
-      const gate = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      let paused = false;
-      const firstRun = syncManagedPresets({
-        ...value.options,
-        hooks: {
-          beforeRename: async (event) => {
-            if (
-              !paused &&
-              event.id === "standard" &&
-              event.phase === "before-install-rename"
-            ) {
-              paused = true;
-              enteredResolve();
-              await gate;
-            }
-          },
-        },
-      });
-      await entered;
-      let secondDone = false;
-      const secondRun = syncManagedPresets(value.options).then((result) => {
-        secondDone = true;
-        return result;
-      });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(secondDone).toBe(false);
-      release();
-      const [first, second] = await Promise.all([firstRun, secondRun]);
-      expect(first.created).toEqual([...MANAGED_PRESET_IDS]);
-      expect(second.replaced).toEqual([...MANAGED_PRESET_IDS]);
-      expect(
-        (await readdir(join(value.dshHome, ".agent-presets"))).sort(),
-      ).toEqual([...MANAGED_PRESET_IDS].sort());
-    } finally {
-      await dispose(value);
-    }
-  });
-
   it("rolls back newly installed targets after a mid-swap failure", async () => {
     const value = await fixture();
     try {

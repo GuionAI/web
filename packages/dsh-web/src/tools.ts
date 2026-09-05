@@ -44,7 +44,7 @@ export interface WebToolDependencies {
   /** Reads the current validated bridge endpoint when a Kepos tool executes. */
   getKeposBridgeEndpoint: () => string;
   /** Reads the selected provider from the live settings scope per search. */
-  getProvider?: () => SearchProviderName;
+  getProvider: () => SearchProviderName;
   operations?: WebOperations;
 }
 
@@ -595,7 +595,7 @@ async function executeSearchQuery(
   operations: WebOperations,
 ): Promise<SearchResponse> {
   if (signal?.aborted) throw new Error("Operation aborted");
-  const provider = dependencies.getProvider?.() ?? "exa";
+  const provider = dependencies.getProvider();
   const credential = searchCredential(provider);
   let resolved: ResolvedCredential | undefined;
   if (credential !== undefined) {
