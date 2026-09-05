@@ -5,7 +5,8 @@
 - Repository: `guionai/web`
 - Branch: `dsh-managed-presets`
 - Fixed point: `1bb01fd` (main)
-- Implementation commit: `3d437a6` (`feat(dsh): manage compatible stock presets`)
+- Implementation commits: `3d437a6` (`feat(dsh): manage compatible stock presets`)
+  and `3e3e95c` (`fix(dsh): harden managed preset synchronization`)
 - Delivery boundary: the complete `dsh-managed-presets` spec and tickets 01–04.
   Code review and deployment were excluded.
 
@@ -37,11 +38,17 @@
 - Sync creates or refreshes marked same-id `standard`, `ptc`, `cordis`, and
   `minimal` snapshots under `.agent-presets`; it stages writes, preflights all
   conflicts, preserves unmarked user data, and rolls back managed replacements
-  when a filesystem operation is interrupted.
-- Doctor distinguishes missing, incomplete, stale, and conflicting outputs and
-  never writes the DSH home. Fixture CLI tests cover successful and failed
-  workflows, idempotence, source-shape rejection, marker contents, and
-  non-mutating failures.
+  when a filesystem operation is interrupted. Concurrent syncs for one user
+  root are serialized; each rename revalidates ownership, verifies a moved
+  backup marker before it can be deleted, preserves unknown races, and removes
+  newly installed targets during rollback.
+- Doctor compares every managed file byte-for-byte with the expected
+  transformed source snapshot (while allowing only the generated marker), so
+  deletion, tampering, and unexpected copied files are reported as incomplete.
+  The source package manifest and version are authoritative; version override
+  seams and unused path aliases/helpers were removed. Fixture tests cover
+  source-file deletion/tampering, deterministic ownership races, concurrent
+  sync serialization, and injected mid-swap rollback.
 
 ### 03 — Hide shipped presets end to end
 
@@ -88,6 +95,7 @@
 - `packages/web/src/program.ts`
 - `packages/web/src/runner.ts`
 - `packages/web/test/dsh.test.ts`
+- `packages/web/test/packed-smoke.mjs`
 - `pnpm-lock.yaml`
 
 ## Verification
@@ -96,36 +104,43 @@ All final local checks passed:
 
 - `pnpm install --frozen-lockfile --ignore-scripts`
 - `pnpm typecheck`
-- `pnpm test` — 20 files, 160 tests passed
+- `pnpm test` — 20 files, 164 tests passed
 - `pnpm format:check`
 - `pnpm build` — all four package builds passed
 - `pnpm test:pack` — Web, Pi, and DSH packed smoke tests passed
 - `pnpm test:release`
 - `git diff --check`
 
-The packed Linux validation used NUC work directory
-`/tmp/guion-dsh-linux-final-heK1hs` with Node `v24.19.0`. The official
+The blocker pass added packed Web CLI coverage with a fake installed DSH and
+agent-presets graph under a test-owned temporary directory. It invokes
+`dsh sync` and `dsh doctor` through PATH discovery with a disposable DSH_HOME;
+no source paths or live state are injected.
+
+The updated Linux validation used NUC work directory
+`/tmp/guion-dsh-linux-blocker-final-ss2sfY` with Node `v24.19.0`. The official
 `@deepseek-ai/dsh@0.1.2-rc.1` and
-`@deepseek-ai/dsh-agent-presets@0.1.2-rc.1` graph was copied into the
-test-owned `install` directory. Loader/profile commands used the required
-entrypoint form:
+`@deepseek-ai/dsh-agent-presets@0.1.2-rc.1` graph was used from the
+test-owned `install` directory, and the current packed Web and DSH bundles
+were installed into disposable profile paths. Loader/profile commands used
+the required entrypoint form:
 
 ```text
 node --expose-internals /tmp/guion-dsh-linux-final-heK1hs/install/node_modules/@deepseek-ai/dsh/lib/bin.js ...
 ```
 
-The packed `@guionai/web` CLI ran `dsh sync` and `dsh doctor` with
-`DSH_HOME=/tmp/guion-dsh-linux-final-heK1hs/home`; both succeeded and doctor
-reported all four presets current. The composed profile was dumped and booted
-through the same official entrypoint with a test-owned probe bundle and
+The current packed `@guionai/web` CLI ran `dsh sync` and `dsh doctor` with
+`DSH_HOME=/tmp/guion-dsh-linux-blocker-final-ss2sfY/home`; both succeeded and
+doctor reported all four presets current. The composed profile was dumped and
+booted through the same official entrypoint with a test-owned probe bundle and
 `--no-open --host 127.0.0.1 --port 0`. The probe reported `standard`, `ptc`,
 `minimal`, and `cordis` as user presets, with row counts `26`, `27`, `8`, and
 `27`, respectively, and no `tool-web` rows. It also observed the Guion
 `web_fetch` schema containing `mode`, `section_id`, `render`, and `waitMs`, and
 the Guion `web_search` schema. The composed dump showed all four official Web
-rows disabled and the complete agent-presets configuration. The profile process
-was stopped after the probe completed; the disposable home and package paths
-were never connected to the live DSH home, credentials, overrides, or services.
+rows disabled and the complete agent-presets configuration. The profile
+process was stopped after the probe completed; both the blocker home and all
+package/profile paths were test-owned and never connected to the live DSH
+home, credentials, overrides, or services.
 
 Vitest emits the existing non-failing missing source-map warning from the DSH
 primitives package.
@@ -137,10 +152,10 @@ ignored tracker files, and this report:
 
 | Category | Additions | Deletions |
 | --- | ---: | ---: |
-| Product code | 1,307 | 179 |
-| Tests | 682 | 316 |
+| Product code | 1,552 | 179 |
+| Tests | 947 | 316 |
 | Configuration and docs | 224 | 25 |
-| **Total** | **2,213** | **520** |
+| **Total** | **2,723** | **520** |
 
 The estimate was 1,070–1,820 changed lines. The material variance comes from
 the complete filesystem-safe runtime discovery, source validation, staging, and
@@ -151,4 +166,5 @@ added.
 ## Acceptance result
 
 Tickets 01, 02, 03, and 04 and the complete spec are implemented and verified.
-The code is committed as `3d437a6`; no code review or deployment was performed.
+The implementation is committed as `3d437a6` and `3e3e95c`; the report update
+is committed separately. No code review or deployment was performed.
