@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { SlotCore } from "@deepseek-ai/dsh-client-ui-slots";
 import {
   chmodSync,
   mkdirSync,
@@ -383,12 +384,25 @@ describe("DSH 0.1.2-rc.1 packed package contract", () => {
     });
   }, 30_000);
 
-  it("loads the packed browser entry through the supported lazy module contract", async () => {
+  it("loads packed styles and research views alongside the native Web registrations", async () => {
     const previousWindow = (globalThis as any).window;
+    const previousDocument = (globalThis as any).document;
     const registrations: any[] = [];
+    const styles: Array<{
+      dataset: { pluginCss?: string };
+      textContent: string;
+    }> = [];
     (globalThis as any).window = {
       __ModuleLoader__: {
         load: (registration: unknown) => registrations.push(registration),
+      },
+    };
+    (globalThis as any).document = {
+      querySelector: (selector: string) =>
+        styles.find((style) => selector.includes(style.dataset.pluginCss!)),
+      createElement: () => ({ dataset: {}, textContent: "" }),
+      head: {
+        appendChild: (style: (typeof styles)[number]) => styles.push(style),
       },
     };
     try {
@@ -398,9 +412,7 @@ describe("DSH 0.1.2-rc.1 packed package contract", () => {
       expect(registrations).toHaveLength(1);
       expect(registrations[0].id).toBe("@guionai/dsh-web");
       const loaded = registrations[0].factory((specifier: string) => {
-        if (specifier === "@deepseek-ai/dsh-client-ui-primitives") {
-          return { IconChevronDownOutline14: () => ({}) };
-        }
+        if (specifier === "@deepseek-ai/dsh-client-ui-primitives") return {};
         expect(specifier).toBe("react");
         return {
           createElement: () => ({}),
@@ -409,16 +421,70 @@ describe("DSH 0.1.2-rc.1 packed package contract", () => {
           useState: <T>(value: T) => [value, () => undefined] as const,
         };
       });
+      expect(styles.map((style) => style.dataset.pluginCss).sort()).toEqual([
+        "@guionai/dsh-web/settings.module.css",
+        "@guionai/dsh-web/tool-row.module.css",
+      ]);
+      expect(styles.every((style) => style.textContent.length > 0)).toBe(true);
       expect(loaded.inject).toEqual([
         "remote",
         "remote.credentials",
         "settingsScope",
         "slots",
       ]);
-      expect(typeof loaded.apply).toBe("function");
+      const core = new SlotCore();
+      core.register(
+        {
+          name: "root",
+          children: {
+            "tool.call.toolview": { kind: "keyed", scope: "session" },
+            "settings.plugin.item": { kind: "keyed", scope: "root" },
+          },
+        } as never,
+        () => null,
+      );
+      for (const key of ["web_search", "web_fetch"]) {
+        core.register(
+          { name: "tool.call.toolview", key, registrant: "native" } as never,
+          () => null,
+        );
+      }
+      loaded.apply({
+        remote: {},
+        settingsScope: { bind: () => ({}) },
+        slots: {
+          inject: (_name: string, callback: () => unknown) => {
+            const effect = callback();
+            if (
+              effect &&
+              typeof effect === "object" &&
+              Symbol.iterator in effect
+            ) {
+              for (const _ of effect as Iterable<unknown>) {
+                /* Exhaust registration effects. */
+              }
+            }
+          },
+          register: (
+            options: { name: string; key: string; priority?: number },
+            component: never,
+          ) =>
+            core.register(
+              { ...options, registrant: "guion" } as never,
+              component,
+            ),
+        },
+      });
+      const selected = core.entriesOfSlot("tool.call.toolview");
+      expect(selected).toHaveLength(9);
+      expect(selected.every((entry) => entry.registrant === "guion")).toBe(
+        true,
+      );
     } finally {
       if (previousWindow === undefined) delete (globalThis as any).window;
       else (globalThis as any).window = previousWindow;
+      if (previousDocument === undefined) delete (globalThis as any).document;
+      else (globalThis as any).document = previousDocument;
     }
   });
 });
