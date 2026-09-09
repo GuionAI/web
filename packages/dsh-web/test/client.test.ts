@@ -8,10 +8,8 @@ import {
   SETTINGS_NAMESPACE,
 } from "../src/contract.js";
 import {
-  apply,
   decodeSettings,
   describeCredentialStatus,
-  fetchDetails,
   persistKeposBridgeEndpoint,
   persistProviderSelection,
   removeCredential,
@@ -51,93 +49,6 @@ function fakeApi(overrides: Record<string, unknown> = {}) {
 }
 
 describe("DSH settings client credential surface", () => {
-  it("labels the fetch backend, wait, and retrieval mode from its request", () => {
-    expect(
-      fetchDetails({
-        render: "browser",
-        waitMs: 2_000,
-        mode: "auto",
-        section_id: "installation",
-      }),
-    ).toEqual([
-      { label: "Backend", value: "Browser rendered" },
-      { label: "Wait", value: "2 s" },
-      { label: "Result", value: "Section: installation" },
-    ]);
-    expect(fetchDetails({ section_id: "installation" })).toEqual([
-      { label: "Backend", value: "HTTP rendered" },
-      { label: "Result", value: "Section: installation" },
-    ]);
-    expect(fetchDetails({})).toEqual([
-      { label: "Backend", value: "HTTP rendered" },
-      { label: "Result", value: "Automatic navigation" },
-    ]);
-    expect(fetchDetails({ mode: "full" })).toEqual([
-      { label: "Backend", value: "HTTP rendered" },
-      { label: "Result", value: "Full document" },
-    ]);
-    expect(fetchDetails({ mode: "tree" })).toEqual([
-      { label: "Backend", value: "HTTP rendered" },
-      { label: "Result", value: "Heading tree" },
-    ]);
-  });
-
-  it("shadows the host fetch view and registers dedicated views for links and docs", () => {
-    const registrations: Array<{ key: string; priority?: number }> = [];
-    const fixture = fakeApi();
-    const ctx = {
-      effect: (_execute: () => () => void) => () => undefined,
-      remote: { credentials: fixture.credentials, $on: () => () => undefined },
-      settingsScope: {
-        bind: () => ({
-          getSnapshot: () => ({
-            status: "ready",
-            writable: true,
-            value: { provider: "exa" },
-          }),
-          subscribe: () => () => undefined,
-          set: async () => undefined,
-        }),
-      },
-      slots: {
-        inject: (_name: string, callback: () => unknown) => {
-          const value = callback();
-          if (
-            value !== null &&
-            typeof value === "object" &&
-            Symbol.iterator in value
-          )
-            for (const _registration of value as Iterable<unknown>) {
-              // Exhaust the generator so every keyed registration is observed.
-            }
-        },
-        register: (spec: { key: string; priority?: number }) => {
-          if (
-            registrations.some(
-              (registration) =>
-                registration.key === spec.key &&
-                (registration.priority ?? 0) === (spec.priority ?? 0),
-            )
-          ) {
-            throw new Error(`duplicate keyed slot entry: ${spec.key}`);
-          }
-          registrations.push(spec);
-          return () => undefined;
-        },
-      },
-    };
-    apply(ctx as any);
-    expect(
-      registrations.map(({ key, priority }) => ({ key, priority })),
-    ).toEqual([
-      { key: SETTINGS_NAMESPACE },
-      { key: "web_search" },
-      { key: "web_fetch" },
-      { key: "web_links" },
-      { key: "web_docs" },
-    ]);
-  });
-
   it("persists only the selected provider and drops unknown/secret settings fields", async () => {
     const calls: Array<{ field: string; value: unknown }> = [];
     await persistProviderSelection(

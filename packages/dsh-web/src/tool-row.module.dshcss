@@ -1,0 +1,119 @@
+.root {
+  min-width: 0;
+}
+.row:focus-visible,
+.input:focus-visible,
+.output:focus-visible,
+.inspect:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 2px;
+}
+.summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  margin-left: 8px;
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  color: var(--dsw-alias-label-tertiary);
+}
+.target {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tags {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  max-width: 55%;
+}
+.tag {
+  min-width: 0;
+  max-width: 160px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--dsw-alias-markdown-code-block);
+  font-size: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.state {
+  flex: none;
+  white-space: nowrap;
+}
+.state[data-error],
+.text[data-error] {
+  color: var(--dsw-alias-state-error-primary);
+}
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.details {
+  margin: 4px 0 4px 4px;
+}
+.io {
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 12px;
+  background: var(--dsw-alias-markdown-code-block);
+  font: var(--dsw-font-markdown-code-block-small);
+  overflow: hidden;
+}
+.input,
+.output {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 14px;
+  align-items: baseline;
+  padding: 12px 16px;
+  max-height: 150px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.output {
+  max-height: 260px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+.input::-webkit-scrollbar-thumb,
+.output::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 6px;
+}
+.input::-webkit-scrollbar-track,
+.output::-webkit-scrollbar-track {
+  margin: 6px 0;
+}
+.label {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  color: var(--dsw-alias-label-caption);
+}
+.text {
+  min-width: 0;
+  margin: 0;
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-label-secondary);
+}
+.inspect {
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xs-13);
+  cursor: pointer;
+}
+.inspect:hover {
+  color: var(--dsw-alias-label-secondary);
+}

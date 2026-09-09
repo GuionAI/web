@@ -40,6 +40,17 @@ The profile patch disables the official DSH Web registry, official search and
 fetch providers, and official `tool-web`; it does not load or depend on the
 official `@deepseek-ai/dsh-web` package.
 
+Research calls use compact native disclosure rows. Each row shows the request
+URL, query, or lookup target and non-default options such as browser rendering,
+wait time, navigation mode, section, or documentation topic. Expand a row to
+inspect its complete recorded input and returned text in independently
+scrollable sections. Running and failed calls retain their status; long
+results stay inside the result pane instead of growing the conversation.
+
+Guion's client registers these request-aware views ahead of the built-in Web
+views. The built-in views are internal children of DSH's required tool UI
+plugin, so the Host bundle patch cannot disable them independently.
+
 The Guion schemas are complete and shared by every compatible preset:
 `web_search` takes one to four trimmed queries and preserves concurrent,
 deterministic partial results; `web_fetch` takes `mode: "auto" | "full" |

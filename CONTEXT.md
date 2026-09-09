@@ -110,3 +110,11 @@ A user-created directory in the DSH user preset root. It remains visible when
 the bundle hides the shipped root. A same-id preset is overwritten only after
 interactive confirmation or an explicit `web dsh sync --yes`.
 _Avoid_: Generated compatible preset, shipped preset
+
+**Research Tool Row**:
+The compact conversation entry for one DSH Research Operation, showing its identity, target, progress, and selected request details. It is distinct from the operation itself and from the settings used to configure providers.
+_Avoid_: Research Operation, provider card
+
+**Research Result Details**:
+The information a user opens from a Research Tool Row to inspect the request and its result. It may include operation-specific parameters, a result summary, and the original returned text.
+_Avoid_: Settings, provider configuration

@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import { defineConfig } from "tsup";
 import type { Plugin as EsbuildPlugin } from "esbuild";
 import { compileCssModule } from "./scripts/css-modules.js";
@@ -25,7 +26,7 @@ function cssModulesPlugin(): EsbuildPlugin {
     setup(build) {
       build.onLoad({ filter: /\.module\.dshcss$/ }, async (args) => {
         const { css, classes } = await compileCssModule(args.path);
-        const styleId = "@guionai/dsh-web/settings.module.css";
+        const styleId = `@guionai/dsh-web/${basename(args.path).replace(".dshcss", ".css")}`;
         return {
           loader: "js",
           contents: [
