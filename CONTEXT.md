@@ -15,8 +15,9 @@ _Avoid_: Tool, endpoint
 **Search**:
 The general web-retrieval Research Operation. CLI, MCP, Pi, and DSH can
 explicitly select Exa, Brave, DeepSeek, or Kepos Bridge. In the Personal Web
-Service, it uses Kepos Bridge first and transparently falls back to Exa only
-when the Bridge is unavailable unless the operator sets
+Service, it uses Exa directly when `KEPOS_BRIDGE_ENDPOINT` is absent or empty. A
+configured Bridge Route uses Kepos Bridge first and transparently falls back to
+Exa only when the Bridge is unavailable, unless the operator sets
 `WEB_SEARCH_PROVIDER=deepseek`; that server-local mode calls DeepSeek only and
 has no fallback. Its response identifies the provider that supplied results.
 _Avoid_: Bridge search, HTTP provider parameter
