@@ -42,8 +42,8 @@ export type HttpServiceDependencies = {
 export type HttpServiceState = {
   operations: WebOperations;
   credentials: WebCredentials;
-  keposBridgeEndpoint: string;
-  /** Server-local override; undefined keeps the Bridge-to-Exa default. */
+  keposBridgeEndpoint?: string;
+  /** Server-local override; undefined uses the configured Bridge or Exa directly. */
   searchProvider?: "deepseek";
 };
 
@@ -198,7 +198,7 @@ const searchRoute = createRoute({
   operationId: "search",
   summary: "Search the web",
   description:
-    "Search through the server-local Kepos Bridge with one Exa retry by default, or select DeepSeek with WEB_SEARCH_PROVIDER=deepseek.",
+    "Search through the configured server-local Kepos Bridge with one Exa retry, or Exa directly when KEPOS_BRIDGE_ENDPOINT is absent or empty. Select DeepSeek with WEB_SEARCH_PROVIDER=deepseek.",
   request: jsonRequest(SearchRequestSchema),
   responses: {
     200: jsonResponse(SearchResponseSchema, "Search results."),
@@ -354,9 +354,7 @@ export function resolveHttpServiceState(
     }
   }
   const endpoint =
-    dependencies.keposBridgeEndpoint ??
-    environment.KEPOS_BRIDGE_ENDPOINT ??
-    DEFAULT_KEPOS_BRIDGE_ENDPOINT;
+    dependencies.keposBridgeEndpoint ?? environment.KEPOS_BRIDGE_ENDPOINT;
   const imageMode =
     dependencies.imageMode ?? environment.GUIONAI_HTTP_IMAGE === "1";
   const browserGatewayUrl =
@@ -375,7 +373,10 @@ export function resolveHttpServiceState(
       ? webCoreModule.createWebOperations({ browserGateway })
       : (dependencies.operations ?? webCoreModule.createWebOperations()),
     credentials,
-    keposBridgeEndpoint: validateKeposBridgeEndpoint(endpoint),
+    keposBridgeEndpoint:
+      endpoint === undefined || endpoint === ""
+        ? undefined
+        : validateKeposBridgeEndpoint(endpoint),
     ...(searchProvider === undefined ? {} : { searchProvider }),
   };
 }
@@ -440,10 +441,13 @@ async function searchWithFallback(
   signal: AbortSignal,
 ): Promise<SearchResponse> {
   throwIfAborted(signal);
-  if (state.searchProvider === "deepseek") {
+  if (
+    state.searchProvider === "deepseek" ||
+    state.keposBridgeEndpoint === undefined
+  ) {
     const result = await state.operations.search({
       query,
-      provider: "deepseek",
+      provider: state.searchProvider ?? "exa",
       credentials: state.credentials,
       signal,
     });

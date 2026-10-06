@@ -36,13 +36,13 @@ providers. Kepos Bridge uses the bundled default route unless it runs in DSH,
 whose live settings card can override the route.
 Context7 works anonymously when its key is absent.
 
-The HTTP service always uses the Bridge-to-Exa policy by default and requires a
-non-empty `EXA_API_KEY` for its retry. Set the server-local
+The HTTP service uses Exa directly when `KEPOS_BRIDGE_ENDPOINT` is absent or
+empty, and requires a non-empty `EXA_API_KEY`. A configured endpoint enables
+Bridge-to-Exa search. Set the server-local
 `WEB_SEARCH_PROVIDER=deepseek` to select DeepSeek instead; this requires a
 non-empty `DEEPSEEK_API_KEY` and does not fall back to Bridge or Exa when the
 DeepSeek request fails. HTTP clients cannot select a provider, pass credentials,
-or override the Bridge route per request. Set `KEPOS_BRIDGE_ENDPOINT` to replace the default route
-(`http://codex-bridge.localhost:17480/codex/web-search`); it must be a complete
+or override the Bridge route per request. Set `KEPOS_BRIDGE_ENDPOINT` to enable the Bridge route; it must be a complete
 HTTP(S) URL without credentials, query, or fragment.
 
 ```bash
@@ -68,7 +68,7 @@ application configuration path.
 ## Personal HTTP service
 
 Run the service with the server-local environment above. Leave
-`WEB_SEARCH_PROVIDER` unset for Bridge-to-Exa; set it to `deepseek` for the
+`WEB_SEARCH_PROVIDER` unset for Exa or configured Bridge-to-Exa; set it to `deepseek` for the
 DeepSeek-only path:
 
 ```bash
@@ -84,16 +84,16 @@ docker run --rm -p 8787:8787 \
 Every HTTP operation is a versioned JSON `POST` route. Request and response schemas
 are generated into `openapi.yaml` from the same route definitions:
 
-| Route                | Request                                                   | Purpose                                                         |
-| -------------------- | --------------------------------------------------------- | --------------------------------------------------------------- |
-| `/api/v1/web/search` | `{ "query": "..." }`                                      | Server-selected search: Bridge→Exa by default, or DeepSeek only |
-| `/api/v1/web/fetch`  | `{ "url", "mode?", "section_id?", "render?", "waitMs?" }` | Fetch Markdown                                                  |
-| `/api/v1/web/links`  | `{ "url", "limit?", "render?", "waitMs?" }`               | List page HTTP(S) links                                         |
+| Route                | Request                                                   | Purpose                                                              |
+| -------------------- | --------------------------------------------------------- | -------------------------------------------------------------------- |
+| `/api/v1/web/search` | `{ "query": "..." }`                                      | Server-selected search: Exa, configured Bridge→Exa, or DeepSeek only |
+| `/api/v1/web/fetch`  | `{ "url", "mode?", "section_id?", "render?", "waitMs?" }` | Fetch Markdown                                                       |
+| `/api/v1/web/links`  | `{ "url", "limit?", "render?", "waitMs?" }`               | List page HTTP(S) links                                              |
 
 The complete human-readable contract is in the [HTTP service reference](docs/http-service.md).
 
 Search keeps a successful empty Bridge result, retries Exa exactly once for a
-non-cancellation Bridge failure when no server provider is selected, and
+non-cancellation Bridge failure when a Bridge endpoint is configured and no server provider is selected, and
 reports the provider in its response. DeepSeek selection is server-local and
 has no automatic fallback. The request remains `{ "query": "..." }` in every
 case.

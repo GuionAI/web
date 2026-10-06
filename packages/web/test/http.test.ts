@@ -63,6 +63,66 @@ async function json(
 }
 
 describe("personal HTTP service", () => {
+  it.each([undefined, ""])(
+    "starts without a Bridge endpoint (%s) and searches only Exa",
+    async (endpoint) => {
+      const ops = operations({
+        search: vi.fn(async () => ({ provider: "Exa" as const, results: [] })),
+      });
+      const app = createHttpApp(
+        dependencies({
+          operations: ops,
+          keposBridgeEndpoint: undefined,
+          environment:
+            endpoint === undefined ? {} : { KEPOS_BRIDGE_ENDPOINT: endpoint },
+        }),
+      );
+      const result = await json(app, "/api/v1/web/search", { query: "direct" });
+      expect(result.response.status).toBe(200);
+      expect(result.body).toEqual({ provider: "Exa", results: [] });
+      expect(ops.search).toHaveBeenCalledExactlyOnceWith({
+        query: "direct",
+        provider: "exa",
+        credentials: { exaApiKey: "exa-secret" },
+        signal: expect.any(AbortSignal),
+      });
+      expect(ops.keposBridge).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not retry a failed Exa-only search through Bridge", async () => {
+    const ops = operations({
+      search: vi.fn(async () => {
+        throw new Error("unavailable");
+      }),
+    });
+    const app = createHttpApp(
+      dependencies({
+        operations: ops,
+        keposBridgeEndpoint: "",
+        environment: {},
+      }),
+    );
+    const result = await json(app, "/api/v1/web/search", { query: "direct" });
+    expect(result.response.status).toBe(502);
+    expect(ops.search).toHaveBeenCalledTimes(1);
+    expect(ops.keposBridge).not.toHaveBeenCalled();
+  });
+
+  it.each([" ", "invalid", "https://user:pass@example.test/route"])(
+    "rejects an invalid nonblank configured Bridge endpoint (%s)",
+    (endpoint) => {
+      expect(() =>
+        createHttpApp(
+          dependencies({
+            keposBridgeEndpoint: undefined,
+            environment: { KEPOS_BRIDGE_ENDPOINT: endpoint },
+          }),
+        ),
+      ).toThrow("Kepos Bridge endpoint");
+    },
+  );
+
   it("returns an empty successful Bridge search without retrying Exa", async () => {
     const ops = operations();
     const app = createHttpApp({ ...dependencies(), operations: ops });
@@ -325,7 +385,7 @@ describe("personal HTTP service", () => {
     );
   });
 
-  it("delegates default HTTP-service browser rendering to the gateway transport", async () => {
+  it("retains gateway browser rendering when HTTP Bridge search is disabled", async () => {
     const transport = vi.fn(async ({ url, waitMs }) => ({
       url: "https://93.184.216.34/final",
       html: `<html><body><article><p>Gateway ${url} waited ${waitMs}.</p></article></body></html>`,
@@ -334,6 +394,7 @@ describe("personal HTTP service", () => {
       credentials: { exaApiKey: "exa-secret" },
       imageMode: true,
       browserGatewayTransport: transport,
+      environment: { KEPOS_BRIDGE_ENDPOINT: "" },
     });
 
     const fetched = await json(app, "/api/v1/web/fetch", {

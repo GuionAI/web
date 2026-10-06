@@ -21,10 +21,13 @@ Request:
 
 `query` is a non-empty string. The service chooses providers server-side; a
 caller cannot select a provider, supply credentials, or override the Bridge
-route. With no `WEB_SEARCH_PROVIDER`, search tries the server-local Kepos
-Bridge first. A successful empty Bridge result is returned as-is. If Bridge
+route. With no `WEB_SEARCH_PROVIDER`, an absent or empty
+`KEPOS_BRIDGE_ENDPOINT` disables Kepos Bridge and calls Exa directly. A
+nonblank endpoint must be a complete HTTP(S) URL without credentials, query,
+or fragment; invalid endpoints fail startup. With a configured endpoint,
+search tries the server-local Kepos Bridge first. A successful empty Bridge result is returned as-is. If Bridge
 fails for a non-cancellation reason, the service retries Exa once and requires
-a non-empty `EXA_API_KEY` at startup. Set the server-local
+a non-empty `EXA_API_KEY` at startup in both Exa modes. Set the server-local
 `WEB_SEARCH_PROVIDER=deepseek` to require `DEEPSEEK_API_KEY` and call DeepSeek
 only; that path has no Bridge or Exa fallback.
 
